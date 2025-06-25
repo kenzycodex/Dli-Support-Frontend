@@ -1,4 +1,4 @@
-// components/features/notification-center.tsx (Updated to use backend)
+// components/features/notification-center.tsx (UPDATED - MANUAL FETCH ONLY)
 "use client"
 
 import { useState, useEffect } from "react"
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Bell, Calendar, MessageSquare, AlertTriangle, CheckCircle, Clock, X, Settings, Loader2 } from "lucide-react"
+import { Bell, Calendar, MessageSquare, AlertTriangle, CheckCircle, Clock, X, Settings, Loader2, RefreshCw } from "lucide-react"
 import { useNotifications } from "@/hooks/use-notifications"
 import { NotificationData } from "@/services/notification.service"
 
@@ -28,13 +28,15 @@ export function NotificationCenter({ open, onClose }: NotificationCenterProps) {
     markAllAsRead,
     deleteNotification,
     clearError,
+    refreshUnreadCount,
   } = useNotifications()
 
   const [selectedIds, setSelectedIds] = useState<number[]>([])
 
-  // Fetch notifications when component opens
+  // Fetch notifications ONLY when component opens
   useEffect(() => {
     if (open) {
+      console.log("🔔 Notification Center opened - fetching notifications")
       fetchNotifications()
     }
   }, [open, fetchNotifications])
@@ -57,6 +59,12 @@ export function NotificationCenter({ open, onClose }: NotificationCenterProps) {
 
   const handleMarkAllAsRead = () => {
     markAllAsRead()
+  }
+
+  const handleRefresh = () => {
+    console.log("🔔 Manual refresh button clicked")
+    fetchNotifications()
+    refreshUnreadCount()
   }
 
   const getNotificationIcon = (type: string) => {
@@ -121,6 +129,20 @@ export function NotificationCenter({ open, onClose }: NotificationCenterProps) {
               )}
             </div>
             <div className="flex items-center space-x-2">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleRefresh}
+                disabled={loading}
+                className="hover:bg-blue-50"
+                title="Refresh notifications"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
               {unreadCount > 0 && (
                 <Button 
                   variant="ghost" 

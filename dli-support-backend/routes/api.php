@@ -1,5 +1,5 @@
 <?php
-// routes/api.php (Updated with notification and ticket routes)
+// routes/api.php (RELAXED RATE LIMITING - USER FRIENDLY)
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -31,80 +31,136 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/refresh', [AuthController::class, 'refresh']);
     });
 
-    // Notification routes (all authenticated users)
+    // Notification routes with RELAXED rate limiting for better UX
     Route::prefix('notifications')->group(function () {
-        Route::get('/', [NotificationController::class, 'index']);
-        Route::get('/unread-count', [NotificationController::class, 'getUnreadCount']);
-        Route::get('/options', [NotificationController::class, 'getOptions']);
-        Route::post('/mark-all-read', [NotificationController::class, 'markAllAsRead']);
-        Route::post('/bulk-action', [NotificationController::class, 'bulkAction']);
-        Route::patch('/{notification}/read', [NotificationController::class, 'markAsRead']);
-        Route::patch('/{notification}/unread', [NotificationController::class, 'markAsUnread']);
-        Route::delete('/{notification}', [NotificationController::class, 'destroy']);
+        // Unread count - relaxed from 15 to 60 per minute
+        Route::get('/unread-count', [NotificationController::class, 'getUnreadCount'])
+             ->middleware('throttle:60,1'); // 60 requests per minute (1 per second)
         
-        // Admin only notification routes
+        // List notifications - generous limit
+        Route::get('/', [NotificationController::class, 'index'])
+             ->middleware('throttle:120,1'); // 120 per minute (2 per second)
+        
+        // Static data endpoints - high limit since they're cached
+        Route::get('/options', [NotificationController::class, 'getOptions'])
+             ->middleware('throttle:30,1'); // 30 per minute
+        
+        // Action endpoints - reasonable limits
+        Route::post('/mark-all-read', [NotificationController::class, 'markAllAsRead'])
+             ->middleware('throttle:20,1'); // 20 per minute
+        
+        Route::post('/bulk-action', [NotificationController::class, 'bulkAction'])
+             ->middleware('throttle:30,1'); // 30 per minute
+        
+        // Individual actions - high limits for smooth UX
+        Route::patch('/{notification}/read', [NotificationController::class, 'markAsRead'])
+             ->middleware('throttle:200,1'); // 200 per minute (generous for clicking)
+        
+        Route::patch('/{notification}/unread', [NotificationController::class, 'markAsUnread'])
+             ->middleware('throttle:200,1'); // 200 per minute
+        
+        Route::delete('/{notification}', [NotificationController::class, 'destroy'])
+             ->middleware('throttle:100,1'); // 100 per minute
+        
+        // Admin only notification routes with reasonable limits
         Route::middleware('role:admin')->group(function () {
-            Route::post('/', [NotificationController::class, 'store']);
-            Route::get('/stats', [NotificationController::class, 'getStats']);
+            Route::post('/', [NotificationController::class, 'store'])
+                 ->middleware('throttle:10,1'); // 10 notifications creation per minute
+            
+            Route::get('/stats', [NotificationController::class, 'getStats'])
+                 ->middleware('throttle:20,1'); // 20 per minute for stats
         });
     });
 
-    // Ticket routes (all authenticated users can access tickets)
+    // Ticket routes with generous limits
     Route::prefix('tickets')->group(function () {
-        Route::get('/', [TicketController::class, 'index']);
-        Route::post('/', [TicketController::class, 'store']);
-        Route::get('/options', [TicketController::class, 'getOptions']);
-        Route::get('/{ticket}', [TicketController::class, 'show']);
-        Route::post('/{ticket}/responses', [TicketController::class, 'addResponse']);
-        Route::get('/attachments/{attachment}/download', [TicketController::class, 'downloadAttachment']);
+        Route::get('/', [TicketController::class, 'index'])
+             ->middleware('throttle:100,1'); // 100 per minute
         
-        // Staff only ticket routes (counselor, advisor, admin)
+        Route::post('/', [TicketController::class, 'store'])
+             ->middleware('throttle:20,1'); // 20 ticket creations per minute
+        
+        Route::get('/options', [TicketController::class, 'getOptions'])
+             ->middleware('throttle:30,1'); // Static data
+        
+        Route::get('/{ticket}', [TicketController::class, 'show'])
+             ->middleware('throttle:150,1'); // 150 per minute for viewing
+        
+        Route::post('/{ticket}/responses', [TicketController::class, 'addResponse'])
+             ->middleware('throttle:50,1'); // 50 responses per minute
+        
+        Route::get('/attachments/{attachment}/download', [TicketController::class, 'downloadAttachment'])
+             ->middleware('throttle:60,1'); // 60 downloads per minute
+        
+        // Staff only ticket routes
         Route::middleware('role:counselor,advisor,admin')->group(function () {
-            Route::patch('/{ticket}', [TicketController::class, 'update']);
+            Route::patch('/{ticket}', [TicketController::class, 'update'])
+                 ->middleware('throttle:100,1');
         });
         
         // Admin only ticket routes
         Route::middleware('role:admin')->group(function () {
-            Route::post('/{ticket}/assign', [TicketController::class, 'assign']);
+            Route::post('/{ticket}/assign', [TicketController::class, 'assign'])
+                 ->middleware('throttle:50,1');
         });
     });
 
-    // Admin routes (admin only)
+    // Admin routes with reasonable limits
     Route::middleware('role:admin')->prefix('admin')->group(function () {
         
         // User management
         Route::prefix('users')->group(function () {
-            Route::get('/', [UserManagementController::class, 'index']);
-            Route::post('/', [UserManagementController::class, 'store']);
-            Route::get('/stats', [UserManagementController::class, 'getStats']);
-            Route::get('/options', [UserManagementController::class, 'getOptions']);
-            Route::post('/bulk-action', [UserManagementController::class, 'bulkAction']);
-            Route::get('/export', [UserManagementController::class, 'export']);
-            Route::get('/{user}', [UserManagementController::class, 'show']);
-            Route::put('/{user}', [UserManagementController::class, 'update']);
-            Route::delete('/{user}', [UserManagementController::class, 'destroy']);
-            Route::post('/{user}/reset-password', [UserManagementController::class, 'resetPassword']);
-            Route::post('/{user}/toggle-status', [UserManagementController::class, 'toggleStatus']);
+            Route::get('/', [UserManagementController::class, 'index'])
+                 ->middleware('throttle:60,1'); // 60 per minute for user lists
+            
+            Route::post('/', [UserManagementController::class, 'store'])
+                 ->middleware('throttle:10,1'); // 10 user creations per minute
+            
+            Route::get('/stats', [UserManagementController::class, 'getStats'])
+                 ->middleware('throttle:30,1'); // 30 per minute for stats
+            
+            Route::get('/options', [UserManagementController::class, 'getOptions'])
+                 ->middleware('throttle:20,1'); // Static data
+            
+            Route::post('/bulk-action', [UserManagementController::class, 'bulkAction'])
+                 ->middleware('throttle:5,1'); // 5 bulk operations per minute
+            
+            Route::get('/export', [UserManagementController::class, 'export'])
+                 ->middleware('throttle:3,1'); // 3 exports per minute
+            
+            Route::get('/{user}', [UserManagementController::class, 'show'])
+                 ->middleware('throttle:100,1');
+            
+            Route::put('/{user}', [UserManagementController::class, 'update'])
+                 ->middleware('throttle:50,1');
+            
+            Route::delete('/{user}', [UserManagementController::class, 'destroy'])
+                 ->middleware('throttle:20,1');
+            
+            Route::post('/{user}/reset-password', [UserManagementController::class, 'resetPassword'])
+                 ->middleware('throttle:10,1');
+            
+            Route::post('/{user}/toggle-status', [UserManagementController::class, 'toggleStatus'])
+                 ->middleware('throttle:50,1');
         });
 
-        // Admin can also register new users
-        Route::post('/register', [AuthController::class, 'register']);
+        // Admin registration
+        Route::post('/register', [AuthController::class, 'register'])
+             ->middleware('throttle:5,1'); // 5 registrations per minute
     });
 
-    // Staff routes (counselor, advisor, admin)
+    // Staff routes with generous limits
     Route::middleware('role:counselor,advisor,admin')->prefix('staff')->group(function () {
-        // Staff dashboard
         Route::get('/dashboard', function () {
             return response()->json([
                 'success' => true,
                 'message' => 'Staff dashboard access granted'
             ]);
-        });
+        })->middleware('throttle:60,1');
 
-        // Staff can view their assigned tickets
-        Route::get('/assigned-tickets', [TicketController::class, 'index']);
+        Route::get('/assigned-tickets', [TicketController::class, 'index'])
+             ->middleware('throttle:100,1');
         
-        // Staff can view ticket statistics
         Route::get('/ticket-stats', function (Request $request) {
             $user = $request->user();
             $query = \App\Models\Ticket::where('assigned_to', $user->id);
@@ -120,23 +176,21 @@ Route::middleware('auth:sanctum')->group(function () {
                     'crisis_tickets' => (clone $query)->where('crisis_flag', true)->count(),
                 ]
             ]);
-        });
+        })->middleware('throttle:30,1');
     });
 
-    // Student routes (student only)
+    // Student routes with user-friendly limits
     Route::middleware('role:student')->prefix('student')->group(function () {
-        // Student dashboard
         Route::get('/dashboard', function () {
             return response()->json([
                 'success' => true,
                 'message' => 'Student dashboard access granted'
             ]);
-        });
+        })->middleware('throttle:60,1');
 
-        // Student can view their own tickets
-        Route::get('/my-tickets', [TicketController::class, 'index']);
+        Route::get('/my-tickets', [TicketController::class, 'index'])
+             ->middleware('throttle:100,1');
         
-        // Student ticket statistics
         Route::get('/ticket-stats', function (Request $request) {
             $user = $request->user();
             $query = \App\Models\Ticket::where('user_id', $user->id);
@@ -151,64 +205,74 @@ Route::middleware('auth:sanctum')->group(function () {
                     'closed_tickets' => (clone $query)->where('status', 'Closed')->count(),
                 ]
             ]);
-        });
+        })->middleware('throttle:30,1');
     });
 
-    // Common user routes (all authenticated users)
+    // Common user routes with generous limits for good UX
     Route::prefix('user')->group(function () {
         Route::get('/profile', function (Request $request) {
             return response()->json([
                 'success' => true,
                 'data' => ['user' => $request->user()]
             ]);
-        });
+        })->middleware('throttle:60,1');
         
         Route::put('/profile', function (Request $request) {
-            // Update profile logic will be added here
             return response()->json([
                 'success' => true,
                 'message' => 'Profile updated successfully'
             ]);
-        });
+        })->middleware('throttle:20,1');
 
-        // User's notification summary
+        // User's notification summary with caching
         Route::get('/notification-summary', function (Request $request) {
             $user = $request->user();
+            $cacheKey = "user_notification_summary.{$user->id}";
+            
+            $summary = \Illuminate\Support\Facades\Cache::remember($cacheKey, 300, function () use ($user) {
+                return [
+                    'unread_notifications' => $user->notifications()->where('read', false)->count(),
+                    'total_notifications' => $user->notifications()->count(),
+                    'high_priority_unread' => $user->notifications()->where('read', false)->where('priority', 'high')->count(),
+                ];
+            });
+            
             return response()->json([
                 'success' => true,
-                'data' => [
-                    'unread_notifications' => $user->notifications()->unread()->count(),
-                    'total_notifications' => $user->notifications()->count(),
-                    'high_priority_unread' => $user->notifications()->unread()->where('priority', 'high')->count(),
-                ]
+                'data' => $summary
             ]);
-        });
+        })->middleware('throttle:40,1');
 
-        // User's ticket summary
+        // User's ticket summary with caching
         Route::get('/ticket-summary', function (Request $request) {
             $user = $request->user();
+            $cacheKey = "user_ticket_summary.{$user->id}";
             
-            if ($user->isStudent()) {
-                $tickets = $user->tickets();
-            } elseif ($user->isStaff()) {
-                $tickets = $user->assignedTickets();
-            } else {
-                $tickets = \App\Models\Ticket::query();
-            }
-            
-            return response()->json([
-                'success' => true,
-                'data' => [
+            $summary = \Illuminate\Support\Facades\Cache::remember($cacheKey, 300, function () use ($user) {
+                if ($user->role === 'student') {
+                    $tickets = $user->tickets();
+                } elseif (in_array($user->role, ['counselor', 'advisor'])) {
+                    $tickets = \App\Models\Ticket::where('assigned_to', $user->id);
+                } else {
+                    $tickets = \App\Models\Ticket::query();
+                }
+                
+                return [
                     'open_tickets' => (clone $tickets)->whereIn('status', ['Open', 'In Progress'])->count(),
                     'total_tickets' => $tickets->count(),
                     'recent_activity' => (clone $tickets)->where('updated_at', '>=', now()->subDays(7))->count(),
-                ]
+                ];
+            });
+            
+            return response()->json([
+                'success' => true,
+                'data' => $summary
             ]);
-        });
+        })->middleware('throttle:40,1');
     });
 });
 
-// Health check route
+// Health check route (no rate limiting for monitoring)
 Route::get('/health', function () {
     return response()->json([
         'success' => true,
@@ -220,6 +284,8 @@ Route::get('/health', function () {
             'notifications' => 'active',
             'tickets' => 'active',
             'user_management' => 'active',
+            'rate_limiting' => 'relaxed',
+            'caching' => 'active',
         ]
     ]);
 });
@@ -230,6 +296,13 @@ Route::get('/docs', function () {
         'success' => true,
         'message' => 'School Support Platform API',
         'version' => '1.0.0',
+        'rate_limits' => [
+            'notifications_unread_count' => '60 per minute',
+            'notifications_list' => '120 per minute',
+            'individual_actions' => '200 per minute',
+            'bulk_operations' => '30 per minute',
+            'ticket_operations' => '100-150 per minute',
+        ],
         'endpoints' => [
             'auth' => '/api/auth/*',
             'notifications' => '/api/notifications/*',
@@ -241,7 +314,7 @@ Route::get('/docs', function () {
         ],
         'documentation' => 'Contact admin for detailed API documentation'
     ]);
-});
+})->middleware('throttle:20,1');
 
 // Fallback route for 404
 Route::fallback(function () {

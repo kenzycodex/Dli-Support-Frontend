@@ -1,4 +1,4 @@
-// app/page.tsx
+// app/page.tsx (frontend)
 "use client"
 
 import { useState } from "react"

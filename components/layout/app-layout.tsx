@@ -1,4 +1,5 @@
-// components/layout/app-layout.tsx
+// components/layout/app-layout.tsx (UPDATED WITH MANUAL FETCH)
+
 "use client"
 
 import type React from "react"
@@ -25,7 +26,9 @@ import {
 } from "lucide-react"
 import { ChatBot } from "@/components/features/chat-bot"
 import { NotificationCenter } from "@/components/features/notification-center"
+import { NotificationBell } from "@/components/layout/notification-bell"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useNotifications } from "@/hooks/use-notifications"
 import { cn } from "@/lib/utils"
 
 interface AppLayoutProps {
@@ -45,6 +48,9 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
   const [showNotifications, setShowNotifications] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const isMobile = useIsMobile()
+  
+  // Get unread count for mobile display only
+  const { unreadCount, refreshUnreadCount } = useNotifications()
 
   const getNavigationItems = () => {
     const baseItems = [
@@ -56,7 +62,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         icon: Bell, 
         label: "Notifications", 
         page: "notifications",
-        badge: 3
+        badge: unreadCount > 0 ? unreadCount : undefined
       },
       { icon: HelpCircle, label: "Help & FAQs", page: "help" },
     ]
@@ -73,7 +79,17 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
   }
 
   const handleNavigation = (page: string) => {
+    // Refresh unread count when navigating to notifications
+    if (page === "notifications") {
+      refreshUnreadCount()
+    }
     onNavigate(page)
+  }
+
+  const handleMobileNotificationClick = () => {
+    console.log("🔔 Mobile notification button clicked")
+    refreshUnreadCount()
+    setShowNotifications(true)
   }
 
   const navigationItems = getNavigationItems()
@@ -104,7 +120,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                     key={item.page}
                     variant={currentPage === item.page ? "default" : "ghost"}
                     className={cn(
-                      "w-full justify-start rounded-lg",
+                      "w-full justify-start rounded-lg relative",
                       currentPage === item.page
                         ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
                         : "hover:bg-accent hover:text-accent-foreground text-foreground"
@@ -113,6 +129,11 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                   >
                     <item.icon className="h-4 w-4 mr-3" />
                     {item.label}
+                    {item.badge && (
+                      <Badge className="absolute top-1/2 -translate-y-1/2 right-2 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-destructive text-destructive-foreground">
+                        {item.badge > 99 ? '99+' : item.badge}
+                      </Badge>
+                    )}
                   </Button>
                 ))}
               </div>
@@ -155,13 +176,15 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => setShowNotifications(true)} 
+            onClick={handleMobileNotificationClick}
             className="rounded-full relative"
           >
             <Bell className="h-5 w-5" />
-            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-destructive">
-              3
-            </Badge>
+            {unreadCount > 0 && (
+              <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-destructive animate-pulse">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </Badge>
+            )}
           </Button>
         </div>
       </header>
@@ -219,10 +242,10 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                     {!sidebarCollapsed && <span>{item.label}</span>}
                     {item.badge && (
                       <Badge className={cn(
-                        "absolute h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-destructive text-destructive-foreground",
+                        "absolute h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-destructive text-destructive-foreground animate-pulse",
                         sidebarCollapsed ? "-top-1 -right-1" : "top-1/2 -translate-y-1/2 right-2"
                       )}>
-                        {item.badge}
+                        {item.badge > 99 ? '99+' : item.badge}
                       </Badge>
                     )}
                   </Button>
@@ -243,16 +266,12 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                     </div>
                   </div>
                 )}
-                {sidebarCollapsed && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                    className="h-8 w-8 rounded-full hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
+                
+                {/* Desktop Notification Bell */}
+                {!sidebarCollapsed && (
+                  <NotificationBell className="mr-2" />
                 )}
+                
                 <Button 
                   variant="ghost" 
                   size="icon" 
@@ -290,8 +309,8 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
               >
                 <item.icon className="h-5 w-5" />
                 {item.badge && (
-                  <Badge className="absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 flex items-center justify-center text-[10px] bg-destructive">
-                    {item.badge}
+                  <Badge className="absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 flex items-center justify-center text-[10px] bg-destructive animate-pulse">
+                    {item.badge > 99 ? '99+' : item.badge}
                   </Badge>
                 )}
               </Button>
