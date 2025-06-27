@@ -26,13 +26,17 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react"
-import { TicketSubmission } from "@/components/features/ticket-submission"
-import { TicketDetails } from "@/components/features/ticket-details"
 import { useTickets } from "@/hooks/use-tickets"
 import { useDebounce } from "@/hooks/use-debounce"
 import { TicketData } from "@/services/ticket.service"
+import { SubmitTicketPage } from "./submit-ticket-page"
+import { TicketDetailsPage } from "./ticket-details-page"
 
-export function TicketsPage() {
+interface TicketsPageProps {
+  onNavigate?: (page: string) => void
+}
+
+export function TicketsPage({ onNavigate }: TicketsPageProps) {
   const {
     tickets,
     loading,
@@ -44,9 +48,8 @@ export function TicketsPage() {
     refreshTickets,
   } = useTickets()
 
-  const [showTicketForm, setShowTicketForm] = useState(false)
-  const [showTicketDetails, setShowTicketDetails] = useState(false)
-  const [selectedTicket, setSelectedTicket] = useState<TicketData | null>(null)
+  const [currentView, setCurrentView] = useState<'list' | 'submit' | 'details'>('list')
+  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [categoryFilter, setCategoryFilter] = useState("all")
@@ -57,25 +60,22 @@ export function TicketsPage() {
 
   // Fetch tickets when filters change
   useEffect(() => {
-    const params = {
-      page: 1,
-      per_page: 15,
-      ...(debouncedSearchTerm && { search: debouncedSearchTerm }),
-      ...(statusFilter !== 'all' && { status: statusFilter }),
-      ...(categoryFilter !== 'all' && { category: categoryFilter }),
-      ...(priorityFilter !== 'all' && { priority: priorityFilter }),
+    if (currentView === 'list') {
+      const params = {
+        page: 1,
+        per_page: 15,
+        ...(debouncedSearchTerm && { search: debouncedSearchTerm }),
+        ...(statusFilter !== 'all' && { status: statusFilter }),
+        ...(categoryFilter !== 'all' && { category: categoryFilter }),
+        ...(priorityFilter !== 'all' && { priority: priorityFilter }),
+      }
+      fetchTickets(params)
     }
-    fetchTickets(params)
-  }, [debouncedSearchTerm, statusFilter, categoryFilter, priorityFilter, fetchTickets])
+  }, [debouncedSearchTerm, statusFilter, categoryFilter, priorityFilter, fetchTickets, currentView])
 
   const handleViewTicket = (ticket: TicketData) => {
-    setSelectedTicket(ticket)
-    setShowTicketDetails(true)
-  }
-
-  const handleTicketCreated = () => {
-    setShowTicketForm(false)
-    refreshTickets()
+    setSelectedTicketId(ticket.id)
+    setCurrentView('details')
   }
 
   const handlePageChange = (page: number) => {
@@ -88,6 +88,12 @@ export function TicketsPage() {
       ...(priorityFilter !== 'all' && { priority: priorityFilter }),
     }
     fetchTickets(params)
+  }
+
+  const handleBackToList = () => {
+    setCurrentView('list')
+    setSelectedTicketId(null)
+    refreshTickets()
   }
 
   const getStatusColor = (status: string) => {
@@ -143,6 +149,15 @@ export function TicketsPage() {
     })
   }
 
+  // Route to specific views
+  if (currentView === 'submit') {
+    return <SubmitTicketPage onNavigate={handleBackToList} />
+  }
+
+  if (currentView === 'details' && selectedTicketId) {
+    return <TicketDetailsPage ticketId={selectedTicketId} onNavigate={handleBackToList} />
+  }
+
   const openTickets = tickets.filter(t => t.status === "Open" || t.status === "In Progress")
   const closedTickets = tickets.filter(t => t.status === "Resolved" || t.status === "Closed")
 
@@ -185,7 +200,7 @@ export function TicketsPage() {
       {/* Action Button */}
       <div className="flex justify-end">
         <Button 
-          onClick={() => setShowTicketForm(true)} 
+          onClick={() => setCurrentView('submit')} 
           className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg transition-all duration-200"
           disabled={loading}
         >
@@ -223,14 +238,14 @@ export function TicketsPage() {
                   placeholder="Search tickets by ID or subject..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
+                  className="pl-10 h-11"
                   disabled={loading}
                 />
               </div>
             </div>
             
             <Select value={statusFilter} onValueChange={setStatusFilter} disabled={loading}>
-              <SelectTrigger className="w-full lg:w-48">
+              <SelectTrigger className="w-full lg:w-48 h-11">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -244,7 +259,7 @@ export function TicketsPage() {
             </Select>
             
             <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={loading}>
-              <SelectTrigger className="w-full lg:w-48">
+              <SelectTrigger className="w-full lg:w-48 h-11">
                 <SelectValue placeholder="Filter by category" />
               </SelectTrigger>
               <SelectContent>
@@ -258,7 +273,7 @@ export function TicketsPage() {
             </Select>
 
             <Select value={priorityFilter} onValueChange={setPriorityFilter} disabled={loading}>
-              <SelectTrigger className="w-full lg:w-48">
+              <SelectTrigger className="w-full lg:w-48 h-11">
                 <SelectValue placeholder="Filter by priority" />
               </SelectTrigger>
               <SelectContent>
@@ -273,7 +288,7 @@ export function TicketsPage() {
               variant="outline" 
               onClick={refreshTickets}
               disabled={loading}
-              className="hover:bg-blue-50"
+              className="hover:bg-blue-50 h-11"
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -465,7 +480,7 @@ export function TicketsPage() {
                   </p>
                   {!searchTerm && statusFilter === 'all' && categoryFilter === 'all' && priorityFilter === 'all' && (
                     <Button 
-                      onClick={() => setShowTicketForm(true)}
+                      onClick={() => setCurrentView('submit')}
                       className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
                     >
                       <Plus className="h-4 w-4 mr-2" />
@@ -582,19 +597,6 @@ export function TicketsPage() {
           ))}
         </TabsContent>
       </Tabs>
-
-      {/* Modals */}
-      <TicketSubmission 
-        open={showTicketForm} 
-        onClose={() => setShowTicketForm(false)}
-        onTicketCreated={handleTicketCreated}
-      />
-      <TicketDetails 
-        open={showTicketDetails} 
-        onClose={() => setShowTicketDetails(false)} 
-        ticket={selectedTicket}
-        onTicketUpdated={refreshTickets}
-      />
     </div>
   )
 }

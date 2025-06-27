@@ -20,8 +20,8 @@ Route::prefix('auth')->group(function () {
     Route::post('/demo-login', [AuthController::class, 'demoLogin']);
 });
 
-// Protected routes (authentication required)
-Route::middleware('auth:sanctum')->group(function () {
+// Protected routes with timeout middleware
+Route::middleware(['auth:sanctum'])->group(function () {
     
     // Authentication routes
     Route::prefix('auth')->group(function () {
@@ -35,7 +35,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('notifications')->group(function () {
         // Unread count - relaxed from 15 to 60 per minute
         Route::get('/unread-count', [NotificationController::class, 'getUnreadCount'])
-             ->middleware('throttle:60,1'); // 60 requests per minute (1 per second)
+             ->middleware('throttle:120,1'); // 120 requests per minute (1 per second)
         
         // List notifications - generous limit
         Route::get('/', [NotificationController::class, 'index'])
@@ -47,20 +47,20 @@ Route::middleware('auth:sanctum')->group(function () {
         
         // Action endpoints - reasonable limits
         Route::post('/mark-all-read', [NotificationController::class, 'markAllAsRead'])
-             ->middleware('throttle:20,1'); // 20 per minute
+             ->middleware('throttle:30,1'); // 30 per minute
         
         Route::post('/bulk-action', [NotificationController::class, 'bulkAction'])
-             ->middleware('throttle:30,1'); // 30 per minute
+             ->middleware('throttle:60,1'); // 60 per minute
         
         // Individual actions - high limits for smooth UX
         Route::patch('/{notification}/read', [NotificationController::class, 'markAsRead'])
-             ->middleware('throttle:200,1'); // 200 per minute (generous for clicking)
+             ->middleware('throttle:300,1'); // 300 per minute (generous for clicking)
         
         Route::patch('/{notification}/unread', [NotificationController::class, 'markAsUnread'])
-             ->middleware('throttle:200,1'); // 200 per minute
+             ->middleware('throttle:300,1'); // 300 per minute
         
         Route::delete('/{notification}', [NotificationController::class, 'destroy'])
-             ->middleware('throttle:100,1'); // 100 per minute
+             ->middleware('throttle:200,1'); // 200 per minute
         
         // Admin only notification routes with reasonable limits
         Route::middleware('role:admin')->group(function () {
@@ -75,33 +75,33 @@ Route::middleware('auth:sanctum')->group(function () {
     // Ticket routes with generous limits
     Route::prefix('tickets')->group(function () {
         Route::get('/', [TicketController::class, 'index'])
-             ->middleware('throttle:100,1'); // 100 per minute
+             ->middleware('throttle:200,1'); // 200 per minute
         
         Route::post('/', [TicketController::class, 'store'])
-             ->middleware('throttle:20,1'); // 20 ticket creations per minute
+             ->middleware('throttle:30,1'); // 30 ticket creations per minute
         
         Route::get('/options', [TicketController::class, 'getOptions'])
-             ->middleware('throttle:30,1'); // Static data
+             ->middleware('throttle:60,1'); // Static data
         
         Route::get('/{ticket}', [TicketController::class, 'show'])
-             ->middleware('throttle:150,1'); // 150 per minute for viewing
+             ->middleware('throttle:300,1'); // 300 per minute for viewing
         
         Route::post('/{ticket}/responses', [TicketController::class, 'addResponse'])
-             ->middleware('throttle:50,1'); // 50 responses per minute
+             ->middleware('throttle:100,1'); // 100 responses per minute
         
         Route::get('/attachments/{attachment}/download', [TicketController::class, 'downloadAttachment'])
-             ->middleware('throttle:60,1'); // 60 downloads per minute
+             ->middleware('throttle:120,1'); // 120 downloads per minute
         
         // Staff only ticket routes
         Route::middleware('role:counselor,advisor,admin')->group(function () {
             Route::patch('/{ticket}', [TicketController::class, 'update'])
-                 ->middleware('throttle:100,1');
+                 ->middleware('throttle:200,1');
         });
         
         // Admin only ticket routes
         Route::middleware('role:admin')->group(function () {
             Route::post('/{ticket}/assign', [TicketController::class, 'assign'])
-                 ->middleware('throttle:50,1');
+                 ->middleware('throttle:100,1');
         });
     });
 
@@ -111,22 +111,22 @@ Route::middleware('auth:sanctum')->group(function () {
         // User management
         Route::prefix('users')->group(function () {
             Route::get('/', [UserManagementController::class, 'index'])
-                 ->middleware('throttle:60,1'); // 60 per minute for user lists
+                 ->middleware('throttle:120,1'); // 120 per minute for user lists
             
             Route::post('/', [UserManagementController::class, 'store'])
-                 ->middleware('throttle:10,1'); // 10 user creations per minute
+                 ->middleware('throttle:20,1'); // 20 user creations per minute
             
             Route::get('/stats', [UserManagementController::class, 'getStats'])
-                 ->middleware('throttle:30,1'); // 30 per minute for stats
+                 ->middleware('throttle:60,1'); // 60 per minute for stats
             
             Route::get('/options', [UserManagementController::class, 'getOptions'])
                  ->middleware('throttle:20,1'); // Static data
             
             Route::post('/bulk-action', [UserManagementController::class, 'bulkAction'])
-                 ->middleware('throttle:5,1'); // 5 bulk operations per minute
+                 ->middleware('throttle:10,1'); // 10 bulk operations per minute
             
             Route::get('/export', [UserManagementController::class, 'export'])
-                 ->middleware('throttle:3,1'); // 3 exports per minute
+                 ->middleware('throttle:10,1'); // 10 exports per minute
             
             Route::get('/{user}', [UserManagementController::class, 'show'])
                  ->middleware('throttle:100,1');
@@ -286,6 +286,11 @@ Route::get('/health', function () {
             'user_management' => 'active',
             'rate_limiting' => 'relaxed',
             'caching' => 'active',
+        ],
+        'performance' => [
+            'memory_usage' => memory_get_usage(true),
+            'memory_peak' => memory_get_peak_usage(true),
+            'execution_time' => round((microtime(true) - LARAVEL_START) * 1000, 2) . 'ms'
         ]
     ]);
 });

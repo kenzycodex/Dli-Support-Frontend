@@ -1,4 +1,4 @@
-// hooks/use-tickets.ts
+// hooks/use-tickets.ts (FIXED - TypeScript errors resolved)
 
 import { useState, useCallback } from 'react'
 import { 
@@ -8,7 +8,8 @@ import {
   CreateTicketRequest, 
   AddResponseRequest, 
   UpdateTicketRequest,
-  TicketStats 
+  TicketStats,
+  TicketResponseData 
 } from '@/services/ticket.service'
 
 interface TicketState {
@@ -86,9 +87,9 @@ export function useTickets() {
   }, [])
 
   /**
-   * Create new ticket
+   * Create new ticket - FIXED to handle direct response
    */
-  const createTicket = useCallback(async (data: CreateTicketRequest) => {
+  const createTicket = useCallback(async (data: CreateTicketRequest): Promise<TicketData | null> => {
     console.log("🎫 useTickets: Creating ticket:", data)
     
     setState(prev => ({ ...prev, loading: true, error: null }))
@@ -98,9 +99,10 @@ export function useTickets() {
       
       if (response.success && response.data) {
         console.log("✅ useTickets: Ticket created successfully")
+        const newTicket = response.data.ticket
         setState(prev => ({
           ...prev,
-          tickets: [response.data!.ticket, ...prev.tickets],
+          tickets: [newTicket, ...prev.tickets],
           stats: {
             ...prev.stats,
             total_tickets: prev.stats.total_tickets + 1,
@@ -109,7 +111,7 @@ export function useTickets() {
           loading: false,
           error: null,
         }))
-        return response.data.ticket
+        return newTicket
       } else {
         console.error("❌ useTickets: Failed to create ticket:", response.message)
         setState(prev => ({
@@ -131,20 +133,20 @@ export function useTickets() {
   }, [])
 
   /**
-   * Get single ticket
+   * Get single ticket - FIXED to handle direct ticket response
    */
   const getTicket = useCallback(async (ticketId: number): Promise<TicketData | null> => {
     console.log("🎫 useTickets: Fetching ticket details:", ticketId)
     
     try {
-      const response = await ticketService.getTicket(ticketId)
+      const ticket = await ticketService.getTicket(ticketId)
       
-      if (response.success && response.data) {
+      if (ticket) {
         console.log("✅ useTickets: Ticket details fetched successfully")
-        return response.data.ticket
+        return ticket
       } else {
-        console.error("❌ useTickets: Failed to fetch ticket details:", response.message)
-        setState(prev => ({ ...prev, error: response.message || 'Failed to fetch ticket details' }))
+        console.error("❌ useTickets: Failed to fetch ticket details")
+        setState(prev => ({ ...prev, error: 'Failed to fetch ticket details' }))
         return null
       }
     } catch (error) {
@@ -157,7 +159,7 @@ export function useTickets() {
   /**
    * Update ticket (staff only)
    */
-  const updateTicket = useCallback(async (ticketId: number, data: UpdateTicketRequest) => {
+  const updateTicket = useCallback(async (ticketId: number, data: UpdateTicketRequest): Promise<TicketData | null> => {
     console.log("🎫 useTickets: Updating ticket:", { ticketId, data })
     
     try {
@@ -165,13 +167,14 @@ export function useTickets() {
       
       if (response.success && response.data) {
         console.log("✅ useTickets: Ticket updated successfully")
+        const updatedTicket = response.data.ticket
         setState(prev => ({
           ...prev,
           tickets: prev.tickets.map(ticket =>
-            ticket.id === ticketId ? response.data!.ticket : ticket
+            ticket.id === ticketId ? updatedTicket : ticket
           ),
         }))
-        return response.data.ticket
+        return updatedTicket
       } else {
         console.error("❌ useTickets: Failed to update ticket:", response.message)
         setState(prev => ({ ...prev, error: response.message || 'Failed to update ticket' }))
@@ -185,15 +188,15 @@ export function useTickets() {
   }, [])
 
   /**
-   * Add response to ticket
+   * Add response to ticket - FIXED to handle direct response
    */
-  const addResponse = useCallback(async (ticketId: number, data: AddResponseRequest) => {
+  const addResponse = useCallback(async (ticketId: number, data: AddResponseRequest): Promise<TicketResponseData | null> => {
     console.log("🎫 useTickets: Adding response:", { ticketId, data })
     
     try {
       const response = await ticketService.addResponse(ticketId, data)
       
-      if (response.success && response.data) {
+      if (response) {
         console.log("✅ useTickets: Response added successfully")
         // Update the ticket in the list to reflect the new response
         setState(prev => ({
@@ -202,17 +205,17 @@ export function useTickets() {
             if (ticket.id === ticketId) {
               return {
                 ...ticket,
-                responses: [...(ticket.responses || []), response.data!.response],
+                responses: [...(ticket.responses || []), response],
                 updated_at: new Date().toISOString(),
               }
             }
             return ticket
           }),
         }))
-        return response.data.response
+        return response
       } else {
-        console.error("❌ useTickets: Failed to add response:", response.message)
-        setState(prev => ({ ...prev, error: response.message || 'Failed to add response' }))
+        console.error("❌ useTickets: Failed to add response")
+        setState(prev => ({ ...prev, error: 'Failed to add response' }))
         return null
       }
     } catch (error) {
@@ -225,7 +228,7 @@ export function useTickets() {
   /**
    * Assign ticket to staff member (admin only)
    */
-  const assignTicket = useCallback(async (ticketId: number, assignedTo: number) => {
+  const assignTicket = useCallback(async (ticketId: number, assignedTo: number): Promise<TicketData | null> => {
     console.log("🎫 useTickets: Assigning ticket:", { ticketId, assignedTo })
     
     try {
@@ -233,13 +236,14 @@ export function useTickets() {
       
       if (response.success && response.data) {
         console.log("✅ useTickets: Ticket assigned successfully")
+        const assignedTicket = response.data.ticket
         setState(prev => ({
           ...prev,
           tickets: prev.tickets.map(ticket =>
-            ticket.id === ticketId ? response.data!.ticket : ticket
+            ticket.id === ticketId ? assignedTicket : ticket
           ),
         }))
-        return response.data.ticket
+        return assignedTicket
       } else {
         console.error("❌ useTickets: Failed to assign ticket:", response.message)
         setState(prev => ({ ...prev, error: response.message || 'Failed to assign ticket' }))
@@ -253,15 +257,14 @@ export function useTickets() {
   }, [])
 
   /**
-   * Download attachment
+   * Download attachment - FIXED to handle void return and proper parameters
    */
   const downloadAttachment = useCallback(async (attachmentId: number, fileName: string) => {
     console.log("🎫 useTickets: Downloading attachment:", { attachmentId, fileName })
     
     try {
-      const blob = await ticketService.downloadAttachment(attachmentId)
-      ticketService.downloadFileFromBlob(blob, fileName)
-      console.log("✅ useTickets: Attachment downloaded successfully")
+      await ticketService.downloadAttachment(attachmentId, fileName)
+      console.log("✅ useTickets: Attachment download initiated successfully")
     } catch (error) {
       console.error("💥 useTickets: Error downloading attachment:", error)
       setState(prev => ({ ...prev, error: 'Failed to download attachment' }))

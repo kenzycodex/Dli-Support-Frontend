@@ -1,4 +1,4 @@
-// services/ticket.service.ts (Fixed FormData handling)
+// services/ticket.service.ts (FIXED - Better FormData handling)
 
 import { apiClient, ApiResponse } from '@/lib/api'
 
@@ -135,12 +135,34 @@ class TicketService {
   }
 
   /**
-   * Create new ticket with proper FormData handling
+   * Create new ticket with PROPER FormData handling
    */
   async createTicket(data: CreateTicketRequest): Promise<ApiResponse<{ ticket: TicketData }>> {
     console.log('🎫 TicketService: Creating ticket:', data);
 
     try {
+      // Validate data before sending
+      if (!data.subject?.trim()) {
+        return {
+          success: false,
+          message: 'Subject is required',
+        };
+      }
+
+      if (!data.description?.trim() || data.description.length < 20) {
+        return {
+          success: false,
+          message: 'Description must be at least 20 characters long',
+        };
+      }
+
+      if (!data.category) {
+        return {
+          success: false,
+          message: 'Category is required',
+        };
+      }
+
       // Create FormData properly
       const formData = new FormData();
 
@@ -153,36 +175,67 @@ class TicketService {
         formData.append('priority', data.priority);
       }
 
-      // Add files if present
+      // Add files with CORRECT array notation for Laravel
       if (data.attachments && data.attachments.length > 0) {
+        // Validate files first
+        const validation = this.validateFiles(data.attachments, 5);
+        if (!validation.valid) {
+          return {
+            success: false,
+            message: validation.errors.join(', '),
+          };
+        }
+
         data.attachments.forEach((file, index) => {
+          // Use Laravel's expected array notation
           formData.append('attachments[]', file, file.name);
         });
       }
 
-      console.log('🎫 TicketService: FormData created with keys:', Array.from(formData.keys()));
+      console.log('🎫 TicketService: FormData keys:', Array.from(formData.keys()));
+      console.log('🎫 TicketService: FormData entries:');
+      for (const [key, value] of formData.entries()) {
+        if (value instanceof File) {
+          console.log(`  ${key}: File(${value.name}, ${value.size} bytes)`);
+        } else {
+          console.log(`  ${key}: ${value}`);
+        }
+      }
 
-      // Use POST with FormData - apiClient will handle Content-Type automatically
+      // Use apiClient.post which handles FormData properly
       const response = await apiClient.post('/tickets', formData);
       console.log('🎫 TicketService: Create response:', response);
 
       return response;
     } catch (error) {
       console.error('🎫 TicketService: Create ticket error:', error);
-      throw error;
+      return {
+        success: false,
+        message: 'An unexpected error occurred while creating the ticket.',
+      };
     }
   }
 
   /**
    * Get single ticket details
    */
-  async getTicket(ticketId: number): Promise<ApiResponse<{ ticket: TicketData }>> {
+  async getTicket(ticketId: number): Promise<TicketData | null> {
     console.log('🎫 TicketService: Fetching ticket details:', ticketId);
 
-    const response = await apiClient.get(`/tickets/${ticketId}`);
-    console.log('🎫 TicketService: Ticket details response:', response);
-
-    return response;
+    try {
+      const response = await apiClient.get(`/tickets/${ticketId}`);
+      
+      if (response.success && response.data) {
+        console.log('🎫 TicketService: Ticket details fetched successfully');
+        return response.data.ticket;
+      } else {
+        console.error('🎫 TicketService: Failed to fetch ticket details:', response.message);
+        return null;
+      }
+    } catch (error) {
+      console.error('🎫 TicketService: Error fetching ticket details:', error);
+      return null;
+    }
   }
 
   /**
@@ -201,15 +254,20 @@ class TicketService {
   }
 
   /**
-   * Add response to ticket with proper FormData handling
+   * Add response to ticket with PROPER FormData handling
    */
   async addResponse(
     ticketId: number,
     data: AddResponseRequest
-  ): Promise<ApiResponse<{ response: TicketResponseData }>> {
+  ): Promise<TicketResponseData | null> {
     console.log('🎫 TicketService: Adding response:', { ticketId, data });
 
     try {
+      // Validate message
+      if (!data.message?.trim() || data.message.length < 5) {
+        throw new Error('Response message must be at least 5 characters long');
+      }
+
       // Create FormData properly
       const formData = new FormData();
 
@@ -228,22 +286,31 @@ class TicketService {
         formData.append('is_urgent', data.is_urgent.toString());
       }
 
-      // Add files if present
+      // Add files with CORRECT array notation
       if (data.attachments && data.attachments.length > 0) {
-        data.attachments.forEach((file, index) => {
+        // Validate files first
+        const validation = this.validateFiles(data.attachments, 3);
+        if (!validation.valid) {
+          throw new Error(validation.errors.join(', '));
+        }
+
+        data.attachments.forEach((file) => {
           formData.append('attachments[]', file, file.name);
         });
       }
 
-      console.log(
-        '🎫 TicketService: Response FormData created with keys:',
-        Array.from(formData.keys())
-      );
+      console.log('🎫 TicketService: Response FormData keys:', Array.from(formData.keys()));
 
+      // Use apiClient.post for responses
       const response = await apiClient.post(`/tickets/${ticketId}/responses`, formData);
-      console.log('🎫 TicketService: Add response response:', response);
-
-      return response;
+      
+      if (response.success && response.data) {
+        console.log('🎫 TicketService: Response added successfully');
+        return response.data.response;
+      } else {
+        console.error('🎫 TicketService: Failed to add response:', response.message);
+        throw new Error(response.message || 'Failed to add response');
+      }
     } catch (error) {
       console.error('🎫 TicketService: Add response error:', error);
       throw error;
@@ -268,47 +335,19 @@ class TicketService {
   }
 
   /**
-   * Download attachment with retry logic
+   * Download attachment with proper error handling
    */
-  async downloadAttachment(attachmentId: number): Promise<Blob> {
-    console.log('🎫 TicketService: Downloading attachment:', attachmentId);
+  async downloadAttachment(attachmentId: number, fileName: string): Promise<void> {
+    console.log('🎫 TicketService: Downloading attachment:', { attachmentId, fileName });
 
-    const maxRetries = 3;
-    let attempt = 0;
-
-    while (attempt < maxRetries) {
-      try {
-        const token = localStorage.getItem('auth_token');
-        const response = await fetch(
-          `${
-            process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-          }/tickets/attachments/${attachmentId}/download`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        return response.blob();
-      } catch (error) {
-        attempt++;
-        console.error(`🎫 TicketService: Download attempt ${attempt} failed:`, error);
-
-        if (attempt >= maxRetries) {
-          throw new Error('Failed to download file after multiple attempts');
-        }
-
-        // Wait before retry
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-      }
+    try {
+      const blob = await apiClient.downloadFile(`/tickets/attachments/${attachmentId}/download`);
+      this.downloadFileFromBlob(blob, fileName);
+      console.log('✅ TicketService: File download initiated successfully');
+    } catch (error) {
+      console.error('💥 TicketService: Download failed:', error);
+      throw new Error('Failed to download attachment. Please try again.');
     }
-
-    throw new Error('Download failed');
   }
 
   /**
@@ -473,6 +512,41 @@ class TicketService {
       valid: errors.length === 0,
       errors,
     };
+  }
+
+  /**
+   * Create ticket with retry mechanism
+   */
+  async createTicketWithRetry(data: CreateTicketRequest, maxRetries: number = 2): Promise<ApiResponse<{ ticket: TicketData }>> {
+    return apiClient.retryRequest(() => this.createTicket(data), maxRetries);
+  }
+
+  /**
+   * Add response with retry mechanism
+   */
+  async addResponseWithRetry(
+    ticketId: number, 
+    data: AddResponseRequest, 
+    maxRetries: number = 2
+  ): Promise<TicketResponseData | null> {
+    try {
+      const result = await apiClient.retryRequest(
+        async () => {
+          const response = await this.addResponse(ticketId, data);
+          return {
+            success: true,
+            message: 'Response added successfully',
+            data: response
+          };
+        }, 
+        maxRetries
+      );
+      
+      return result.success ? (result.data ?? null) : null;
+    } catch (error) {
+      console.error('🎫 TicketService: Add response with retry failed:', error);
+      return null;
+    }
   }
 }
 

@@ -59,7 +59,15 @@ return [
             'engine' => null,
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                PDO::ATTR_TIMEOUT => 30, // Connection timeout
+                PDO::ATTR_PERSISTENT => true, // Persistent connections
+                PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true, // Buffered queries
             ]) : [],
+            // Connection pool settings
+            'pool' => [
+                'size' => env('DB_POOL_SIZE', 10),
+                'timeout' => env('DB_TIMEOUT', 30),
+            ],
         ],
 
         'mariadb' => [

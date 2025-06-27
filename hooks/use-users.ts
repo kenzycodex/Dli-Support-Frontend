@@ -15,7 +15,7 @@ interface UseUsersReturn {
   loading: boolean;
   error: string;
   fetchUsers: (params?: UserListParams) => Promise<void>;
-  deleteUser: (id: number) => Promise<void>;
+  deleteUser: (id: number) => Promise<void>; 
   toggleUserStatus: (id: number) => Promise<void>;
   refreshUsers: () => Promise<void>;
   clearError: () => void;

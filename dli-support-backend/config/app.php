@@ -123,4 +123,15 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Application Timeout Settings
+    |--------------------------------------------------------------------------
+    */
+    'max_execution_time' => env('MAX_EXECUTION_TIME', 120), // 2 minutes
+    'max_input_time' => env('MAX_INPUT_TIME', 60),
+    'memory_limit' => env('MEMORY_LIMIT', '256M'),
+    'upload_max_filesize' => env('UPLOAD_MAX_FILESIZE', '10M'),
+    'post_max_size' => env('POST_MAX_SIZE', '50M'),
+
 ];
