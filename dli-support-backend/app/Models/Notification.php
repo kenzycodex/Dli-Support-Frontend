@@ -23,8 +23,8 @@ class Notification extends Model
     ];
 
     protected $casts = [
-        'read' => 'boolean',
         'data' => 'array',
+        'read' => 'boolean',
         'read_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

@@ -1,10 +1,11 @@
 // components/dashboards/student-dashboard.tsx
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import {
   Calendar,
   Ticket,
@@ -20,10 +21,14 @@ import {
   ArrowRight,
   TrendingUp,
   Clock,
+  Plus,
+  Eye,
+  Filter,
+  RefreshCw,
+  Loader2,
 } from "lucide-react"
-import { AppointmentBooking } from "@/components/features/appointment-booking"
-import { TicketSubmission } from "@/components/features/ticket-submission"
-import { CrisisSupport } from "@/components/features/crisis-support"
+import { useTickets } from "@/hooks/use-tickets"
+import { TicketData } from "@/services/ticket.service"
 
 interface StudentDashboardProps {
   user: {
@@ -34,12 +39,51 @@ interface StudentDashboardProps {
   onNavigate?: (page: string) => void
 }
 
-export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
-  const [showBooking, setShowBooking] = useState(false)
-  const [showTicketForm, setShowTicketForm] = useState(false)
-  const [showCrisisSupport, setShowCrisisSupport] = useState(false)
+interface AppointmentData {
+  id: number
+  type: string
+  counselor: string
+  date: string
+  time: string
+  status: string
+  canJoin: boolean
+}
 
-  const upcomingAppointments = [
+interface SelfHelpResource {
+  title: string
+  type: string
+  duration: string
+  icon: any
+  color: string
+}
+
+export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
+  const { tickets, loading, stats, fetchTickets } = useTickets()
+  const [recentTickets, setRecentTickets] = useState<TicketData[]>([])
+  const [loadingRecent, setLoadingRecent] = useState(true)
+
+  // Fetch student's recent tickets on component mount
+  useEffect(() => {
+    const loadRecentTickets = async () => {
+      setLoadingRecent(true)
+      await fetchTickets({ 
+        page: 1, 
+        per_page: 3,
+        sort_by: 'updated_at',
+        sort_direction: 'desc'
+      })
+      setLoadingRecent(false)
+    }
+
+    loadRecentTickets()
+  }, [fetchTickets])
+
+  // Update recent tickets when tickets change
+  useEffect(() => {
+    setRecentTickets(tickets.slice(0, 3))
+  }, [tickets])
+
+  const upcomingAppointments: AppointmentData[] = [
     {
       id: 1,
       type: "Video Call",
@@ -60,26 +104,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
     },
   ]
 
-  const openTickets = [
-    {
-      id: "T001",
-      subject: "Unable to access course materials",
-      category: "Technical",
-      priority: "Medium",
-      status: "In Progress",
-      lastUpdate: "2 hours ago",
-    },
-    {
-      id: "T002",
-      subject: "Academic planning assistance",
-      category: "Academic",
-      priority: "Low",
-      status: "Open",
-      lastUpdate: "1 day ago",
-    },
-  ]
-
-  const selfHelpResources = [
+  const selfHelpResources: SelfHelpResource[] = [
     {
       title: "Stress Management Techniques",
       type: "Video",
@@ -103,10 +128,73 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
     },
   ]
 
-  const handleNavigateToPage = (page: string) => {
+  const getStatusColor = (status: string): string => {
+    switch (status) {
+      case "Open":
+        return "bg-blue-100 text-blue-800 border-blue-200"
+      case "In Progress":
+        return "bg-amber-100 text-amber-800 border-amber-200"
+      case "Resolved":
+        return "bg-green-100 text-green-800 border-green-200"
+      case "Closed":
+        return "bg-gray-100 text-gray-800 border-gray-200"
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  const getPriorityColor = (priority: string): string => {
+    switch (priority) {
+      case "Urgent":
+        return "bg-red-100 text-red-800 border-red-200 animate-pulse"
+      case "High":
+        return "bg-red-100 text-red-800 border-red-200"
+      case "Medium":
+        return "bg-amber-100 text-amber-800 border-amber-200"
+      case "Low":
+        return "bg-green-100 text-green-800 border-green-200"
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "Open":
+        return <Clock className="h-4 w-4 text-blue-600" />
+      case "In Progress":
+        return <RefreshCw className="h-4 w-4 text-orange-600" />
+      case "Resolved":
+        return <CheckCircle className="h-4 w-4 text-green-600" />
+      case "Closed":
+        return <CheckCircle className="h-4 w-4 text-gray-600" />
+      default:
+        return <Clock className="h-4 w-4 text-gray-600" />
+    }
+  }
+
+  const formatDate = (dateString: string): string => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  }
+
+  const handleNavigateToPage = (page: string): void => {
     if (onNavigate) {
       onNavigate(page)
     }
+  }
+
+  const refreshDashboard = async (): Promise<void> => {
+    await fetchTickets({ 
+      page: 1, 
+      per_page: 3,
+      sort_by: 'updated_at',
+      sort_direction: 'desc'
+    })
   }
 
   return (
@@ -118,8 +206,25 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
           <Heart className="h-24 w-24" />
         </div>
         <div className="relative z-10">
-          <h1 className="text-3xl font-bold mb-2">Welcome back, {user.name.split(" ")[0]}! 👋</h1>
-          <p className="text-blue-100 text-lg mb-6">How can we support you today?</p>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">Welcome back, {user.name.split(" ")[0]}! 👋</h1>
+              <p className="text-blue-100 text-lg mb-6">How can we support you today?</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={refreshDashboard}
+              className="text-white hover:bg-white/20 backdrop-blur-sm"
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm border border-white/20">
               <div className="text-2xl font-bold">24/7</div>
@@ -137,33 +242,87 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
         </div>
       </div>
 
+      {/* Ticket Stats Overview */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-indigo-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <Ticket className="h-5 w-5 text-blue-600" />
+              <div>
+                <p className="text-2xl font-bold text-blue-900">{stats.total}</p>
+                <p className="text-sm text-blue-600">Total Tickets</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-lg bg-gradient-to-br from-amber-50 to-orange-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <Clock className="h-5 w-5 text-amber-600" />
+              <div>
+                <p className="text-2xl font-bold text-amber-900">{stats.open + stats.in_progress}</p>
+                <p className="text-sm text-amber-600">Active Tickets</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-lg bg-gradient-to-br from-green-50 to-emerald-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              <div>
+                <p className="text-2xl font-bold text-green-900">{stats.resolved}</p>
+                <p className="text-sm text-green-600">Resolved</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-lg bg-gradient-to-br from-red-50 to-rose-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="h-5 w-5 text-red-600" />
+              <div>
+                <p className="text-2xl font-bold text-red-900">{stats.urgent + stats.crisis}</p>
+                <p className="text-sm text-red-600">High Priority</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Quick Actions */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Button
-          onClick={() => setShowBooking(true)}
+          onClick={() => handleNavigateToPage('submit-ticket')}
           className="h-24 flex-col space-y-3 bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 border-0 shadow-lg transition-all duration-200 transform hover:scale-105"
+          size="lg"
+        >
+          <Plus className="h-7 w-7" />
+          <span className="font-medium">Submit Ticket</span>
+        </Button>
+        
+        <Button
+          onClick={() => handleNavigateToPage('tickets')}
+          className="h-24 flex-col space-y-3 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 border-0 shadow-lg transition-all duration-200 transform hover:scale-105"
+          size="lg"
+        >
+          <Eye className="h-7 w-7" />
+          <span className="font-medium">View All Tickets</span>
+        </Button>
+        
+        <Button
+          onClick={() => handleNavigateToPage('appointments')}
+          className="h-24 flex-col space-y-3 bg-gradient-to-br from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 border-0 shadow-lg transition-all duration-200 transform hover:scale-105"
           size="lg"
         >
           <Calendar className="h-7 w-7" />
           <span className="font-medium">Book Appointment</span>
         </Button>
+        
         <Button
-          onClick={() => setShowTicketForm(true)}
-          className="h-24 flex-col space-y-3 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 border-0 shadow-lg transition-all duration-200 transform hover:scale-105"
-          size="lg"
-        >
-          <Ticket className="h-7 w-7" />
-          <span className="font-medium">Submit Ticket</span>
-        </Button>
-        <Button
-          className="h-24 flex-col space-y-3 bg-gradient-to-br from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 border-0 shadow-lg transition-all duration-200 transform hover:scale-105"
-          size="lg"
-        >
-          <MessageSquare className="h-7 w-7" />
-          <span className="font-medium">Live Chat</span>
-        </Button>
-        <Button
-          onClick={() => setShowCrisisSupport(true)}
           className="h-24 flex-col space-y-3 bg-gradient-to-br from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 border-0 shadow-lg transition-all duration-200 transform hover:scale-105"
           size="lg"
         >
@@ -174,13 +333,106 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Upcoming Appointments */}
+        {/* Recent Tickets */}
         <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-blue-50/50">
           <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-lg border-b border-blue-100">
             <CardTitle className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-blue-100 rounded-lg">
-                  <Calendar className="h-5 w-5 text-blue-600" />
+                  <Ticket className="h-5 w-5 text-blue-600" />
+                </div>
+                <span className="text-slate-800">Recent Support Tickets</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleNavigateToPage("tickets")}
+                className="border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300"
+              >
+                View All <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            {loadingRecent ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
+                <span className="text-gray-600">Loading your tickets...</span>
+              </div>
+            ) : recentTickets.length > 0 ? (
+              <div className="space-y-4">
+                {recentTickets.map((ticket) => (
+                  <div
+                    key={ticket.id}
+                    className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-200"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div className="flex flex-col items-center space-y-1">
+                        {getStatusIcon(ticket.status)}
+                        <span className="text-xs font-mono text-blue-600">#{ticket.ticket_number}</span>
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-slate-800 truncate max-w-48">{ticket.subject}</h4>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200 text-xs">
+                            {ticket.category}
+                          </Badge>
+                          <Badge variant="outline" className={`${getPriorityColor(ticket.priority)} text-xs`}>
+                            {ticket.priority}
+                          </Badge>
+                          {ticket.crisis_flag && (
+                            <Badge variant="destructive" className="text-xs animate-pulse">
+                              CRISIS
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Updated {formatDate(ticket.updated_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <Badge variant="outline" className={getStatusColor(ticket.status)}>
+                        {ticket.status}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleNavigateToPage(`ticket-details?id=${ticket.id}`)}
+                        className="hover:bg-blue-50 hover:border-blue-200"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <div className="p-4 bg-slate-100 rounded-full w-fit mx-auto mb-4">
+                  <Ticket className="h-12 w-12 text-slate-400" />
+                </div>
+                <h3 className="font-medium text-slate-800 mb-2">No tickets yet</h3>
+                <p className="text-slate-600 mb-4">Get started by submitting your first support request</p>
+                <Button
+                  onClick={() => handleNavigateToPage('submit-ticket')}
+                  className="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Submit First Ticket
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Upcoming Appointments */}
+        <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-emerald-50/50">
+          <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-t-lg border-b border-emerald-100">
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-emerald-100 rounded-lg">
+                  <Calendar className="h-5 w-5 text-emerald-600" />
                 </div>
                 <span className="text-slate-800">Upcoming Appointments</span>
               </div>
@@ -188,7 +440,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => handleNavigateToPage("appointments")}
-                className="border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300"
+                className="border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300"
               >
                 View All <ArrowRight className="h-4 w-4 ml-1" />
               </Button>
@@ -243,92 +495,12 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
                 <h3 className="font-medium text-slate-800 mb-2">No upcoming appointments</h3>
                 <p className="text-slate-600 mb-4">Schedule your first session with a counselor</p>
                 <Button
-                  onClick={() => setShowBooking(true)}
-                  className="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
+                  onClick={() => handleNavigateToPage("appointments")}
+                  className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
                 >
+                  <Calendar className="h-4 w-4 mr-2" />
                   Schedule Session
                 </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Support Tickets */}
-        <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-emerald-50/50">
-          <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-t-lg border-b border-emerald-100">
-            <CardTitle className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-emerald-100 rounded-lg">
-                  <Ticket className="h-5 w-5 text-emerald-600" />
-                </div>
-                <span className="text-slate-800">Your Support Tickets</span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleNavigateToPage("tickets")}
-                className="border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300"
-              >
-                View All <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-6">
-            {openTickets.length > 0 ? (
-              <div className="space-y-4">
-                {openTickets.map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    className="p-4 bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-200"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono text-sm font-semibold text-emerald-600">#{ticket.id}</span>
-                        <Badge variant="outline" className="border-slate-200">
-                          {ticket.category}
-                        </Badge>
-                        <Badge
-                          variant={
-                            ticket.priority === "High"
-                              ? "destructive"
-                              : ticket.priority === "Medium"
-                                ? "default"
-                                : "secondary"
-                          }
-                          className={
-                            ticket.priority === "Medium"
-                              ? "bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200"
-                              : ""
-                          }
-                        >
-                          {ticket.priority}
-                        </Badge>
-                      </div>
-                      <Button variant="outline" size="sm" className="hover:bg-emerald-50">
-                        View
-                      </Button>
-                    </div>
-                    <h4 className="font-medium text-slate-800 mb-2">{ticket.subject}</h4>
-                    <div className="flex items-center space-x-4 text-sm text-slate-500">
-                      <span className="flex items-center space-x-1">
-                        <TrendingUp className="h-3 w-3" />
-                        <span>{ticket.status}</span>
-                      </span>
-                      <span className="flex items-center space-x-1">
-                        <Clock className="h-3 w-3" />
-                        <span>Updated {ticket.lastUpdate}</span>
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <div className="p-4 bg-slate-100 rounded-full w-fit mx-auto mb-4">
-                  <CheckCircle className="h-12 w-12 text-slate-400" />
-                </div>
-                <h3 className="font-medium text-slate-800 mb-2">No open tickets</h3>
-                <p className="text-slate-600">You're all caught up!</p>
               </div>
             )}
           </CardContent>
@@ -388,7 +560,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
         </CardContent>
       </Card>
 
-      {/* Crisis Support */}
+      {/* Crisis Support Banner */}
       <Card className="border-0 shadow-xl bg-gradient-to-br from-rose-50 to-pink-50 border-rose-200">
         <CardContent className="p-6">
           <div className="flex items-center space-x-4">
@@ -397,10 +569,9 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
             </div>
             <div className="flex-1">
               <h3 className="font-semibold text-rose-900 mb-1">Need immediate help?</h3>
-              <p className="text-rose-700">If you're experiencing a crisis, reach out immediately</p>
+              <p className="text-rose-700">If you're experiencing a crisis, reach out immediately. Our support team is here 24/7.</p>
             </div>
             <Button
-              onClick={() => setShowCrisisSupport(true)}
               className="bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-lg"
             >
               Crisis Support
@@ -408,11 +579,6 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
           </div>
         </CardContent>
       </Card>
-
-      {/* Modals */}
-      <AppointmentBooking open={showBooking} onClose={() => setShowBooking(false)} />
-      <TicketSubmission open={showTicketForm} onClose={() => setShowTicketForm(false)} />
-      <CrisisSupport open={showCrisisSupport} onClose={() => setShowCrisisSupport(false)} />
     </div>
   )
 }

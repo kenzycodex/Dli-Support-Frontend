@@ -1,5 +1,7 @@
 <?php
 
+// config/app.php
+
 return [
 
     /*

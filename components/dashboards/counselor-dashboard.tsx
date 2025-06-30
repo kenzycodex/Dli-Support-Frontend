@@ -1,10 +1,12 @@
 // components/dashboards/counselor-dashboard.tsx
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Calendar,
   Clock,
@@ -16,8 +18,20 @@ import {
   AlertTriangle,
   CheckCircle,
   TrendingUp,
+  Heart,
+  Shield,
+  Zap,
+  RefreshCw,
+  Loader2,
+  Eye,
+  Filter,
+  ArrowRight,
+  Flag,
+  UserCheck,
+  MessageCircle,
 } from "lucide-react"
-import { useState } from "react"
+import { useTickets } from "@/hooks/use-tickets"
+import { TicketData } from "@/services/ticket.service"
 
 interface CounselorDashboardProps {
   user: {
@@ -25,14 +39,62 @@ interface CounselorDashboardProps {
     email: string
     role: string
   }
+  onNavigate?: (page: string) => void
 }
 
-export function CounselorDashboard({ user }: CounselorDashboardProps) {
-  // Add state for session management
-  const [canStartSessions, setCanStartSessions] = useState<string[]>([])
+interface SessionData {
+  id: number
+  student: string
+  time: string
+  type: "Video" | "Chat" | "Phone"
+  status: "upcoming" | "completed"
+  isAnonymous: boolean
+  canStart?: boolean
+  intakeFormSubmitted?: boolean
+  lastSession?: string
+  priority: "Low" | "Medium" | "High"
+  needsFollowUp?: boolean
+  sessionNotes?: boolean
+}
 
-  // Update todaySessions to include more details and start capabilities
-  const todaySessions = [
+interface PersonalAnalytics {
+  sessionsThisWeek: number
+  averageRating: number
+  responseTime: string
+  studentsHelped: number
+  followUpsNeeded: number
+  highPriorityTickets: number
+  crisisTickets: number
+}
+
+export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps) {
+  const { tickets, loading, stats, fetchTickets } = useTickets()
+  const [assignedTickets, setAssignedTickets] = useState<TicketData[]>([])
+  const [loadingTickets, setLoadingTickets] = useState(true)
+  const [activeTab, setActiveTab] = useState("overview")
+
+  // Fetch counselor's assigned tickets
+  useEffect(() => {
+    const loadAssignedTickets = async () => {
+      setLoadingTickets(true)
+      await fetchTickets({ 
+        page: 1, 
+        per_page: 10,
+        sort_by: 'updated_at',
+        sort_direction: 'desc'
+      })
+      setLoadingTickets(false)
+    }
+
+    loadAssignedTickets()
+  }, [fetchTickets])
+
+  useEffect(() => {
+    setAssignedTickets(tickets)
+  }, [tickets])
+
+  // Sample data for counselor-specific features
+  const todaySessions: SessionData[] = [
     {
       id: 1,
       student: "Alex J.",
@@ -40,9 +102,10 @@ export function CounselorDashboard({ user }: CounselorDashboardProps) {
       type: "Video",
       status: "upcoming",
       isAnonymous: false,
-      canStart: true, // 5 mins before
+      canStart: true,
       intakeFormSubmitted: true,
       lastSession: "2024-01-10",
+      priority: "Medium"
     },
     {
       id: 2,
@@ -53,6 +116,7 @@ export function CounselorDashboard({ user }: CounselorDashboardProps) {
       isAnonymous: true,
       canStart: false,
       intakeFormSubmitted: false,
+      priority: "High"
     },
     {
       id: 3,
@@ -62,103 +126,231 @@ export function CounselorDashboard({ user }: CounselorDashboardProps) {
       status: "completed",
       isAnonymous: false,
       needsFollowUp: true,
-      sessionNotes: false, // needs notes
+      sessionNotes: false,
+      priority: "Low"
     },
   ]
 
-  // Update pendingTickets to show priority levels
-  const pendingTickets = [
-    {
-      id: "T003",
-      student: "Mike R.",
-      subject: "Anxiety about upcoming exams",
-      category: "Mental Health",
-      priority: "High",
-      timeAgo: "30 min ago",
-      flagged: true, // crisis flag
-      assignedToMe: true,
-    },
-    {
-      id: "T004",
-      student: "Emma L.",
-      subject: "Career guidance needed",
-      category: "Academic",
-      priority: "Medium",
-      timeAgo: "2 hours ago",
-      canEscalate: true,
-      assignedToMe: true,
-    },
-  ]
-
-  // Add personal analytics
-  const personalAnalytics = {
+  const personalAnalytics: PersonalAnalytics = {
     sessionsThisWeek: 18,
     averageRating: 4.8,
     responseTime: "2.3 hours",
     studentsHelped: 15,
     followUpsNeeded: 3,
-    highPriorityTickets: 1,
+    highPriorityTickets: stats.high_priority || 1,
+    crisisTickets: stats.crisis || 0,
   }
 
-  const weeklyStats = {
-    sessionsCompleted: 18,
-    averageRating: 4.8,
-    responseTime: "2.3 hours",
-    studentsHelped: 15,
+  const getStatusColor = (status: string): string => {
+    switch (status) {
+      case "Open":
+        return "bg-blue-100 text-blue-800 border-blue-200"
+      case "In Progress":
+        return "bg-amber-100 text-amber-800 border-amber-200"
+      case "Resolved":
+        return "bg-green-100 text-green-800 border-green-200"
+      case "Closed":
+        return "bg-gray-100 text-gray-800 border-gray-200"
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200"
+    }
   }
+
+  const getPriorityColor = (priority: string): string => {
+    switch (priority) {
+      case "Urgent":
+        return "bg-red-100 text-red-800 border-red-200 animate-pulse"
+      case "High":
+        return "bg-red-100 text-red-800 border-red-200"
+      case "Medium":
+        return "bg-amber-100 text-amber-800 border-amber-200"
+      case "Low":
+        return "bg-green-100 text-green-800 border-green-200"
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "Open":
+        return <Clock className="h-4 w-4 text-blue-600" />
+      case "In Progress":
+        return <RefreshCw className="h-4 w-4 text-orange-600" />
+      case "Resolved":
+        return <CheckCircle className="h-4 w-4 text-green-600" />
+      case "Closed":
+        return <CheckCircle className="h-4 w-4 text-gray-600" />
+      default:
+        return <Clock className="h-4 w-4 text-gray-600" />
+    }
+  }
+
+  const formatDate = (dateString: string): string => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  }
+
+  const handleNavigateToPage = (page: string): void => {
+    if (onNavigate) {
+      onNavigate(page)
+    }
+  }
+
+  const refreshDashboard = async (): Promise<void> => {
+    await fetchTickets({ 
+      page: 1, 
+      per_page: 10,
+      sort_by: 'updated_at',
+      sort_direction: 'desc'
+    })
+  }
+
+  // Filter tickets by priority for crisis and urgent cases
+  const crisisTickets = assignedTickets.filter(ticket => ticket.crisis_flag || ticket.priority === "Urgent")
+  const urgentTickets = assignedTickets.filter(ticket => ticket.priority === "High" && !ticket.crisis_flag)
+  const recentTickets = assignedTickets.slice(0, 5)
 
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-green-600 to-teal-600 rounded-lg p-6 text-white">
-        <h1 className="text-2xl font-bold">Good morning, {user.name.split(" ")[0]}!</h1>
-        <p className="text-green-100 mt-1">You have 3 sessions scheduled today</p>
+      <div className="relative bg-gradient-to-br from-green-600 via-emerald-600 to-teal-700 rounded-2xl p-8 text-white overflow-hidden">
+        <div className="absolute inset-0 bg-black/10 rounded-2xl"></div>
+        <div className="absolute top-4 right-4 opacity-20">
+          <Heart className="h-24 w-24" />
+        </div>
+        <div className="relative z-10">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">Good morning, {user.name.split(" ")[0]}! 🌟</h1>
+              <p className="text-green-100 text-lg mb-6">You have {assignedTickets.filter(t => t.status === "Open" || t.status === "In Progress").length} active cases and {todaySessions.filter(s => s.status === "upcoming").length} sessions today</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={refreshDashboard}
+              className="text-white hover:bg-white/20 backdrop-blur-sm"
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          <div className="grid grid-cols-4 gap-4">
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm border border-white/20">
+              <div className="flex items-center space-x-2">
+                <Shield className="h-5 w-5" />
+                <div>
+                  <div className="text-2xl font-bold">{stats.total || 0}</div>
+                  <div className="text-sm text-green-100">Total Cases</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm border border-white/20">
+              <div className="flex items-center space-x-2">
+                <Zap className="h-5 w-5" />
+                <div>
+                  <div className="text-2xl font-bold">{crisisTickets.length}</div>
+                  <div className="text-sm text-green-100">Crisis Cases</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm border border-white/20">
+              <div className="flex items-center space-x-2">
+                <Star className="h-5 w-5" />
+                <div>
+                  <div className="text-2xl font-bold">{personalAnalytics.averageRating}</div>
+                  <div className="text-sm text-green-100">Avg Rating</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm border border-white/20">
+              <div className="flex items-center space-x-2">
+                <Clock className="h-5 w-5" />
+                <div>
+                  <div className="text-2xl font-bold">{personalAnalytics.responseTime}</div>
+                  <div className="text-sm text-green-100">Response Time</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* Crisis Alert Banner */}
+      {crisisTickets.length > 0 && (
+        <Card className="border-red-200 bg-red-50 shadow-xl">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 bg-red-500 rounded-full">
+                <AlertTriangle className="h-6 w-6 text-white animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-red-900 mb-1">🚨 Crisis Cases Require Immediate Attention</h3>
+                <p className="text-red-700">You have {crisisTickets.length} crisis ticket(s) that need urgent response.</p>
+              </div>
+              <Button
+                onClick={() => handleNavigateToPage('tickets')}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                View Crisis Cases
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        <Card className="border-0 shadow-lg">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
               <Users className="h-5 w-5 text-blue-600" />
               <div>
-                <p className="text-2xl font-bold">{weeklyStats.sessionsCompleted}</p>
+                <p className="text-2xl font-bold">{personalAnalytics.sessionsThisWeek}</p>
                 <p className="text-sm text-gray-600">Sessions this week</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-0 shadow-lg">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
               <Star className="h-5 w-5 text-yellow-500" />
               <div>
-                <p className="text-2xl font-bold">{weeklyStats.averageRating}</p>
+                <p className="text-2xl font-bold">{personalAnalytics.averageRating}</p>
                 <p className="text-sm text-gray-600">Average rating</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-0 shadow-lg">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
               <Clock className="h-5 w-5 text-green-600" />
               <div>
-                <p className="text-2xl font-bold">{weeklyStats.responseTime}</p>
+                <p className="text-2xl font-bold">{personalAnalytics.responseTime}</p>
                 <p className="text-sm text-gray-600">Avg response time</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-0 shadow-lg">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
               <TrendingUp className="h-5 w-5 text-purple-600" />
               <div>
-                <p className="text-2xl font-bold">{weeklyStats.studentsHelped}</p>
+                <p className="text-2xl font-bold">{personalAnalytics.studentsHelped}</p>
                 <p className="text-sm text-gray-600">Students helped</p>
               </div>
             </div>
@@ -166,166 +358,452 @@ export function CounselorDashboard({ user }: CounselorDashboardProps) {
         </Card>
       </div>
 
-      {/* Today's Sessions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Calendar className="h-5 w-5" />
-            <span>Today's Sessions</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {todaySessions.map((session) => (
-              <div key={session.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center space-x-3">
-                  {session.type === "Video" ? (
-                    <Video className="h-5 w-5 text-blue-600" />
-                  ) : session.type === "Phone" ? (
-                    <Phone className="h-5 w-5 text-green-600" />
-                  ) : (
-                    <MessageSquare className="h-5 w-5 text-purple-600" />
-                  )}
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <p className="font-medium">{session.student}</p>
-                      {session.isAnonymous && <Badge variant="secondary">Anonymous</Badge>}
-                    </div>
-                    <p className="text-sm text-gray-600">{session.time}</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  {session.status === "completed" ? (
-                    <div className="flex space-x-2">
-                      <Badge variant="outline">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Completed
-                      </Badge>
-                      {session.needsFollowUp && (
-                        <Button size="sm" variant="secondary">
-                          Follow Up
-                        </Button>
-                      )}
-                      {session.sessionNotes === false && <Button size="sm">Add Note</Button>}
-                    </div>
-                  ) : (
-                    <Button size="sm" disabled={!session.canStart}>
-                      Start Session
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Main Content Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="sessions">Today's Sessions</TabsTrigger>
+          <TabsTrigger value="tickets">My Cases</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+        </TabsList>
 
-      {/* Pending Tickets */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <AlertTriangle className="h-5 w-5" />
-            <span>Pending Tickets</span>
-            <Badge variant="destructive">{pendingTickets.length}</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {pendingTickets.map((ticket) => (
-              <div key={ticket.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-1">
-                    <span className="font-medium">#{ticket.id}</span>
-                    <Badge variant="outline">{ticket.category}</Badge>
-                    <Badge variant={ticket.priority === "High" ? "destructive" : "default"}>{ticket.priority}</Badge>
-                    {ticket.flagged && <Badge variant="destructive">Crisis</Badge>}
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Assigned Tickets Overview */}
+            <Card className="border-0 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <MessageSquare className="h-5 w-5" />
+                    <span>Recent Cases</span>
                   </div>
-                  <p className="text-sm text-gray-900 mb-1">{ticket.subject}</p>
-                  <p className="text-xs text-gray-500">
-                    From {ticket.student} • {ticket.timeAgo}
-                  </p>
-                </div>
-                <div className="flex space-x-2">
-                  {ticket.canEscalate && (
-                    <Button variant="secondary" size="sm">
-                      Escalate
-                    </Button>
-                  )}
-                  <Button variant="outline" size="sm">
-                    Respond
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleNavigateToPage('tickets')}
+                    className="hover:bg-blue-50"
+                  >
+                    View All <ArrowRight className="h-4 w-4 ml-1" />
                   </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-6">
+                {loadingTickets ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-600 mr-2" />
+                    <span className="text-gray-600">Loading cases...</span>
+                  </div>
+                ) : recentTickets.length > 0 ? (
+                  <div className="space-y-4">
+                    {recentTickets.map((ticket) => (
+                      <div key={ticket.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex flex-col items-center space-y-1">
+                            {getStatusIcon(ticket.status)}
+                            <span className="text-xs font-mono text-blue-600">#{ticket.ticket_number}</span>
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2 mb-1">
+                              <p className="font-medium truncate max-w-48">{ticket.subject}</p>
+                              {ticket.crisis_flag && (
+                                <Badge variant="destructive" className="text-xs animate-pulse">
+                                  <Flag className="h-3 w-3 mr-1" />
+                                  CRISIS
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200 text-xs">
+                                {ticket.category}
+                              </Badge>
+                              <Badge variant="outline" className={`${getPriorityColor(ticket.priority)} text-xs`}>
+                                {ticket.priority}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {ticket.user?.name} • {formatDate(ticket.updated_at)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Badge variant="outline" className={getStatusColor(ticket.status)}>
+                            {ticket.status}
+                          </Badge>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleNavigateToPage(`ticket-details?id=${ticket.id}`)}
+                            className="hover:bg-blue-50"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <MessageSquare className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No assigned cases</h3>
+                    <p className="text-gray-600">New cases will appear here when assigned to you</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-      {/* Weekly Progress */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Weekly Progress</CardTitle>
-          <CardDescription>Your impact this week</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span>Sessions Goal</span>
-              <span>18/20</span>
-            </div>
-            <Progress value={90} className="h-2" />
+            {/* Weekly Progress */}
+            <Card className="border-0 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b">
+                <CardTitle>Weekly Progress</CardTitle>
+                <CardDescription>Your impact this week</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-4">
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span>Sessions Goal</span>
+                    <span>18/20</span>
+                  </div>
+                  <Progress value={90} className="h-2" />
+                </div>
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span>Response Time Goal</span>
+                    <span>2.3/4.0 hours</span>
+                  </div>
+                  <Progress value={75} className="h-2" />
+                </div>
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span>Student Satisfaction</span>
+                    <span>4.8/5.0</span>
+                  </div>
+                  <Progress value={96} className="h-2" />
+                </div>
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span>Cases Resolved</span>
+                    <span>{stats.resolved}/{stats.total}</span>
+                  </div>
+                  <Progress value={stats.total > 0 ? (stats.resolved / stats.total) * 100 : 0} className="h-2" />
+                </div>
+              </CardContent>
+            </Card>
           </div>
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span>Response Time Goal</span>
-              <span>2.3/4.0 hours</span>
+        </TabsContent>
+
+        <TabsContent value="sessions" className="space-y-4">
+          <Card className="border-0 shadow-xl">
+            <CardHeader className="bg-gradient-to-r from-violet-50 to-purple-50 border-b">
+              <CardTitle className="flex items-center space-x-2">
+                <Calendar className="h-5 w-5" />
+                <span>Today's Sessions</span>
+                <Badge variant="secondary">{todaySessions.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                {todaySessions.map((session) => (
+                  <div key={session.id} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      {session.type === "Video" ? (
+                        <Video className="h-5 w-5 text-blue-600" />
+                      ) : session.type === "Phone" ? (
+                        <Phone className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <MessageSquare className="h-5 w-5 text-purple-600" />
+                      )}
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <p className="font-medium">{session.student}</p>
+                          {session.isAnonymous && <Badge variant="secondary">Anonymous</Badge>}
+                          <Badge variant="outline" className={getPriorityColor(session.priority)}>
+                            {session.priority}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-600">{session.time}</p>
+                        {session.lastSession && (
+                          <p className="text-xs text-gray-500">Last session: {session.lastSession}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {session.status === "completed" ? (
+                        <div className="flex space-x-2">
+                          <Badge variant="outline">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Completed
+                          </Badge>
+                          {session.needsFollowUp && (
+                            <Button size="sm" variant="secondary">
+                              Follow Up
+                            </Button>
+                          )}
+                          {session.sessionNotes === false && <Button size="sm">Add Notes</Button>}
+                        </div>
+                      ) : (
+                        <div className="flex space-x-2">
+                          {!session.intakeFormSubmitted && (
+                            <Badge variant="outline" className="text-yellow-700 bg-yellow-50 border-yellow-200">
+                              Intake Pending
+                            </Badge>
+                          )}
+                          <Button size="sm" disabled={!session.canStart}>
+                            {session.canStart ? "Start Session" : "5 min early"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="tickets" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">My Assigned Cases</h3>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={refreshDashboard}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Refresh
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleNavigateToPage('tickets')}
+              >
+                <Filter className="h-4 w-4 mr-2" />
+                Advanced Filters
+              </Button>
             </div>
-            <Progress value={75} className="h-2" />
           </div>
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span>Student Satisfaction</span>
-              <span>4.8/5.0</span>
+
+          {/* Crisis and Urgent Tickets */}
+          {(crisisTickets.length > 0 || urgentTickets.length > 0) && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {crisisTickets.length > 0 && (
+                <Card className="border-red-200 bg-red-50">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-red-900 flex items-center space-x-2">
+                      <AlertTriangle className="h-5 w-5" />
+                      <span>Crisis Cases ({crisisTickets.length})</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="space-y-3">
+                      {crisisTickets.slice(0, 3).map((ticket) => (
+                        <div key={ticket.id} className="p-3 bg-white rounded-lg border border-red-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-sm">#{ticket.ticket_number}</p>
+                              <p className="text-xs text-gray-600 truncate max-w-32">{ticket.subject}</p>
+                            </div>
+                            <Button size="sm" variant="destructive">
+                              Respond Now
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {urgentTickets.length > 0 && (
+                <Card className="border-orange-200 bg-orange-50">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-orange-900 flex items-center space-x-2">
+                      <Zap className="h-5 w-5" />
+                      <span>High Priority ({urgentTickets.length})</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="space-y-3">
+                      {urgentTickets.slice(0, 3).map((ticket) => (
+                        <div key={ticket.id} className="p-3 bg-white rounded-lg border border-orange-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-sm">#{ticket.ticket_number}</p>
+                              <p className="text-xs text-gray-600 truncate max-w-32">{ticket.subject}</p>
+                            </div>
+                            <Button size="sm" variant="default">
+                              Review
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
-            <Progress value={96} className="h-2" />
+          )}
+
+          {/* All Assigned Tickets */}
+          <Card className="border-0 shadow-xl">
+            <CardHeader>
+              <CardTitle>All Assigned Cases</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingTickets ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
+                  <span className="text-gray-600">Loading your cases...</span>
+                </div>
+              ) : assignedTickets.length > 0 ? (
+                <div className="space-y-4">
+                  {assignedTickets.map((ticket) => (
+                    <div key={ticket.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                      <div className="flex items-center space-x-4">
+                        <div className="flex flex-col items-center space-y-1">
+                          {getStatusIcon(ticket.status)}
+                          <span className="text-xs font-mono text-blue-600">#{ticket.ticket_number}</span>
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-1">
+                            <p className="font-medium">{ticket.subject}</p>
+                            {ticket.crisis_flag && (
+                              <Badge variant="destructive" className="animate-pulse">
+                                <Flag className="h-3 w-3 mr-1" />
+                                CRISIS
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2 mb-1">
+                            <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200">
+                              {ticket.category}
+                            </Badge>
+                            <Badge variant="outline" className={getPriorityColor(ticket.priority)}>
+                              {ticket.priority}
+                            </Badge>
+                            <Badge variant="outline" className={getStatusColor(ticket.status)}>
+                              {ticket.status}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600">
+                            {ticket.user?.name} • {formatDate(ticket.updated_at)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {ticket.response_count && ticket.response_count > 0 && (
+                          <div className="flex items-center space-x-1 text-gray-500">
+                            <MessageCircle className="h-4 w-4" />
+                            <span className="text-xs">{ticket.response_count}</span>
+                          </div>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleNavigateToPage(`ticket-details?id=${ticket.id}`)}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          View
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <UserCheck className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No assigned cases</h3>
+                  <p className="text-gray-600">New cases will be assigned to you automatically based on your specialization</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="analytics" className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Performance Metrics */}
+            <Card className="border-0 shadow-xl">
+              <CardHeader>
+                <CardTitle>Performance Metrics</CardTitle>
+                <CardDescription>Your key performance indicators</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Sessions This Week</p>
+                    <p className="text-2xl font-bold">{personalAnalytics.sessionsThisWeek}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Average Rating</p>
+                    <p className="text-2xl font-bold">{personalAnalytics.averageRating}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Response Time</p>
+                    <p className="text-2xl font-bold">{personalAnalytics.responseTime}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Students Helped</p>
+                    <p className="text-2xl font-bold">{personalAnalytics.studentsHelped}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Follow-ups Needed</p>
+                    <p className="text-2xl font-bold">{personalAnalytics.followUpsNeeded}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Crisis Cases Handled</p>
+                    <p className="text-2xl font-bold">{personalAnalytics.crisisTickets}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Case Distribution */}
+            <Card className="border-0 shadow-xl">
+              <CardHeader>
+                <CardTitle>Case Distribution</CardTitle>
+                <CardDescription>Breakdown of your assigned cases</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Mental Health</span>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-24 bg-gray-200 rounded-full h-2">
+                        <div className="bg-blue-600 h-2 rounded-full" style={{ width: '70%' }}></div>
+                      </div>
+                      <span className="text-sm text-gray-600">70%</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Crisis Support</span>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-24 bg-gray-200 rounded-full h-2">
+                        <div className="bg-red-600 h-2 rounded-full" style={{ width: '20%' }}></div>
+                      </div>
+                      <span className="text-sm text-gray-600">20%</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">General Support</span>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-24 bg-gray-200 rounded-full h-2">
+                        <div className="bg-green-600 h-2 rounded-full" style={{ width: '10%' }}></div>
+                      </div>
+                      <span className="text-sm text-gray-600">10%</span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
-      {/* Workload Analytics */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Workload Analytics</CardTitle>
-          <CardDescription>Your performance metrics</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Sessions This Week</p>
-              <p className="text-2xl font-bold">{personalAnalytics.sessionsThisWeek}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Average Rating</p>
-              <p className="text-2xl font-bold">{personalAnalytics.averageRating}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Response Time</p>
-              <p className="text-2xl font-bold">{personalAnalytics.responseTime}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Students Helped</p>
-              <p className="text-2xl font-bold">{personalAnalytics.studentsHelped}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Follow-ups Needed</p>
-              <p className="text-2xl font-bold">{personalAnalytics.followUpsNeeded}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">High Priority Tickets</p>
-              <p className="text-2xl font-bold">{personalAnalytics.highPriorityTickets}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
