@@ -1,8 +1,8 @@
-// Updated app/page.tsx to handle the new page-based navigation
 "use client"
 
 import { useState } from "react"
-import { LoginForm } from "@/components/auth/login-form"
+import { useAuth } from "@/contexts/AuthContext"
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute"
 import { StudentDashboard } from "@/components/dashboards/student-dashboard"
 import { CounselorDashboard } from "@/components/dashboards/counselor-dashboard"
 import { AdminDashboard } from "@/components/dashboards/admin-dashboard"
@@ -19,29 +19,17 @@ import { AdminSettingsPage } from "@/components/pages/admin-settings-page"
 import { AppLayout } from "@/components/layout/app-layout"
 import { NotificationsPage } from "@/components/pages/notifications-page"
 
-type UserRole = "student" | "counselor" | "advisor" | "admin" | null
-
 interface PageParams {
   ticketId?: number
 }
 
-export default function Home() {
-  const [currentUser, setCurrentUser] = useState<{
-    role: UserRole
-    name: string
-    email: string
-  } | null>(null)
+function AppContent() {
+  const { user, logout } = useAuth()
   const [currentPage, setCurrentPage] = useState("dashboard")
   const [pageParams, setPageParams] = useState<PageParams>({})
 
-  const handleLogin = (role: UserRole, name: string, email: string) => {
-    setCurrentUser({ role, name, email })
-    setCurrentPage("dashboard")
-    setPageParams({})
-  }
-
   const handleLogout = () => {
-    setCurrentUser(null)
+    logout()
     setCurrentPage("dashboard")
     setPageParams({})
   }
@@ -51,43 +39,19 @@ export default function Home() {
     setPageParams(params || {})
   }
 
-  // Handle special navigation for ticket pages
-  const handleTicketNavigation = (action: string, ticketId?: number) => {
-    switch (action) {
-      case 'submit':
-        setCurrentPage('submit-ticket')
-        break
-      case 'details':
-        if (ticketId) {
-          setCurrentPage('ticket-details')
-          setPageParams({ ticketId })
-        }
-        break
-      case 'list':
-      default:
-        setCurrentPage('tickets')
-        setPageParams({})
-        break
-    }
-  }
-
-  if (!currentUser) {
-    return <LoginForm onLogin={handleLogin} />
-  }
-
   const renderPage = () => {
     switch (currentPage) {
       case "dashboard":
-        switch (currentUser.role) {
+        switch (user?.role) {
           case "student":
-            return <StudentDashboard user={{ ...currentUser, role: currentUser.role ?? "" }} onNavigate={handleNavigate} />
+            return <StudentDashboard user={user} onNavigate={handleNavigate} />
           case "counselor":
           case "advisor":
-            return <CounselorDashboard user={{ ...currentUser, role: currentUser.role as string }} />
+            return <CounselorDashboard user={user} />
           case "admin":
-            return <AdminDashboard user={{ ...currentUser, role: currentUser.role as string }} />
+            return <AdminDashboard user={user} />
           default:
-            return <StudentDashboard user={{ ...currentUser, role: currentUser.role ?? "" }} onNavigate={handleNavigate} />
+            return <StudentDashboard user={user!} onNavigate={handleNavigate} />
         }
       case "appointments":
         return <AppointmentsPage />
@@ -119,18 +83,26 @@ export default function Home() {
       case "admin-settings":
         return <AdminSettingsPage onNavigate={handleNavigate} />
       default:
-        return <StudentDashboard user={{ ...currentUser, role: currentUser.role as string }} onNavigate={handleNavigate} />
+        return <StudentDashboard user={user!} onNavigate={handleNavigate} />
     }
   }
 
   return (
     <AppLayout 
-      user={{ ...currentUser, role: currentUser?.role as string }} 
+      user={user!} 
       onLogout={handleLogout} 
       currentPage={currentPage} 
       onNavigate={handleNavigate}
     >
       {renderPage()}
     </AppLayout>
+  )
+}
+
+export default function Home() {
+  return (
+    <ProtectedRoute>
+      <AppContent />
+    </ProtectedRoute>
   )
 }

@@ -1,4 +1,3 @@
-// components/auth/login-form.tsx
 "use client"
 
 import type React from "react"
@@ -8,13 +7,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Eye, EyeOff, Shield, Heart, Users, LogIn, Loader2 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { authService } from "@/services/auth.service"
+import { useAuth } from "@/contexts/AuthContext"
 
-interface LoginFormProps {
-  onLogin: (role: "student" | "counselor" | "advisor" | "admin", name: string, email: string, token: string) => void
-}
-
-export function LoginForm({ onLogin }: LoginFormProps) {
+export function LoginForm() {
+  const { login, demoLogin } = useAuth()
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -29,18 +25,12 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setError("")
 
     try {
-      const response = await authService.login(formData)
-
-      if (response.success && response.data) {
-        onLogin(
-          response.data.user.role as "student" | "counselor" | "advisor" | "admin",
-          response.data.user.name,
-          response.data.user.email,
-          response.data.token
-        )
-      } else {
-        setError(response.message || "Login failed")
+      const result = await login(formData.email, formData.password)
+      
+      if (!result.success) {
+        setError(result.message || "Login failed")
       }
+      // Success case is handled by the AuthContext and will redirect automatically
     } catch (err) {
       setError("Network error. Please check your connection and try again.")
       console.error("Login error:", err)
@@ -49,23 +39,17 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     }
   }
 
-  const demoLogin = async (role: "student" | "counselor" | "advisor" | "admin") => {
+  const handleDemoLogin = async (role: "student" | "counselor" | "advisor" | "admin") => {
     setLoading(true)
     setError("")
 
     try {
-      const response = await authService.demoLogin({ role })
-
-      if (response.success && response.data) {
-        onLogin(
-          response.data.user.role as "student" | "counselor" | "advisor" | "admin",
-          response.data.user.name,
-          response.data.user.email,
-          response.data.token
-        )
-      } else {
-        setError(response.message || "Demo login failed")
+      const result = await demoLogin(role)
+      
+      if (!result.success) {
+        setError(result.message || "Demo login failed")
       }
+      // Success case is handled by the AuthContext and will redirect automatically
     } catch (err) {
       setError("Network error. Please check your connection and try again.")
       console.error("Demo login error:", err)
@@ -128,6 +112,10 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               src="/logo-dark.png" 
               alt="University Logo" 
               className="h-16 w-auto mx-auto mb-6"
+              onError={(e) => {
+                // Fallback if image doesn't exist
+                e.currentTarget.style.display = 'none'
+              }}
             />
           </div>
 
@@ -239,7 +227,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <Button
                 variant="outline"
                 className="h-auto py-2.5 border-gray-200 hover:bg-gray-50"
-                onClick={() => demoLogin("student")}
+                onClick={() => handleDemoLogin("student")}
                 disabled={loading}
               >
                 <Users className="h-4 w-4 mr-2 text-blue-600" />
@@ -251,7 +239,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <Button
                 variant="outline"
                 className="h-auto py-2.5 border-gray-200 hover:bg-gray-50"
-                onClick={() => demoLogin("counselor")}
+                onClick={() => handleDemoLogin("counselor")}
                 disabled={loading}
               >
                 <Heart className="h-4 w-4 mr-2 text-rose-600" />
@@ -263,7 +251,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <Button
                 variant="outline"
                 className="h-auto py-2.5 border-gray-200 hover:bg-gray-50"
-                onClick={() => demoLogin("advisor")}
+                onClick={() => handleDemoLogin("advisor")}
                 disabled={loading}
               >
                 <Users className="h-4 w-4 mr-2 text-green-600" />
@@ -275,7 +263,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <Button
                 variant="outline"
                 className="h-auto py-2.5 border-gray-200 hover:bg-gray-50"
-                onClick={() => demoLogin("admin")}
+                onClick={() => handleDemoLogin("admin")}
                 disabled={loading}
               >
                 <Shield className="h-4 w-4 mr-2 text-purple-600" />
