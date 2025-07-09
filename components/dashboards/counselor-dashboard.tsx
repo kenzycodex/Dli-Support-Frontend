@@ -1,7 +1,7 @@
-// components/dashboards/counselor-dashboard.tsx
+// components/dashboards/counselor-dashboard.tsx (Fixed infinite loops and TypeScript errors)
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -30,8 +30,13 @@ import {
   UserCheck,
   MessageCircle,
 } from "lucide-react"
-import { useTickets } from "@/hooks/use-tickets"
-import { TicketData } from "@/services/ticket.service"
+import { 
+  useTicketStore, 
+  useTicketStats, 
+  useTicketLoading, 
+  useTicketSelectors,
+  TicketData 
+} from "@/stores/ticket-store"
 
 interface CounselorDashboardProps {
   user: {
@@ -39,7 +44,7 @@ interface CounselorDashboardProps {
     email: string
     role: string
   }
-  onNavigate?: (page: string) => void
+  onNavigate?: (page: string, params?: any) => void
 }
 
 interface SessionData {
@@ -68,33 +73,54 @@ interface PersonalAnalytics {
 }
 
 export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps) {
-  const { tickets, loading, stats, fetchTickets } = useTickets()
-  const [assignedTickets, setAssignedTickets] = useState<TicketData[]>([])
-  const [loadingTickets, setLoadingTickets] = useState(true)
+  // Use ticket store instead of hooks
+  const store = useTicketStore()
+  const stats = useTicketStats()
+  const loading = useTicketLoading('list')
+  const selectors = useTicketSelectors()
+  
+  // Local state
   const [activeTab, setActiveTab] = useState("overview")
+  const [isInitialized, setIsInitialized] = useState(false)
 
-  // Fetch counselor's assigned tickets
+  // Memoized assigned tickets to prevent re-renders
+  const assignedTickets = useMemo(() => {
+    return selectors.myAssignedTickets
+  }, [selectors.myAssignedTickets])
+
+  // FIXED: Proper initialization with dependency array
   useEffect(() => {
-    const loadAssignedTickets = async () => {
-      setLoadingTickets(true)
-      await fetchTickets({ 
-        page: 1, 
-        per_page: 10,
-        sort_by: 'updated_at',
-        sort_direction: 'desc'
-      })
-      setLoadingTickets(false)
+    let isMounted = true
+
+    const initializeDashboard = async () => {
+      if (isInitialized) return
+      
+      try {
+        console.log("🎫 CounselorDashboard: Initializing dashboard data")
+        await store.actions.fetchTickets({ 
+          page: 1, 
+          per_page: 10,
+          sort_by: 'updated_at',
+          sort_direction: 'desc'
+        })
+        
+        if (isMounted) {
+          setIsInitialized(true)
+        }
+      } catch (error) {
+        console.error("❌ CounselorDashboard: Failed to initialize:", error)
+      }
     }
 
-    loadAssignedTickets()
-  }, [fetchTickets])
+    initializeDashboard()
 
-  useEffect(() => {
-    setAssignedTickets(tickets)
-  }, [tickets])
+    return () => {
+      isMounted = false
+    }
+  }, [store.actions, isInitialized]) // FIXED: Added proper dependencies
 
-  // Sample data for counselor-specific features
-  const todaySessions: SessionData[] = [
+  // Sample data for counselor-specific features - FIXED: Memoized
+  const todaySessions: SessionData[] = useMemo(() => [
     {
       id: 1,
       student: "Alex J.",
@@ -129,9 +155,9 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
       sessionNotes: false,
       priority: "Low"
     },
-  ]
+  ], [])
 
-  const personalAnalytics: PersonalAnalytics = {
+  const personalAnalytics: PersonalAnalytics = useMemo(() => ({
     sessionsThisWeek: 18,
     averageRating: 4.8,
     responseTime: "2.3 hours",
@@ -139,9 +165,10 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
     followUpsNeeded: 3,
     highPriorityTickets: stats.high_priority || 1,
     crisisTickets: stats.crisis || 0,
-  }
+  }), [stats.high_priority, stats.crisis])
 
-  const getStatusColor = (status: string): string => {
+  // FIXED: Proper utility functions with useCallback
+  const getStatusColor = useCallback((status: string): string => {
     switch (status) {
       case "Open":
         return "bg-blue-100 text-blue-800 border-blue-200"
@@ -154,9 +181,9 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
     }
-  }
+  }, [])
 
-  const getPriorityColor = (priority: string): string => {
+  const getPriorityColor = useCallback((priority: string): string => {
     switch (priority) {
       case "Urgent":
         return "bg-red-100 text-red-800 border-red-200 animate-pulse"
@@ -169,9 +196,9 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
     }
-  }
+  }, [])
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = useCallback((status: string) => {
     switch (status) {
       case "Open":
         return <Clock className="h-4 w-4 text-blue-600" />
@@ -184,36 +211,72 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
       default:
         return <Clock className="h-4 w-4 text-gray-600" />
     }
-  }
+  }, [])
 
-  const formatDate = (dateString: string): string => {
+  const formatDate = useCallback((dateString: string): string => {
     return new Date(dateString).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     })
-  }
+  }, [])
 
-  const handleNavigateToPage = (page: string): void => {
-    if (onNavigate) {
-      onNavigate(page)
+  // FIXED: Navigation handler with proper error handling
+  const handleNavigateToPage = useCallback((page: string, params?: any): void => {
+    try {
+      console.log("🎫 CounselorDashboard: Navigating to:", page, params)
+      if (onNavigate) {
+        onNavigate(page, params)
+      }
+    } catch (error) {
+      console.error("❌ CounselorDashboard: Navigation error:", error)
     }
-  }
+  }, [onNavigate])
 
-  const refreshDashboard = async (): Promise<void> => {
-    await fetchTickets({ 
-      page: 1, 
-      per_page: 10,
-      sort_by: 'updated_at',
-      sort_direction: 'desc'
-    })
-  }
+  // FIXED: Refresh handler with proper error handling
+  const refreshDashboard = useCallback(async (): Promise<void> => {
+    try {
+      console.log("🎫 CounselorDashboard: Refreshing dashboard")
+      await store.actions.fetchTickets({ 
+        page: 1, 
+        per_page: 10,
+        sort_by: 'updated_at',
+        sort_direction: 'desc'
+      })
+    } catch (error) {
+      console.error("❌ CounselorDashboard: Refresh failed:", error)
+    }
+  }, [store.actions])
 
-  // Filter tickets by priority for crisis and urgent cases
-  const crisisTickets = assignedTickets.filter(ticket => ticket.crisis_flag || ticket.priority === "Urgent")
-  const urgentTickets = assignedTickets.filter(ticket => ticket.priority === "High" && !ticket.crisis_flag)
-  const recentTickets = assignedTickets.slice(0, 5)
+  // Memoized filtered tickets to prevent unnecessary calculations
+  const crisisTickets = useMemo(() => 
+    assignedTickets.filter(ticket => ticket.crisis_flag || ticket.priority === "Urgent"), 
+    [assignedTickets]
+  )
+  
+  const urgentTickets = useMemo(() => 
+    assignedTickets.filter(ticket => ticket.priority === "High" && !ticket.crisis_flag), 
+    [assignedTickets]
+  )
+  
+  const recentTickets = useMemo(() => 
+    assignedTickets.slice(0, 5), 
+    [assignedTickets]
+  )
+
+  // Show loading state during initialization
+  if (!isInitialized && loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-green-600 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Loading Dashboard</h3>
+          <p className="text-gray-600">Fetching your cases...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -248,7 +311,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
               <div className="flex items-center space-x-2">
                 <Shield className="h-5 w-5" />
                 <div>
-                  <div className="text-2xl font-bold">{stats.total || 0}</div>
+                  <div className="text-2xl font-bold">{assignedTickets.length}</div>
                   <div className="text-sm text-green-100">Total Cases</div>
                 </div>
               </div>
@@ -388,7 +451,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-6">
-                {loadingTickets ? (
+                {loading ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-blue-600 mr-2" />
                     <span className="text-gray-600">Loading cases...</span>
@@ -432,7 +495,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleNavigateToPage(`ticket-details?id=${ticket.id}`)}
+                            onClick={() => handleNavigateToPage('ticket-details', { ticketId: ticket.id })}
                             className="hover:bg-blue-50"
                           >
                             <Eye className="h-4 w-4" />
@@ -608,7 +671,11 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                               <p className="font-medium text-sm">#{ticket.ticket_number}</p>
                               <p className="text-xs text-gray-600 truncate max-w-32">{ticket.subject}</p>
                             </div>
-                            <Button size="sm" variant="destructive">
+                            <Button 
+                              size="sm" 
+                              variant="destructive"
+                              onClick={() => handleNavigateToPage('ticket-details', { ticketId: ticket.id })}
+                            >
                               Respond Now
                             </Button>
                           </div>
@@ -636,7 +703,11 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                               <p className="font-medium text-sm">#{ticket.ticket_number}</p>
                               <p className="text-xs text-gray-600 truncate max-w-32">{ticket.subject}</p>
                             </div>
-                            <Button size="sm" variant="default">
+                            <Button 
+                              size="sm" 
+                              variant="default"
+                              onClick={() => handleNavigateToPage('ticket-details', { ticketId: ticket.id })}
+                            >
                               Review
                             </Button>
                           </div>
@@ -655,7 +726,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
               <CardTitle>All Assigned Cases</CardTitle>
             </CardHeader>
             <CardContent>
-              {loadingTickets ? (
+              {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
                   <span className="text-gray-600">Loading your cases...</span>
@@ -705,7 +776,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleNavigateToPage(`ticket-details?id=${ticket.id}`)}
+                          onClick={() => handleNavigateToPage('ticket-details', { ticketId: ticket.id })}
                         >
                           <Eye className="h-4 w-4 mr-1" />
                           View
@@ -771,7 +842,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">Mental Health</span>
                     <div className="flex items-center space-x-2">
                       <div className="w-24 bg-gray-200 rounded-full h-2">

@@ -1,7 +1,7 @@
-// components/dashboards/admin-dashboard.tsx
+// components/dashboards/admin-dashboard.tsx (Fixed infinite loops and TypeScript errors)
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -34,8 +34,13 @@ import {
   Calendar,
   Bell,
 } from "lucide-react"
-import { useTickets } from "@/hooks/use-tickets"
-import { TicketData } from "@/services/ticket.service"
+import { 
+  useTicketStore, 
+  useTicketStats, 
+  useTicketLoading, 
+  useTicketSelectors,
+  TicketData 
+} from "@/stores/ticket-store"
 
 interface AdminDashboardProps {
   user: {
@@ -43,7 +48,7 @@ interface AdminDashboardProps {
     email: string
     role: string
   }
-  onNavigate?: (page: string) => void
+  onNavigate?: (page: string, params?: any) => void
 }
 
 interface SystemMetrics {
@@ -81,8 +86,14 @@ interface StaffPerformance {
 }
 
 export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
-  const { tickets, loading, stats, fetchTickets } = useTickets()
-  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>({
+  // Use ticket store instead of hooks
+  const store = useTicketStore()
+  const stats = useTicketStats()
+  const loading = useTicketLoading('list')
+  const selectors = useTicketSelectors()
+  
+  // Local state
+  const [systemMetrics] = useState<SystemMetrics>({
     totalUsers: 1247,
     activeUsers: 892,
     totalSessions: 156,
@@ -90,31 +101,47 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
     storageUsed: 67,
     responseTime: 245,
   })
-  const [recentTickets, setRecentTickets] = useState<TicketData[]>([])
-  const [loadingTickets, setLoadingTickets] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
+  const [isInitialized, setIsInitialized] = useState(false)
 
-  // Fetch all tickets for admin overview
+  // Memoized recent tickets to prevent re-renders
+  const recentTickets = useMemo(() => {
+    return selectors.tickets.slice(0, 8)
+  }, [selectors.tickets])
+
+  // FIXED: Proper initialization with dependency array
   useEffect(() => {
-    const loadAllTickets = async () => {
-      setLoadingTickets(true)
-      await fetchTickets({ 
-        page: 1, 
-        per_page: 10,
-        sort_by: 'updated_at',
-        sort_direction: 'desc'
-      })
-      setLoadingTickets(false)
+    let isMounted = true
+
+    const initializeDashboard = async () => {
+      if (isInitialized) return
+      
+      try {
+        console.log("🎫 AdminDashboard: Initializing dashboard data")
+        await store.actions.fetchTickets({ 
+          page: 1, 
+          per_page: 10,
+          sort_by: 'updated_at',
+          sort_direction: 'desc'
+        })
+        
+        if (isMounted) {
+          setIsInitialized(true)
+        }
+      } catch (error) {
+        console.error("❌ AdminDashboard: Failed to initialize:", error)
+      }
     }
 
-    loadAllTickets()
-  }, [fetchTickets])
+    initializeDashboard()
 
-  useEffect(() => {
-    setRecentTickets(tickets.slice(0, 8))
-  }, [tickets])
+    return () => {
+      isMounted = false
+    }
+  }, [store.actions, isInitialized]) // FIXED: Added proper dependencies
 
-  const recentAlerts: AlertItem[] = [
+  // Memoized alert data
+  const recentAlerts: AlertItem[] = useMemo(() => [
     {
       id: 1,
       type: "High Priority Ticket",
@@ -144,23 +171,24 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
       severity: "low",
       time: "3 hours ago",
     },
-  ]
+  ], [])
 
-  const userStats: UserStat[] = [
+  const userStats: UserStat[] = useMemo(() => [
     { role: "Students", count: 1089, change: "+12", color: "blue" },
     { role: "Counselors", count: 45, change: "+2", color: "green" },
     { role: "Advisors", count: 23, change: "0", color: "purple" },
     { role: "Admins", count: 8, change: "0", color: "orange" },
-  ]
+  ], [])
 
-  const staffPerformance: StaffPerformance[] = [
+  const staffPerformance: StaffPerformance[] = useMemo(() => [
     { name: "Dr. Sarah Wilson", role: "Counselor", cases: 28, resolved: 24, rating: 4.9, responseTime: "1.2h" },
     { name: "Prof. Michael Chen", role: "Advisor", cases: 35, resolved: 32, rating: 4.7, responseTime: "2.1h" },
     { name: "Dr. Emily Rodriguez", role: "Counselor", cases: 22, resolved: 20, rating: 4.8, responseTime: "1.5h" },
     { name: "Dr. James Park", role: "Advisor", cases: 30, resolved: 28, rating: 4.6, responseTime: "2.8h" },
-  ]
+  ], [])
 
-  const getStatusColor = (status: string): string => {
+  // FIXED: Proper utility functions with useCallback
+  const getStatusColor = useCallback((status: string): string => {
     switch (status) {
       case "Open":
         return "bg-blue-100 text-blue-800 border-blue-200"
@@ -173,9 +201,9 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
     }
-  }
+  }, [])
 
-  const getPriorityColor = (priority: string): string => {
+  const getPriorityColor = useCallback((priority: string): string => {
     switch (priority) {
       case "Urgent":
         return "bg-red-100 text-red-800 border-red-200 animate-pulse"
@@ -188,9 +216,9 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
     }
-  }
+  }, [])
 
-  const getSeverityIcon = (severity: 'high' | 'medium' | 'low') => {
+  const getSeverityIcon = useCallback((severity: 'high' | 'medium' | 'low') => {
     switch (severity) {
       case "high":
         return <XCircle className="h-5 w-5 text-red-600" />
@@ -201,36 +229,67 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
       default:
         return <Clock className="h-5 w-5 text-gray-600" />
     }
-  }
+  }, [])
 
-  const formatDate = (dateString: string): string => {
+  const formatDate = useCallback((dateString: string): string => {
     return new Date(dateString).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     })
-  }
+  }, [])
 
-  const handleNavigateToPage = (page: string): void => {
-    if (onNavigate) {
-      onNavigate(page)
+  // FIXED: Navigation handler with proper error handling
+  const handleNavigateToPage = useCallback((page: string, params?: any): void => {
+    try {
+      console.log("🎫 AdminDashboard: Navigating to:", page, params)
+      if (onNavigate) {
+        onNavigate(page, params)
+      }
+    } catch (error) {
+      console.error("❌ AdminDashboard: Navigation error:", error)
     }
-  }
+  }, [onNavigate])
 
-  const refreshDashboard = async (): Promise<void> => {
-    await fetchTickets({ 
-      page: 1, 
-      per_page: 10,
-      sort_by: 'updated_at',
-      sort_direction: 'desc'
-    })
-  }
+  // FIXED: Refresh handler with proper error handling
+  const refreshDashboard = useCallback(async (): Promise<void> => {
+    try {
+      console.log("🎫 AdminDashboard: Refreshing dashboard")
+      await store.actions.fetchTickets({ 
+        page: 1, 
+        per_page: 10,
+        sort_by: 'updated_at',
+        sort_direction: 'desc'
+      })
+    } catch (error) {
+      console.error("❌ AdminDashboard: Refresh failed:", error)
+    }
+  }, [store.actions])
 
-  // Filter tickets by status
-  const unassignedTickets = recentTickets.filter(ticket => !ticket.assigned_to)
-  const crisisTickets = recentTickets.filter(ticket => ticket.crisis_flag || ticket.priority === "Urgent")
-  const activeTickets = recentTickets.filter(ticket => ticket.status === "Open" || ticket.status === "In Progress")
+  // Memoized filtered tickets to prevent unnecessary calculations
+  const unassignedTickets = useMemo(() => 
+    recentTickets.filter(ticket => !ticket.assigned_to), 
+    [recentTickets]
+  )
+  
+  const crisisTickets = useMemo(() => 
+    recentTickets.filter(ticket => ticket.crisis_flag || ticket.priority === "Urgent"), 
+    [recentTickets]
+  )
+
+  // Show loading state during initialization
+  if (!isInitialized && loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Loading Dashboard</h3>
+          <p className="text-gray-600">Fetching system data...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -475,7 +534,7 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleNavigateToPage(`ticket-details?id=${alert.ticketId}`)}
+                          onClick={() => handleNavigateToPage('ticket-details', { ticketId: alert.ticketId })}
                         >
                           View
                         </Button>
@@ -571,7 +630,7 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-6">
-              {loadingTickets ? (
+              {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
                   <span className="text-gray-600">Loading tickets...</span>
@@ -618,7 +677,7 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleNavigateToPage(`ticket-details?id=${ticket.id}`)}
+                          onClick={() => handleNavigateToPage('ticket-details', { ticketId: ticket.id })}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -646,12 +705,12 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
             >
               <UserPlus className="h-4 w-4 mr-2" />
               Manage All Users
-            </Button>
+              </Button>
           </div>
 
           {/* User Stats Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card className="border-0 shadow-xl">
+          <Card className="border-0 shadow-xl">
               <CardHeader>
                 <CardTitle>User Distribution</CardTitle>
               </CardHeader>

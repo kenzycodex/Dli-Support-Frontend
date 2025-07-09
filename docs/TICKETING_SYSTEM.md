@@ -77,23 +77,9 @@ Here’s a **complete breakdown** of the **Ticketing System**, showing:
 
 ---
 
-### 🧑‍💼 3. **Advisor**
+NOTE: Advisors has no role or nothing to perfeorm in the ticketing systems, he just receives an email from the counselor or admin concerning anything, not a ticket....just like receiving an email message and saveing or logging that email was sent from the admin/ orthis counselor to this advisor and date and time, the email will be sent to the advisor email but typed on the platform kinda, you get what i mean right...no complexities or over engineering
 
-*(Same as Counselor, unless you split roles further)*
-
-#### ✅ **Permissions**
-
-* Handle **academic or general** support tickets
-* Same capabilities: view assigned, reply, resolve, reassign
-
-#### 🖥️ **UI Expectations**
-
-* Identical to counselor
-* May show only specific categories (e.g., “Academic”, “General”)
-
----
-
-### 🛡️ 4. **Admin**
+### 🛡️ 3. **Admin**
 
 #### ✅ **Permissions**
 
@@ -129,7 +115,6 @@ Here’s a **complete breakdown** of the **Ticketing System**, showing:
 | --------- | ---------------- | ---------------- | ----- | --------------- | ------------- | ------------- |
 | Student   | ✅                | ❌                | ✅     | ❌               | ❌             | ❌             |
 | Counselor | ✅ (assigned)     | ❌                | ✅     | ✅ (optional)    | ✅             | ❌             |
-| Advisor   | ✅ (assigned)     | ❌                | ✅     | ✅ (optional)    | ✅             | ❌             |
 | Admin     | ✅                | ✅                | ✅     | ✅               | ✅             | ✅             |
 
 ---
@@ -149,4 +134,3 @@ Here’s a **complete breakdown** of the **Ticketing System**, showing:
 
 * ✅ **Tagging system** (Urgent, Follow-up, Resolved)
 * ✅ **Priority levels** (Low, Medium, High)
-* ✅ **Ticket auto-assign** by category

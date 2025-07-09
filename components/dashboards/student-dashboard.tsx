@@ -1,7 +1,7 @@
-// components/dashboards/student-dashboard.tsx
+// components/dashboards/student-dashboard.tsx (Fixed infinite loops and TypeScript errors)
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -27,8 +27,13 @@ import {
   RefreshCw,
   Loader2,
 } from "lucide-react"
-import { useTickets } from "@/hooks/use-tickets"
-import { TicketData } from "@/services/ticket.service"
+import { 
+  useTicketStore, 
+  useTicketStats, 
+  useTicketLoading, 
+  useTicketSelectors,
+  TicketData 
+} from "@/stores/ticket-store"
 
 interface StudentDashboardProps {
   user: {
@@ -36,7 +41,7 @@ interface StudentDashboardProps {
     email: string
     role: string
   }
-  onNavigate?: (page: string) => void
+  onNavigate?: (page: string, params?: any) => void
 }
 
 interface AppointmentData {
@@ -58,32 +63,53 @@ interface SelfHelpResource {
 }
 
 export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
-  const { tickets, loading, stats, fetchTickets } = useTickets()
-  const [recentTickets, setRecentTickets] = useState<TicketData[]>([])
-  const [loadingRecent, setLoadingRecent] = useState(true)
+  // Use ticket store instead of hooks
+  const store = useTicketStore()
+  const stats = useTicketStats()
+  const loading = useTicketLoading('list')
+  const selectors = useTicketSelectors()
+  
+  // Local state
+  const [isInitialized, setIsInitialized] = useState(false)
 
-  // Fetch student's recent tickets on component mount
+  // Memoized recent tickets to prevent re-renders
+  const recentTickets = useMemo(() => {
+    return selectors.tickets.slice(0, 3)
+  }, [selectors.tickets])
+
+  // FIXED: Proper initialization with dependency array
   useEffect(() => {
-    const loadRecentTickets = async () => {
-      setLoadingRecent(true)
-      await fetchTickets({ 
-        page: 1, 
-        per_page: 3,
-        sort_by: 'updated_at',
-        sort_direction: 'desc'
-      })
-      setLoadingRecent(false)
+    let isMounted = true
+
+    const initializeDashboard = async () => {
+      if (isInitialized) return
+      
+      try {
+        console.log("🎫 StudentDashboard: Initializing dashboard data")
+        await store.actions.fetchTickets({ 
+          page: 1, 
+          per_page: 3,
+          sort_by: 'updated_at',
+          sort_direction: 'desc'
+        })
+        
+        if (isMounted) {
+          setIsInitialized(true)
+        }
+      } catch (error) {
+        console.error("❌ StudentDashboard: Failed to initialize:", error)
+      }
     }
 
-    loadRecentTickets()
-  }, [fetchTickets])
+    initializeDashboard()
 
-  // Update recent tickets when tickets change
-  useEffect(() => {
-    setRecentTickets(tickets.slice(0, 3))
-  }, [tickets])
+    return () => {
+      isMounted = false
+    }
+  }, [store.actions, isInitialized]) // FIXED: Added proper dependencies
 
-  const upcomingAppointments: AppointmentData[] = [
+  // Memoized appointment data
+  const upcomingAppointments: AppointmentData[] = useMemo(() => [
     {
       id: 1,
       type: "Video Call",
@@ -102,9 +128,9 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
       status: "confirmed",
       canJoin: false,
     },
-  ]
+  ], [])
 
-  const selfHelpResources: SelfHelpResource[] = [
+  const selfHelpResources: SelfHelpResource[] = useMemo(() => [
     {
       title: "Stress Management Techniques",
       type: "Video",
@@ -126,9 +152,10 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
       icon: Headphones,
       color: "from-violet-500 to-purple-500",
     },
-  ]
+  ], [])
 
-  const getStatusColor = (status: string): string => {
+  // FIXED: Proper utility functions with useCallback
+  const getStatusColor = useCallback((status: string): string => {
     switch (status) {
       case "Open":
         return "bg-blue-100 text-blue-800 border-blue-200"
@@ -141,9 +168,9 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
     }
-  }
+  }, [])
 
-  const getPriorityColor = (priority: string): string => {
+  const getPriorityColor = useCallback((priority: string): string => {
     switch (priority) {
       case "Urgent":
         return "bg-red-100 text-red-800 border-red-200 animate-pulse"
@@ -156,9 +183,9 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
     }
-  }
+  }, [])
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = useCallback((status: string) => {
     switch (status) {
       case "Open":
         return <Clock className="h-4 w-4 text-blue-600" />
@@ -171,30 +198,55 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
       default:
         return <Clock className="h-4 w-4 text-gray-600" />
     }
-  }
+  }, [])
 
-  const formatDate = (dateString: string): string => {
+  const formatDate = useCallback((dateString: string): string => {
     return new Date(dateString).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     })
-  }
+  }, [])
 
-  const handleNavigateToPage = (page: string): void => {
-    if (onNavigate) {
-      onNavigate(page)
+  // FIXED: Navigation handler with proper error handling
+  const handleNavigateToPage = useCallback((page: string, params?: any): void => {
+    try {
+      console.log("🎫 StudentDashboard: Navigating to:", page, params)
+      if (onNavigate) {
+        onNavigate(page, params)
+      }
+    } catch (error) {
+      console.error("❌ StudentDashboard: Navigation error:", error)
     }
-  }
+  }, [onNavigate])
 
-  const refreshDashboard = async (): Promise<void> => {
-    await fetchTickets({ 
-      page: 1, 
-      per_page: 3,
-      sort_by: 'updated_at',
-      sort_direction: 'desc'
-    })
+  // FIXED: Refresh handler with proper error handling
+  const refreshDashboard = useCallback(async (): Promise<void> => {
+    try {
+      console.log("🎫 StudentDashboard: Refreshing dashboard")
+      await store.actions.fetchTickets({ 
+        page: 1, 
+        per_page: 3,
+        sort_by: 'updated_at',
+        sort_direction: 'desc'
+      })
+    } catch (error) {
+      console.error("❌ StudentDashboard: Refresh failed:", error)
+    }
+  }, [store.actions])
+
+  // Show loading state during initialization
+  if (!isInitialized && loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Loading Dashboard</h3>
+          <p className="text-gray-600">Getting your information ready...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -354,7 +406,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-6">
-            {loadingRecent ? (
+            {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
                 <span className="text-gray-600">Loading your tickets...</span>
@@ -398,7 +450,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleNavigateToPage(`ticket-details?id=${ticket.id}`)}
+                        onClick={() => handleNavigateToPage('ticket-details', { ticketId: ticket.id })}
                         className="hover:bg-blue-50 hover:border-blue-200"
                       >
                         <Eye className="h-4 w-4" />

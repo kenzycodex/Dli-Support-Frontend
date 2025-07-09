@@ -1,146 +1,204 @@
-// components/pages/submit-ticket-page.tsx
-"use client"
+// components/pages/submit-ticket-page.tsx (Fixed TypeScript issues)
+'use client';
 
-import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, Upload, X, FileText, ImageIcon, Loader2, CheckCircle, AlertCircle, Send } from "lucide-react"
-import { useTickets } from "@/hooks/use-tickets"
+import { useState, useCallback, useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  ArrowLeft,
+  Upload,
+  X,
+  FileText,
+  ImageIcon,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  Send,
+} from 'lucide-react';
+import {
+  useTicketStore,
+  useTicketLoading,
+  useTicketError,
+  useTicketPermissions,
+  CreateTicketRequest,
+} from '@/stores/ticket-store';
+import { ticketService } from '@/services/ticket.service';
 
 interface SubmitTicketPageProps {
-  onNavigate: (page: string) => void
+  onNavigate: (page: string, params?: any) => void;
 }
 
 export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
-  const { createTicket, loading } = useTickets()
+  // Zustand store hooks
+  const store = useTicketStore();
+  const loading = useTicketLoading('create');
+  const error = useTicketError('create');
+  const permissions = useTicketPermissions();
 
-  const [formData, setFormData] = useState({
-    subject: "",
-    category: "",
-    priority: "Medium" as "Low" | "Medium" | "High",
-    description: "",
-    attachments: [] as File[],
-  })
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
+  // Form state - Fix: Initialize attachments as empty array instead of undefined
+  const [formData, setFormData] = useState<CreateTicketRequest>({
+    subject: '',
+    category: '',
+    priority: 'Medium',
+    description: '',
+    attachments: [], // Fixed: Initialize as empty array
+  });
+  const [success, setSuccess] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  const categories = [
-    { value: "technical", label: "Technical Issues" },
-    { value: "academic", label: "Academic Support" },
-    { value: "mental-health", label: "Mental Health" },
-    { value: "administrative", label: "Administrative" },
-    { value: "other", label: "Other" },
-  ]
-
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-    setError(null)
+  // Check permissions
+  if (!permissions.can_create) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Card className="border-0 shadow-lg">
+          <CardContent className="p-8">
+            <div className="text-center">
+              <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-6" />
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">Access Denied</h2>
+              <p className="text-gray-600 mb-6">You do not have permission to create tickets.</p>
+              <Button onClick={() => onNavigate('tickets')}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Tickets
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || [])
-    
-    // Validate file size (10MB max)
-    const invalidFiles = files.filter(file => file.size > 10 * 1024 * 1024)
-    if (invalidFiles.length > 0) {
-      setError(`Some files exceed the 10MB limit: ${invalidFiles.map(f => f.name).join(', ')}`)
-      return
-    }
+  // Get available categories based on user role
+  const categories = useMemo(() => ticketService.getRoleCategories('student'), []);
 
-    // Validate total attachments (5 max)
-    if (formData.attachments.length + files.length > 5) {
-      setError("Maximum 5 attachments allowed")
-      return
-    }
-
-    // Validate file types
-    const allowedTypes = [
-      'application/pdf',
-      'image/png', 'image/jpeg', 'image/jpg', 'image/gif',
-      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'text/plain'
-    ]
-    const invalidTypes = files.filter(file => !allowedTypes.includes(file.type))
-    if (invalidTypes.length > 0) {
-      setError(`Invalid file types: ${invalidTypes.map(f => f.name).join(', ')}. Only PDF, images, Word documents, and text files are allowed.`)
-      return
-    }
-
-    setError(null)
-    setFormData(prev => ({
-      ...prev,
-      attachments: [...prev.attachments, ...files],
-    }))
-  }
-
-  const removeFile = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      attachments: prev.attachments.filter((_, i) => i !== index),
-    }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-
-    // Validation
-    if (!formData.subject.trim()) {
-      setError("Subject is required")
-      return
-    }
-    if (!formData.category) {
-      setError("Please select a category")
-      return
-    }
-    if (!formData.description.trim()) {
-      setError("Description is required")
-      return
-    }
-    if (formData.description.length < 20) {
-      setError("Description must be at least 20 characters long")
-      return
-    }
-
-    try {
-      const ticket = await createTicket({
-        subject: formData.subject.trim(),
-        description: formData.description.trim(),
-        category: formData.category,
-        priority: formData.priority,
-        attachments: formData.attachments.length > 0 ? formData.attachments : undefined,
-      })
-
-      if (ticket) {
-        setSuccess(true)
-        setTimeout(() => {
-          onNavigate('tickets')
-        }, 2500)
+  // Handle form input changes
+  const handleInputChange = useCallback(
+    (field: keyof CreateTicketRequest, value: any) => {
+      setFormData((prev) => ({ ...prev, [field]: value }));
+      setLocalError(null);
+      if (error) {
+        store.actions.clearError('create');
       }
-    } catch (err) {
-      console.error("Failed to create ticket:", err)
-      setError("Failed to create ticket. Please try again.")
-    }
-  }
+    },
+    [error, store.actions]
+  );
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-  }
+  // Handle file upload with enhanced validation
+  const handleFileUpload = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
 
-  const isFormValid = formData.subject.trim() && 
-                     formData.category && 
-                     formData.description.trim() && 
-                     formData.description.length >= 20
+      // Clear previous errors
+      setLocalError(null);
+      if (error) {
+        store.actions.clearError('create');
+      }
 
+      // Validate files using service
+      const validation = ticketService.validateFiles(files, 5);
+      if (!validation.valid) {
+        setLocalError(validation.errors.join(', '));
+        return;
+      }
+
+      // Fix: Ensure attachments is always an array
+      const currentAttachments = formData.attachments || [];
+
+      // Check total attachments limit
+      if (currentAttachments.length + files.length > 5) {
+        setLocalError('Maximum 5 attachments allowed');
+        return;
+      }
+
+      setFormData((prev) => ({
+        ...prev,
+        attachments: [...currentAttachments, ...files], // Fixed: Use currentAttachments
+      }));
+
+      // Reset file input
+      event.target.value = '';
+    },
+    [formData.attachments, error, store.actions]
+  );
+
+  // Remove file from attachments
+  const removeFile = useCallback((index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter((_, i) => i !== index), // Fixed: Handle undefined
+    }));
+  }, []);
+
+  // Handle form submission
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setLocalError(null);
+
+      // Client-side validation using service
+      const validation = ticketService.validateTicketData(formData);
+      if (!validation.valid) {
+        setLocalError(validation.errors.join(', '));
+        return;
+      }
+
+      try {
+        const ticket = await store.actions.createTicket(formData);
+
+        if (ticket) {
+          setSuccess(true);
+          setTimeout(() => {
+            onNavigate('tickets');
+          }, 2500);
+        }
+      } catch (err) {
+        console.error('Failed to create ticket:', err);
+        setLocalError('Failed to create ticket. Please try again.');
+      }
+    },
+    [formData, store.actions, onNavigate]
+  );
+
+  // Check if form is valid
+  const isFormValid = useMemo(() => {
+    return (
+      formData.subject.trim() &&
+      formData.category &&
+      formData.description.trim() &&
+      formData.description.length >= 20
+    );
+  }, [formData.subject, formData.category, formData.description]);
+
+  // Format file size for display
+  const formatFileSize = useCallback((bytes: number) => {
+    return ticketService.formatFileSize(bytes);
+  }, []);
+
+  // Detect crisis keywords and auto-set priority
+  const handleDescriptionChange = useCallback(
+    (value: string) => {
+      handleInputChange('description', value);
+
+      // Auto-detect crisis keywords and set urgent priority
+      if (ticketService.detectCrisisKeywords(value) && formData.priority !== 'Urgent') {
+        handleInputChange('priority', 'Urgent');
+        handleInputChange('category', 'crisis');
+      }
+    },
+    [formData.priority, handleInputChange]
+  );
+
+  // Success screen
   if (success) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -160,9 +218,12 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
           <CardContent className="p-8">
             <div className="text-center">
               <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-6" />
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">Ticket Created Successfully!</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                Ticket Created Successfully!
+              </h2>
               <p className="text-gray-600 mb-6">
-                Your support request has been submitted and you will receive a confirmation email shortly.
+                Your support request has been submitted and you will receive a confirmation email
+                shortly.
               </p>
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-8 max-w-md mx-auto">
                 <h3 className="font-semibold text-green-800 mb-2">What happens next?</h3>
@@ -185,7 +246,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                   </li>
                 </ul>
               </div>
-              <Button 
+              <Button
                 onClick={() => onNavigate('tickets')}
                 className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
               >
@@ -195,9 +256,10 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 
+  // Form screen
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -213,7 +275,9 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
         </Button>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Submit Support Ticket</h1>
-          <p className="text-gray-600 mt-1">Describe your issue and we'll get back to you as soon as possible</p>
+          <p className="text-gray-600 mt-1">
+            Describe your issue and we'll get back to you as soon as possible
+          </p>
         </div>
       </div>
 
@@ -224,15 +288,19 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
         </CardHeader>
         <CardContent className="p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
+            {/* Error Display */}
+            {(error || localError) && (
               <Alert variant="destructive" className="mb-6">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>{error || localError}</AlertDescription>
               </Alert>
             )}
 
+            {/* Subject Field */}
             <div className="space-y-3">
-              <Label htmlFor="subject" className="text-sm font-medium text-gray-700">Subject *</Label>
+              <Label htmlFor="subject" className="text-sm font-medium text-gray-700">
+                Subject *
+              </Label>
               <Input
                 id="subject"
                 placeholder="Brief description of your issue"
@@ -243,11 +311,15 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                 maxLength={255}
                 className="h-11 text-base"
               />
+              <div className="text-xs text-gray-500 text-right">{formData.subject.length}/255</div>
             </div>
 
+            {/* Category and Priority */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-3">
-                <Label htmlFor="category" className="text-sm font-medium text-gray-700">Category *</Label>
+                <Label htmlFor="category" className="text-sm font-medium text-gray-700">
+                  Category *
+                </Label>
                 <Select
                   value={formData.category}
                   onValueChange={(value) => handleInputChange('category', value)}
@@ -259,7 +331,10 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                   <SelectContent>
                     {categories.map((category) => (
                       <SelectItem key={category.value} value={category.value}>
-                        {category.label}
+                        <div className="flex flex-col">
+                          <span className="font-medium">{category.label}</span>
+                          <span className="text-xs text-gray-500">{category.description}</span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -267,11 +342,13 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
               </div>
 
               <div className="space-y-3">
-                <Label htmlFor="priority" className="text-sm font-medium text-gray-700">Priority</Label>
+                <Label htmlFor="priority" className="text-sm font-medium text-gray-700">
+                  Priority
+                </Label>
                 <Select
                   value={formData.priority}
-                  onValueChange={(value: "Low" | "Medium" | "High") => 
-                    setFormData(prev => ({ ...prev, priority: value }))
+                  onValueChange={(value: 'Low' | 'Medium' | 'High' | 'Urgent') =>
+                    handleInputChange('priority', value)
                   }
                   disabled={loading}
                 >
@@ -279,32 +356,79 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Low">Low</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Low">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        Low
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="Medium">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                        Medium
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="High">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                        High
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="Urgent">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                        Urgent
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
+            {/* Description Field */}
             <div className="space-y-3">
-              <Label htmlFor="description" className="text-sm font-medium text-gray-700">Description *</Label>
+              <Label htmlFor="description" className="text-sm font-medium text-gray-700">
+                Description *
+              </Label>
               <Textarea
                 id="description"
                 placeholder="Please provide detailed information about your issue..."
                 className="min-h-[180px] text-base resize-y"
                 value={formData.description}
-                onChange={(e) => handleInputChange('description', e.target.value)}
+                onChange={(e) => handleDescriptionChange(e.target.value)}
                 required
                 disabled={loading}
                 maxLength={5000}
               />
               <div className="flex justify-between text-xs text-gray-500">
-                <span>Minimum 20 characters required</span>
-                <span>{formData.description.length}/5000</span>
+                <span>
+                  Minimum 20 characters required
+                  {formData.description.length >= 20 && (
+                    <CheckCircle className="inline h-3 w-3 text-green-500 ml-1" />
+                  )}
+                </span>
+                <span
+                  className={formData.description.length < 20 ? 'text-red-500' : 'text-gray-500'}
+                >
+                  {formData.description.length}/5000
+                </span>
               </div>
             </div>
 
+            {/* Crisis Detection Alert */}
+            {ticketService.detectCrisisKeywords(formData.description) && (
+              <Alert className="border-red-200 bg-red-50">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-800">
+                  <strong>Crisis Support Detected:</strong> Your message indicates you may need
+                  immediate assistance. Your ticket has been automatically marked as urgent and will
+                  be prioritized. If this is an emergency, please call our crisis hotline:{' '}
+                  <strong>(555) 123-4567</strong>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Attachments Section */}
             <div className="space-y-4">
               <Label className="text-sm font-medium text-gray-700">Attachments (Optional)</Label>
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors bg-gray-50/50">
@@ -326,11 +450,12 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => document.getElementById("file-upload")?.click()}
+                    onClick={() => document.getElementById('file-upload')?.click()}
                     className="mt-2 hover:bg-blue-50 hover:border-blue-200"
-                    disabled={loading || formData.attachments.length >= 5}
+                    disabled={loading || (formData.attachments || []).length >= 5} // Fixed: Handle undefined
                   >
-                    Choose Files
+                    Choose Files ({(formData.attachments || []).length}/5){' '}
+                    {/* Fixed: Handle undefined */}
                   </Button>
                 </div>
                 <p className="text-xs text-gray-500 mt-4">
@@ -338,40 +463,55 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                 </p>
               </div>
 
-              {formData.attachments.length > 0 && (
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium text-gray-700">Uploaded Files ({formData.attachments.length}/5)</Label>
-                  <div className="space-y-2">
-                    {formData.attachments.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
-                        <div className="flex items-center gap-3">
-                          {file.type.startsWith("image/") ? (
-                            <ImageIcon className="h-5 w-5 text-blue-500" />
-                          ) : (
-                            <FileText className="h-5 w-5 text-gray-500" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800 truncate">{file.name}</p>
-                            <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+              {/* Uploaded Files Display */}
+              {formData.attachments &&
+                formData.attachments.length > 0 && ( // Fixed: Check for undefined
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium text-gray-700">
+                      Uploaded Files ({formData.attachments.length}/5)
+                    </Label>
+                    <div className="space-y-2">
+                      {formData.attachments.map(
+                        (
+                          file,
+                          index // Fixed: Now safe to iterate
+                        ) => (
+                          <div
+                            key={index}
+                            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border"
+                          >
+                            <div className="flex items-center gap-3">
+                              {ticketService.isImage(file.type) ? (
+                                <ImageIcon className="h-5 w-5 text-blue-500" />
+                              ) : (
+                                <FileText className="h-5 w-5 text-gray-500" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-800 truncate">
+                                  {file.name}
+                                </p>
+                                <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeFile(index)}
+                              className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                              disabled={loading}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
                           </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeFile(index)}
-                          className="text-red-500 hover:bg-red-50 hover:text-red-600"
-                          disabled={loading}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
             </div>
 
+            {/* Help Information */}
             <div className="bg-blue-50 p-5 rounded-lg border border-blue-200">
               <h4 className="font-medium text-blue-800 mb-3">What happens next?</h4>
               <ul className="text-sm text-blue-700 space-y-2">
@@ -394,10 +534,11 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
               </ul>
             </div>
 
+            {/* Form Actions */}
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
-              <Button 
-                type="button" 
-                variant="outline" 
+              <Button
+                type="button"
+                variant="outline"
                 onClick={() => onNavigate('tickets')}
                 disabled={loading}
                 className="w-full sm:w-auto"
@@ -407,7 +548,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
               <Button
                 type="submit"
                 disabled={!isFormValid || loading}
-                className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <>
@@ -426,5 +567,5 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

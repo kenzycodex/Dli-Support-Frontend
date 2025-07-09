@@ -1,111 +1,18 @@
-// services/ticket.service.ts (Comprehensive role-based ticket service)
+// services/ticket.service.ts (Enhanced and Simplified)
 
 import { apiClient, ApiResponse } from '@/lib/api'
 
-export interface TicketData {
-  id: number
-  ticket_number: string
-  user_id: number
-  subject: string
-  description: string
-  category: 'general' | 'academic' | 'mental-health' | 'crisis' | 'technical' | 'other'
-  priority: 'Low' | 'Medium' | 'High' | 'Urgent'
-  status: 'Open' | 'In Progress' | 'Resolved' | 'Closed'
-  assigned_to?: number
-  crisis_flag: boolean
-  tags?: string[]
-  resolved_at?: string
-  closed_at?: string
-  created_at: string
-  updated_at: string
-  user?: {
-    id: number
-    name: string
-    email: string
-    role: string
-  }
-  assignedTo?: {
-    id: number
-    name: string
-    email: string
-    role: string
-  }
-  responses?: TicketResponseData[]
-  attachments?: TicketAttachmentData[]
-  response_count?: number
-  attachment_count?: number
-}
-
-export interface TicketResponseData {
-  id: number
-  ticket_id: number
-  user_id: number
-  message: string
-  is_internal: boolean
-  visibility: 'all' | 'counselors' | 'admins'
-  is_urgent: boolean
-  created_at: string
-  updated_at: string
-  user?: {
-    id: number
-    name: string
-    email: string
-    role: string
-  }
-  attachments?: TicketAttachmentData[]
-}
-
-export interface TicketAttachmentData {
-  id: number
-  ticket_id: number
-  response_id?: number
-  original_name: string
-  file_path: string
-  file_type: string
-  file_size: number
-  created_at: string
-  updated_at: string
-}
-
-export interface TicketListParams {
-  page?: number
-  per_page?: number
-  status?: string
-  category?: string
-  priority?: string
-  assigned?: string
-  search?: string
-  sort_by?: string
-  sort_direction?: 'asc' | 'desc'
-  tags?: string[]
-}
-
-export interface CreateTicketRequest {
-  subject: string
-  description: string
-  category: string
-  priority?: 'Low' | 'Medium' | 'High' | 'Urgent'
-  attachments?: File[]
-  created_for?: number // Admin creating on behalf of student
-}
-
-export interface AddResponseRequest {
-  message: string
-  is_internal?: boolean
-  visibility?: 'all' | 'counselors' | 'admins'
-  is_urgent?: boolean
-  attachments?: File[]
-}
-
-export interface UpdateTicketRequest {
-  status?: 'Open' | 'In Progress' | 'Resolved' | 'Closed'
-  assigned_to?: number | null
-  priority?: 'Low' | 'Medium' | 'High' | 'Urgent'
-  crisis_flag?: boolean
-  tags?: string[]
-  subject?: string // Students can update subject of open tickets
-  description?: string // Students can update description of open tickets
-}
+// Re-export types from store for consistency
+export type {
+  TicketData,
+  TicketResponseData,
+  TicketAttachmentData,
+  TicketStats,
+  TicketFilters,
+  CreateTicketRequest,
+  AddResponseRequest,
+  UpdateTicketRequest
+} from '@/stores/ticket-store'
 
 export interface AssignTicketRequest {
   assigned_to: number | null
@@ -123,20 +30,8 @@ export interface TagManagementRequest {
   tags: string[]
 }
 
-export interface TicketStats {
-  total: number
-  open: number
-  in_progress: number
-  resolved: number
-  closed: number
-  high_priority: number
-  urgent: number
-  crisis: number
-  unassigned: number // Make this required instead of optional
-}
-
 export interface TicketAnalytics {
-  overview: TicketStats
+  overview: any
   trends: {
     created_this_period: number
     resolved_this_period: number
@@ -162,48 +57,43 @@ export interface StaffMember {
   assigned_tickets_count: number
 }
 
+/**
+ * Clean, simplified ticket service that works with Zustand store
+ * Handles all API communication and data transformation
+ */
 class TicketService {
+  private readonly apiClient = apiClient
+
   /**
-   * Get tickets based on user role with comprehensive filtering
+   * Get tickets with comprehensive filtering
    */
-  async getTickets(params: TicketListParams = {}): Promise<
-    ApiResponse<{
-      tickets: TicketData[]
-      pagination: any
-      stats: TicketStats
-      user_role: string
-    }>
-  > {
+  async getTickets(params: Record<string, any> = {}): Promise<ApiResponse<{
+    tickets: any[]
+    pagination: any
+    stats: any
+    user_role: string
+  }>> {
     console.log('🎫 TicketService: Fetching tickets with params:', params)
 
     const queryParams = new URLSearchParams()
     
-    // Pagination
-    if (params.page) queryParams.append('page', params.page.toString())
-    if (params.per_page) queryParams.append('per_page', params.per_page.toString())
-    
-    // Sorting
-    if (params.sort_by) queryParams.append('sort_by', params.sort_by)
-    if (params.sort_direction) queryParams.append('sort_direction', params.sort_direction)
-    
-    // Filters
-    if (params.status && params.status !== 'all') queryParams.append('status', params.status)
-    if (params.category && params.category !== 'all') queryParams.append('category', params.category)
-    if (params.priority && params.priority !== 'all') queryParams.append('priority', params.priority)
-    if (params.assigned && params.assigned !== 'all') queryParams.append('assigned', params.assigned)
-    if (params.search) queryParams.append('search', params.search)
-    
-    // Tags
-    if (params.tags && params.tags.length > 0) {
-      params.tags.forEach(tag => queryParams.append('tags[]', tag))
-    }
+    // Build query parameters
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+        if (Array.isArray(value)) {
+          value.forEach(v => queryParams.append(`${key}[]`, v.toString()))
+        } else {
+          queryParams.append(key, value.toString())
+        }
+      }
+    })
 
     try {
-      const response = await apiClient.get(`/tickets?${queryParams.toString()}`)
-      console.log('🎫 TicketService: Tickets response:', response)
+      const response = await this.apiClient.get(`/tickets?${queryParams.toString()}`)
+      console.log('✅ TicketService: Tickets fetched successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Failed to fetch tickets:', error)
+      console.error('❌ TicketService: Failed to fetch tickets:', error)
       return {
         success: false,
         message: 'Failed to fetch tickets. Please try again.',
@@ -213,21 +103,32 @@ class TicketService {
   }
 
   /**
-   * Create new ticket with enhanced validation and file handling
+   * Get single ticket with full details
    */
-  async createTicket(data: CreateTicketRequest): Promise<ApiResponse<{ ticket: TicketData }>> {
+  async getTicket(ticketId: number): Promise<ApiResponse<{ ticket: any }>> {
+    console.log('🎫 TicketService: Fetching ticket details:', ticketId)
+
+    try {
+      const response = await this.apiClient.get(`/tickets/${ticketId}`)
+      console.log('✅ TicketService: Ticket details fetched successfully')
+      return response
+    } catch (error) {
+      console.error('❌ TicketService: Failed to fetch ticket details:', error)
+      return {
+        success: false,
+        message: 'Failed to fetch ticket details.',
+        errors: error
+      }
+    }
+  }
+
+  /**
+   * Create new ticket with proper FormData handling
+   */
+  async createTicket(data: any): Promise<ApiResponse<{ ticket: any }>> {
     console.log('🎫 TicketService: Creating ticket:', data)
 
     try {
-      // Enhanced client-side validation
-      const validation = this.validateTicketData(data)
-      if (!validation.valid) {
-        return {
-          success: false,
-          message: validation.errors.join(', '),
-        }
-      }
-
       // Create FormData for file upload support
       const formData = new FormData()
 
@@ -244,76 +145,42 @@ class TicketService {
         formData.append('created_for', data.created_for.toString())
       }
 
-      // Add files with Laravel array notation
+      // Add files with proper Laravel array notation
       if (data.attachments && data.attachments.length > 0) {
-        const fileValidation = this.validateFiles(data.attachments, 5)
-        if (!fileValidation.valid) {
-          return {
-            success: false,
-            message: fileValidation.errors.join(', '),
-          }
-        }
-
-        data.attachments.forEach((file) => {
+        data.attachments.forEach((file: File) => {
           formData.append('attachments[]', file, file.name)
         })
       }
 
-      console.log('🎫 TicketService: Sending ticket creation request')
-      const response = await apiClient.post('/tickets', formData)
+      const response = await this.apiClient.post('/tickets', formData)
       
       if (response.success) {
-        console.log('🎫 TicketService: Ticket created successfully')
+        console.log('✅ TicketService: Ticket created successfully')
       }
       
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Create ticket error:', error)
+      console.error('❌ TicketService: Create ticket error:', error)
       return {
         success: false,
-        message: 'An unexpected error occurred while creating the ticket.',
+        message: 'Failed to create ticket. Please try again.',
         errors: error
       }
     }
   }
 
   /**
-   * Get single ticket details with role-based data
+   * Update ticket
    */
-  async getTicket(ticketId: number): Promise<TicketData | null> {
-    console.log('🎫 TicketService: Fetching ticket details:', ticketId)
-
-    try {
-      const response = await apiClient.get(`/tickets/${ticketId}`)
-      
-      if (response.success && response.data) {
-        console.log('🎫 TicketService: Ticket details fetched successfully')
-        return response.data.ticket
-      } else {
-        console.error('🎫 TicketService: Failed to fetch ticket details:', response.message)
-        return null
-      }
-    } catch (error) {
-      console.error('🎫 TicketService: Error fetching ticket details:', error)
-      return null
-    }
-  }
-
-  /**
-   * Update ticket with role-based permissions
-   */
-  async updateTicket(
-    ticketId: number,
-    data: UpdateTicketRequest
-  ): Promise<ApiResponse<{ ticket: TicketData }>> {
+  async updateTicket(ticketId: number, data: any): Promise<ApiResponse<{ ticket: any }>> {
     console.log('🎫 TicketService: Updating ticket:', { ticketId, data })
 
     try {
-      const response = await apiClient.patch(`/tickets/${ticketId}`, data)
-      console.log('🎫 TicketService: Update response:', response)
+      const response = await this.apiClient.patch(`/tickets/${ticketId}`, data)
+      console.log('✅ TicketService: Ticket updated successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Update ticket error:', error)
+      console.error('❌ TicketService: Update ticket error:', error)
       return {
         success: false,
         message: 'Failed to update ticket. Please try again.',
@@ -323,21 +190,13 @@ class TicketService {
   }
 
   /**
-   * Add response to ticket with enhanced file handling
+   * Add response with file upload support
    */
-  async addResponse(
-    ticketId: number,
-    data: AddResponseRequest
-  ): Promise<TicketResponseData | null> {
+  async addResponse(ticketId: number, data: any): Promise<ApiResponse<{ response: any }>> {
     console.log('🎫 TicketService: Adding response:', { ticketId, data })
 
     try {
-      // Validate message
-      if (!data.message?.trim() || data.message.length < 5) {
-        throw new Error('Response message must be at least 5 characters long')
-      }
-
-      // Create FormData for file upload support
+      // Create FormData for file upload
       const formData = new FormData()
       formData.append('message', data.message.trim())
 
@@ -355,46 +214,40 @@ class TicketService {
 
       // Add files
       if (data.attachments && data.attachments.length > 0) {
-        const fileValidation = this.validateFiles(data.attachments, 3)
-        if (!fileValidation.valid) {
-          throw new Error(fileValidation.errors.join(', '))
-        }
-
-        data.attachments.forEach((file) => {
+        data.attachments.forEach((file: File) => {
           formData.append('attachments[]', file, file.name)
         })
       }
 
-      const response = await apiClient.post(`/tickets/${ticketId}/responses`, formData)
+      const response = await this.apiClient.post(`/tickets/${ticketId}/responses`, formData)
       
-      if (response.success && response.data) {
-        console.log('🎫 TicketService: Response added successfully')
-        return response.data.response
-      } else {
-        console.error('🎫 TicketService: Failed to add response:', response.message)
-        throw new Error(response.message || 'Failed to add response')
+      if (response.success) {
+        console.log('✅ TicketService: Response added successfully')
       }
+      
+      return response
     } catch (error) {
-      console.error('🎫 TicketService: Add response error:', error)
-      throw error
+      console.error('❌ TicketService: Add response error:', error)
+      return {
+        success: false,
+        message: 'Failed to add response. Please try again.',
+        errors: error
+      }
     }
   }
 
   /**
-   * Assign ticket to staff member (admin/staff only)
+   * Assign ticket to staff member
    */
-  async assignTicket(
-    ticketId: number,
-    data: AssignTicketRequest
-  ): Promise<ApiResponse<{ ticket: TicketData }>> {
+  async assignTicket(ticketId: number, data: AssignTicketRequest): Promise<ApiResponse<{ ticket: any }>> {
     console.log('🎫 TicketService: Assigning ticket:', { ticketId, data })
 
     try {
-      const response = await apiClient.post(`/tickets/${ticketId}/assign`, data)
-      console.log('🎫 TicketService: Assign response:', response)
+      const response = await this.apiClient.post(`/tickets/${ticketId}/assign`, data)
+      console.log('✅ TicketService: Ticket assigned successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Assign ticket error:', error)
+      console.error('❌ TicketService: Assign ticket error:', error)
       return {
         success: false,
         message: 'Failed to assign ticket. Please try again.',
@@ -404,17 +257,17 @@ class TicketService {
   }
 
   /**
-   * Bulk assign tickets (admin only)
+   * Bulk assign tickets
    */
   async bulkAssignTickets(data: BulkAssignRequest): Promise<ApiResponse<{ assigned_count: number }>> {
     console.log('🎫 TicketService: Bulk assigning tickets:', data)
 
     try {
-      const response = await apiClient.post('/admin/bulk-assign', data)
-      console.log('🎫 TicketService: Bulk assign response:', response)
+      const response = await this.apiClient.post('/admin/bulk-assign', data)
+      console.log('✅ TicketService: Tickets bulk assigned successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Bulk assign error:', error)
+      console.error('❌ TicketService: Bulk assign error:', error)
       return {
         success: false,
         message: 'Failed to assign tickets. Please try again.',
@@ -424,20 +277,17 @@ class TicketService {
   }
 
   /**
-   * Manage ticket tags (staff only)
+   * Manage ticket tags
    */
-  async manageTags(
-    ticketId: number,
-    data: TagManagementRequest
-  ): Promise<ApiResponse<{ ticket: TicketData }>> {
+  async manageTags(ticketId: number, data: TagManagementRequest): Promise<ApiResponse<{ ticket: any }>> {
     console.log('🎫 TicketService: Managing tags:', { ticketId, data })
 
     try {
-      const response = await apiClient.post(`/tickets/${ticketId}/tags`, data)
-      console.log('🎫 TicketService: Tag management response:', response)
+      const response = await this.apiClient.post(`/tickets/${ticketId}/tags`, data)
+      console.log('✅ TicketService: Tags managed successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Tag management error:', error)
+      console.error('❌ TicketService: Tag management error:', error)
       return {
         success: false,
         message: 'Failed to update tags. Please try again.',
@@ -447,24 +297,20 @@ class TicketService {
   }
 
   /**
-   * Delete ticket (admin only)
+   * Delete ticket
    */
-  async deleteTicket(
-    ticketId: number,
-    reason: string,
-    notifyUser: boolean = false
-  ): Promise<ApiResponse<void>> {
+  async deleteTicket(ticketId: number, reason: string, notifyUser: boolean = false): Promise<ApiResponse<void>> {
     console.log('🎫 TicketService: Deleting ticket:', { ticketId, reason, notifyUser })
 
     try {
-      const response = await apiClient.delete(`/tickets/${ticketId}`, {
+      const response = await this.apiClient.delete(`/tickets/${ticketId}`, {
         body: JSON.stringify({ reason, notify_user: notifyUser }),
         headers: { 'Content-Type': 'application/json' }
       })
-      console.log('🎫 TicketService: Delete response:', response)
+      console.log('✅ TicketService: Ticket deleted successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Delete ticket error:', error)
+      console.error('❌ TicketService: Delete ticket error:', error)
       return {
         success: false,
         message: 'Failed to delete ticket. Please try again.',
@@ -474,17 +320,33 @@ class TicketService {
   }
 
   /**
-   * Get ticket analytics based on user role
+   * Download attachment
+   */
+  async downloadAttachment(attachmentId: number): Promise<Blob> {
+    console.log('🎫 TicketService: Downloading attachment:', attachmentId)
+
+    try {
+      const blob = await this.apiClient.downloadFile(`/tickets/attachments/${attachmentId}/download`)
+      console.log('✅ TicketService: Attachment downloaded successfully')
+      return blob
+    } catch (error) {
+      console.error('❌ TicketService: Download failed:', error)
+      throw new Error('Failed to download attachment. Please try again.')
+    }
+  }
+
+  /**
+   * Get analytics
    */
   async getAnalytics(timeframe: string = '30'): Promise<ApiResponse<TicketAnalytics>> {
     console.log('🎫 TicketService: Fetching analytics for timeframe:', timeframe)
 
     try {
-      const response = await apiClient.get(`/tickets/analytics?timeframe=${timeframe}`)
-      console.log('🎫 TicketService: Analytics response:', response)
+      const response = await this.apiClient.get(`/tickets/analytics?timeframe=${timeframe}`)
+      console.log('✅ TicketService: Analytics fetched successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Analytics error:', error)
+      console.error('❌ TicketService: Analytics error:', error)
       return {
         success: false,
         message: 'Failed to fetch analytics. Please try again.',
@@ -494,17 +356,17 @@ class TicketService {
   }
 
   /**
-   * Get available staff for ticket assignment
+   * Get available staff for assignment
    */
   async getAvailableStaff(ticketId: number): Promise<ApiResponse<{ staff: StaffMember[] }>> {
     console.log('🎫 TicketService: Fetching available staff for ticket:', ticketId)
 
     try {
-      const response = await apiClient.get(`/tickets/${ticketId}/available-staff`)
-      console.log('🎫 TicketService: Available staff response:', response)
+      const response = await this.apiClient.get(`/tickets/${ticketId}/available-staff`)
+      console.log('✅ TicketService: Available staff fetched successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Available staff error:', error)
+      console.error('❌ TicketService: Available staff error:', error)
       return {
         success: false,
         message: 'Failed to fetch available staff. Please try again.',
@@ -514,28 +376,9 @@ class TicketService {
   }
 
   /**
-   * Download attachment with proper error handling
+   * Export tickets
    */
-  async downloadAttachment(attachmentId: number, fileName: string): Promise<void> {
-    console.log('🎫 TicketService: Downloading attachment:', { attachmentId, fileName })
-
-    try {
-      const blob = await apiClient.downloadFile(`/tickets/attachments/${attachmentId}/download`)
-      this.downloadFileFromBlob(blob, fileName)
-      console.log('✅ TicketService: File download initiated successfully')
-    } catch (error) {
-      console.error('💥 TicketService: Download failed:', error)
-      throw new Error('Failed to download attachment. Please try again.')
-    }
-  }
-
-  /**
-   * Export tickets data (admin only)
-   */
-  async exportTickets(
-    format: 'csv' | 'excel' | 'json' = 'csv',
-    filters: Partial<TicketListParams> = {}
-  ): Promise<ApiResponse<any>> {
+  async exportTickets(format: 'csv' | 'excel' | 'json' = 'csv', filters: Record<string, any> = {}): Promise<ApiResponse<any>> {
     console.log('🎫 TicketService: Exporting tickets:', { format, filters })
 
     try {
@@ -549,11 +392,11 @@ class TicketService {
         }
       })
 
-      const response = await apiClient.get(`/admin/export-tickets?${queryParams.toString()}`)
-      console.log('🎫 TicketService: Export response:', response)
+      const response = await this.apiClient.get(`/admin/export-tickets?${queryParams.toString()}`)
+      console.log('✅ TicketService: Tickets exported successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Export error:', error)
+      console.error('❌ TicketService: Export error:', error)
       return {
         success: false,
         message: 'Failed to export tickets. Please try again.',
@@ -563,24 +406,22 @@ class TicketService {
   }
 
   /**
-   * Get ticket options and metadata
+   * Get ticket options
    */
-  async getOptions(): Promise<
-    ApiResponse<{
-      categories: Record<string, string>
-      priorities: Record<string, string>
-      statuses: Record<string, string>
-      tags: Record<string, string>
-    }>
-  > {
+  async getOptions(): Promise<ApiResponse<{
+    categories: Record<string, string>
+    priorities: Record<string, string>
+    statuses: Record<string, string>
+    tags: Record<string, string>
+  }>> {
     console.log('🎫 TicketService: Fetching ticket options')
 
     try {
-      const response = await apiClient.get('/tickets/options')
-      console.log('🎫 TicketService: Options response:', response)
+      const response = await this.apiClient.get('/tickets/options')
+      console.log('✅ TicketService: Options fetched successfully')
       return response
     } catch (error) {
-      console.error('🎫 TicketService: Options error:', error)
+      console.error('❌ TicketService: Options error:', error)
       return {
         success: false,
         message: 'Failed to fetch ticket options.',
@@ -590,209 +431,8 @@ class TicketService {
   }
 
   /**
-   * Get role-specific dashboard data
-   */
-  async getDashboardData(role: string): Promise<ApiResponse<any>> {
-    console.log('🎫 TicketService: Fetching dashboard data for role:', role)
-
-    try {
-      let endpoint = '/user/dashboard'
-      
-      switch (role) {
-        case 'student':
-          endpoint = '/student/dashboard'
-          break
-        case 'counselor':
-          endpoint = '/counselor/dashboard'
-          break
-        case 'advisor':
-          endpoint = '/advisor/dashboard'
-          break
-        case 'admin':
-          endpoint = '/admin/dashboard'
-          break
-      }
-
-      const response = await apiClient.get(endpoint)
-      console.log('🎫 TicketService: Dashboard data response:', response)
-      return response
-    } catch (error) {
-      console.error('🎫 TicketService: Dashboard data error:', error)
-      return {
-        success: false,
-        message: 'Failed to fetch dashboard data.',
-        errors: error
-      }
-    }
-  }
-
-  /**
-   * Get user permissions based on role
-   */
-  async getUserPermissions(): Promise<ApiResponse<any>> {
-    console.log('🎫 TicketService: Fetching user permissions')
-
-    try {
-      const response = await apiClient.get('/user/permissions')
-      console.log('🎫 TicketService: Permissions response:', response)
-      return response
-    } catch (error) {
-      console.error('🎫 TicketService: Permissions error:', error)
-      return {
-        success: false,
-        message: 'Failed to fetch user permissions.',
-        errors: error
-      }
-    }
-  }
-
-  /**
-   * Get role-specific ticket statistics
-   */
-  async getTicketStats(role: string): Promise<ApiResponse<TicketStats>> {
-    console.log('🎫 TicketService: Fetching ticket stats for role:', role)
-
-    try {
-      let endpoint = '/user/ticket-summary'
-      
-      switch (role) {
-        case 'student':
-          endpoint = '/student/stats'
-          break
-        case 'counselor':
-        case 'advisor':
-          endpoint = '/staff/stats'
-          break
-        case 'admin':
-          endpoint = '/admin/analytics'
-          break
-      }
-
-      const response = await apiClient.get(endpoint)
-      console.log('🎫 TicketService: Stats response:', response)
-      return response
-    } catch (error) {
-      console.error('🎫 TicketService: Stats error:', error)
-      return {
-        success: false,
-        message: 'Failed to fetch ticket statistics.',
-        errors: error
-      }
-    }
-  }
-
-  /**
    * UTILITY METHODS
    */
-
-  /**
-   * Validate ticket creation data
-   */
-  private validateTicketData(data: CreateTicketRequest): { valid: boolean; errors: string[] } {
-    const errors: string[] = []
-
-    if (!data.subject?.trim()) {
-      errors.push('Subject is required')
-    } else if (data.subject.length > 255) {
-      errors.push('Subject must not exceed 255 characters')
-    }
-
-    if (!data.description?.trim()) {
-      errors.push('Description is required')
-    } else if (data.description.length < 20) {
-      errors.push('Description must be at least 20 characters long')
-    } else if (data.description.length > 5000) {
-      errors.push('Description must not exceed 5000 characters')
-    }
-
-    if (!data.category) {
-      errors.push('Category is required')
-    }
-
-    const validCategories = ['general', 'academic', 'mental-health', 'crisis', 'technical', 'other']
-    if (data.category && !validCategories.includes(data.category)) {
-      errors.push('Invalid category selected')
-    }
-
-    const validPriorities = ['Low', 'Medium', 'High', 'Urgent']
-    if (data.priority && !validPriorities.includes(data.priority)) {
-      errors.push('Invalid priority selected')
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    }
-  }
-
-  /**
-   * Validate file uploads
-   */
-  private validateFiles(files: File[], maxCount: number = 5): { valid: boolean; errors: string[] } {
-    const errors: string[] = []
-
-    if (files.length > maxCount) {
-      errors.push(`Maximum ${maxCount} files allowed`)
-      return { valid: false, errors }
-    }
-
-    const allowedTypes = [
-      'application/pdf',
-      'image/png',
-      'image/jpeg',
-      'image/jpg',
-      'image/gif',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'text/plain',
-    ]
-
-    const maxFileSize = 10 * 1024 * 1024 // 10MB
-
-    for (const file of files) {
-      if (file.size > maxFileSize) {
-        errors.push(`File "${file.name}" exceeds 10MB limit`)
-      }
-
-      if (!allowedTypes.includes(file.type)) {
-        errors.push(`File type "${file.type}" is not allowed for "${file.name}"`)
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors,
-    }
-  }
-
-  /**
-   * Download file from blob
-   */
-  private downloadFileFromBlob(blob: Blob, fileName: string): void {
-    console.log('🎫 TicketService: Downloading file from blob:', fileName)
-
-    try {
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      link.style.display = 'none'
-
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-
-      // Clean up the URL object
-      setTimeout(() => {
-        window.URL.revokeObjectURL(url)
-      }, 100)
-
-      console.log('✅ TicketService: File download initiated')
-    } catch (error) {
-      console.error('❌ TicketService: File download failed:', error)
-      throw new Error('Failed to download file')
-    }
-  }
 
   /**
    * Format file size for display
@@ -880,14 +520,14 @@ class TicketService {
       'technical': 'Technical Issue',
       'other': 'Other'
     }
-    return categoryMap[category as keyof typeof categoryMap] || category
+    return categoryMap[category] || category
   }
 
   /**
    * Get role-appropriate categories
    */
   getRoleCategories(role: string): Array<{ value: string; label: string; description: string }> {
-    const allCategories = [
+    return [
       { 
         value: 'general', 
         label: 'General Inquiry', 
@@ -919,9 +559,6 @@ class TicketService {
         description: 'Issues not covered by other categories' 
       },
     ]
-
-    // All users can access all categories
-    return allCategories
   }
 
   /**
@@ -982,95 +619,74 @@ class TicketService {
   }
 
   /**
-   * Create ticket with retry mechanism
+   * Validate ticket creation data
    */
-  async createTicketWithRetry(
-    data: CreateTicketRequest, 
-    maxRetries: number = 2
-  ): Promise<ApiResponse<{ ticket: TicketData }>> {
-    return apiClient.retryRequest(() => this.createTicket(data), maxRetries)
-  }
+  validateTicketData(data: any): { valid: boolean; errors: string[] } {
+    const errors: string[] = []
 
-  /**
-   * Add response with retry mechanism
-   */
-  async addResponseWithRetry(
-    ticketId: number, 
-    data: AddResponseRequest, 
-    maxRetries: number = 2
-  ): Promise<TicketResponseData | null> {
-    try {
-      const result = await apiClient.retryRequest(
-        async () => {
-          const response = await this.addResponse(ticketId, data)
-          return {
-            success: true,
-            message: 'Response added successfully',
-            data: response
-          }
-        }, 
-        maxRetries
-      )
-      
-      return result.success ? (result.data ?? null) : null
-    } catch (error) {
-      console.error('🎫 TicketService: Add response with retry failed:', error)
-      return null
+    if (!data.subject?.trim()) {
+      errors.push('Subject is required')
+    } else if (data.subject.length > 255) {
+      errors.push('Subject must not exceed 255 characters')
     }
+
+    if (!data.description?.trim()) {
+      errors.push('Description is required')
+    } else if (data.description.length < 20) {
+      errors.push('Description must be at least 20 characters long')
+    } else if (data.description.length > 5000) {
+      errors.push('Description must not exceed 5000 characters')
+    }
+
+    if (!data.category) {
+      errors.push('Category is required')
+    }
+
+    const validCategories = ['general', 'academic', 'mental-health', 'crisis', 'technical', 'other']
+    if (data.category && !validCategories.includes(data.category)) {
+      errors.push('Invalid category selected')
+    }
+
+    const validPriorities = ['Low', 'Medium', 'High', 'Urgent']
+    if (data.priority && !validPriorities.includes(data.priority)) {
+      errors.push('Invalid priority selected')
+    }
+
+    return { valid: errors.length === 0, errors }
   }
 
   /**
-   * Batch operations helper
+   * Validate file uploads
    */
-  async batchUpdateTickets(
-    ticketIds: number[],
-    updates: Partial<UpdateTicketRequest>
-  ): Promise<ApiResponse<{ updated_count: number }>> {
-    console.log('🎫 TicketService: Batch updating tickets:', { ticketIds, updates })
+  validateFiles(files: File[], maxCount: number = 5): { valid: boolean; errors: string[] } {
+    const errors: string[] = []
 
-    try {
-      // This would be implemented as a separate batch endpoint
-      const promises = ticketIds.map(id => this.updateTicket(id, updates))
-      const results = await Promise.allSettled(promises)
-      
-      const successful = results.filter(result => 
-        result.status === 'fulfilled' && result.value.success
-      ).length
+    if (files.length > maxCount) {
+      errors.push(`Maximum ${maxCount} files allowed`)
+      return { valid: false, errors }
+    }
 
-      return {
-        success: true,
-        message: `Successfully updated ${successful} out of ${ticketIds.length} tickets`,
-        data: { updated_count: successful }
+    const allowedTypes = [
+      'application/pdf',
+      'image/png', 'image/jpeg', 'image/jpg', 'image/gif',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+    ]
+
+    const maxFileSize = 10 * 1024 * 1024 // 10MB
+
+    for (const file of files) {
+      if (file.size > maxFileSize) {
+        errors.push(`File "${file.name}" exceeds 10MB limit`)
       }
-    } catch (error) {
-      console.error('🎫 TicketService: Batch update error:', error)
-      return {
-        success: false,
-        message: 'Failed to update tickets in batch',
-        errors: error
+
+      if (!allowedTypes.includes(file.type)) {
+        errors.push(`File type "${file.type}" is not allowed for "${file.name}"`)
       }
     }
-  }
 
-  /**
-   * Real-time updates helper (would integrate with WebSocket)
-   */
-  subscribeToTicketUpdates(ticketId: number, callback: (update: any) => void): () => void {
-    console.log('🎫 TicketService: Subscribing to ticket updates:', ticketId)
-    
-    // This would implement WebSocket or Server-Sent Events
-    // For now, return a no-op unsubscribe function
-    return () => {
-      console.log('🎫 TicketService: Unsubscribing from ticket updates:', ticketId)
-    }
-  }
-
-  /**
-   * Cache management
-   */
-  clearCache(): void {
-    console.log('🎫 TicketService: Clearing cache')
-    // Clear any cached data
+    return { valid: errors.length === 0, errors }
   }
 
   /**
@@ -1078,13 +694,22 @@ class TicketService {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await apiClient.get('/health')
+      const response = await this.apiClient.get('/health')
       return response.success
     } catch {
       return false
     }
   }
+
+  /**
+   * Clear cache (placeholder for future implementation)
+   */
+  clearCache(): void {
+    console.log('🎫 TicketService: Clearing cache')
+    // This would clear any service-level caches
+  }
 }
 
 // Export singleton instance
 export const ticketService = new TicketService()
+export default ticketService

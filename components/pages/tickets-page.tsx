@@ -1,7 +1,7 @@
-// components/pages/tickets-page.tsx (Fixed with responsive design and type safety)
+// components/pages/tickets-page.tsx (Fixed navigation and infinite loops)
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
   Ticket,
@@ -23,7 +22,6 @@ import {
   Paperclip,
   Eye,
   Flag,
-  MessageCircle,
   Loader2,
   RefreshCw,
   AlertCircle,
@@ -37,264 +35,235 @@ import {
   MoreHorizontal,
   Edit,
   Trash2,
-  FileText,
   Star,
   Archive,
   Copy,
   ExternalLink,
   Tags,
   UserCheck,
-  Shield,
-  Zap,
+  X,
 } from "lucide-react"
-import { useTickets } from "@/hooks/use-tickets"
-import { useDebounce } from "@/hooks/use-debounce"
+import { 
+  useTicketStore, 
+  useTicketSelectors, 
+  useTicketLoading, 
+  useTicketError,
+  useTicketStats,
+  useTicketFilters,
+  useTicketPermissions,
+  TicketData 
+} from "@/stores/ticket-store"
 import { authService } from "@/services/auth.service"
-import { TicketData, TicketListParams } from "@/services/ticket.service"
 
 interface TicketsPageProps {
   onNavigate?: (page: string, params?: any) => void
 }
 
-// Define proper types for action loading
-interface ActionLoading {
-  [key: number]: string
-  bulk?: string
-  export?: string
-}
-
 export function TicketsPage({ onNavigate }: TicketsPageProps) {
-  const {
-    tickets,
-    loading,
-    error,
-    stats,
-    pagination,
-    fetchTickets,
-    clearError,
-    refreshTickets,
-    assignTicket,
-    updateTicket,
-    deleteTicket,
-    exportTickets,
-    permissions,
-  } = useTickets()
+  // Zustand store hooks
+  const store = useTicketStore()
+  const selectors = useTicketSelectors()
+  const loading = useTicketLoading('list')
+  const error = useTicketError('list')
+  const stats = useTicketStats()
+  const { filters, setFilters, clearFilters } = useTicketFilters()
+  const permissions = useTicketPermissions()
 
-  // Local state for filters and UI
-  const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [categoryFilter, setCategoryFilter] = useState("all")
-  const [priorityFilter, setPriorityFilter] = useState("all")
-  const [assignmentFilter, setAssignmentFilter] = useState("all")
-  const [sortBy, setSortBy] = useState("updated_at")
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
-  const [selectedTickets, setSelectedTickets] = useState<number[]>([])
-  const [actionLoading, setActionLoading] = useState<ActionLoading>({})
+  // Local UI state
   const [currentView, setCurrentView] = useState("all")
-
+  const [searchTerm, setSearchTerm] = useState("")
+  const [isInitialized, setIsInitialized] = useState(false)
+  
   const currentUser = useMemo(() => authService.getStoredUser(), [])
-  const debouncedSearchTerm = useDebounce(searchTerm, 500)
 
-  // Track initialization state
-  const initializationRef = useRef({
-    hasInitialLoad: false,
-    isFirstFilterChange: true
-  })
-
-  // Caching for performance
-  const cacheRef = useRef<{[key: string]: {data: any, timestamp: number}}>({})
-  const CACHE_DURATION = 30000 // 30 seconds
-
-  // Initial load effect - runs only once
+  // FIXED: Initialize tickets only once on mount
   useEffect(() => {
-    if (!initializationRef.current.hasInitialLoad) {
-      console.log("🎫 TicketsPage: Initial load")
-      initializationRef.current.hasInitialLoad = true
+    let isMounted = true
+
+    const initializeTickets = async () => {
+      if (isInitialized) return
       
-      fetchTickets({
-        page: 1,
-        per_page: 20,
-        sort_by: sortBy,
-        sort_direction: sortDirection,
-      })
+      try {
+        console.log("🎫 TicketsPage: Initializing tickets data")
+        
+        // Check if we already have valid cached data
+        if (!selectors.isCacheValid || selectors.tickets.length === 0) {
+          await store.actions.fetchTickets()
+        }
+        
+        if (isMounted) {
+          setIsInitialized(true)
+        }
+      } catch (error) {
+        console.error("❌ TicketsPage: Failed to initialize:", error)
+      }
     }
-  }, [fetchTickets, sortBy, sortDirection])
 
-  // Handle filter changes - but only after initial load
-  const currentParams = useMemo((): TicketListParams => ({
-    page: 1,
-    per_page: 20,
-    sort_by: sortBy,
-    sort_direction: sortDirection,
-    ...(debouncedSearchTerm && { search: debouncedSearchTerm }),
-    ...(statusFilter !== 'all' && { status: statusFilter }),
-    ...(categoryFilter !== 'all' && { category: categoryFilter }),
-    ...(priorityFilter !== 'all' && { priority: priorityFilter }),
-    ...(assignmentFilter !== 'all' && { assigned: assignmentFilter }),
-  }), [
-    debouncedSearchTerm,
-    statusFilter,
-    categoryFilter,
-    priorityFilter,
-    assignmentFilter,
-    sortBy,
-    sortDirection
-  ])
+    initializeTickets()
 
-  // Filter change effect - only after initial load is complete
+    return () => {
+      isMounted = false
+    }
+  }, [store.actions, isInitialized, selectors.isCacheValid, selectors.tickets.length])
+
+  // FIXED: Handle search with proper debouncing
   useEffect(() => {
-    // Skip if we haven't done initial load yet
-    if (!initializationRef.current.hasInitialLoad) {
-      return
+    if (!isInitialized) return
+
+    const timeoutId = setTimeout(() => {
+      if (searchTerm !== filters.search) {
+        console.log("🎫 TicketsPage: Updating search filter:", searchTerm)
+        setFilters({ search: searchTerm || undefined })
+      }
+    }, 500)
+
+    return () => clearTimeout(timeoutId)
+  }, [searchTerm, filters.search, setFilters, isInitialized])
+
+  // Memoized filtered tickets based on current view
+  const currentTabTickets = useMemo(() => {
+    switch (currentView) {
+      case 'all':
+        return selectors.tickets
+      case 'open':
+        return selectors.openTickets
+      case 'closed':
+        return selectors.closedTickets
+      case 'crisis':
+        return selectors.crisisTickets
+      case 'unassigned':
+        return selectors.unassignedTickets
+      case 'my_assigned':
+        return selectors.myAssignedTickets
+      default:
+        return selectors.tickets
     }
+  }, [currentView, selectors])
 
-    // Skip the very first filter change (which happens immediately after initial load)
-    if (initializationRef.current.isFirstFilterChange) {
-      initializationRef.current.isFirstFilterChange = false
-      return
-    }
-
-    console.log("🎫 TicketsPage: Filters changed, fetching tickets", currentParams)
-    fetchTickets(currentParams)
-  }, [currentParams, fetchTickets])
-
-  // Cached getter function
-  const getCachedData = useCallback((key: string) => {
-    const cached = cacheRef.current[key]
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-      return cached.data
-    }
-    return null
-  }, [])
-
-  // Cache setter function
-  const setCachedData = useCallback((key: string, data: any) => {
-    cacheRef.current[key] = {
-      data,
-      timestamp: Date.now()
-    }
-  }, [])
-
+  // FIXED: Handle navigation with proper error handling
   const handleViewTicket = useCallback((ticket: TicketData): void => {
-    if (onNavigate) {
-      onNavigate('ticket-details', { ticketId: ticket.id })
+    try {
+      console.log("🎫 TicketsPage: Navigating to ticket details:", ticket.id)
+      store.actions.setCurrentTicket(ticket)
+      if (onNavigate) {
+        onNavigate('ticket-details', { ticketId: ticket.id })
+      }
+    } catch (error) {
+      console.error("❌ TicketsPage: Navigation error:", error)
     }
-  }, [onNavigate])
+  }, [onNavigate, store.actions])
 
   const handleCreateTicket = useCallback((): void => {
-    if (onNavigate) {
-      onNavigate('submit-ticket')
+    try {
+      console.log("🎫 TicketsPage: Navigating to create ticket")
+      if (onNavigate) {
+        onNavigate('submit-ticket')
+      }
+    } catch (error) {
+      console.error("❌ TicketsPage: Navigation error:", error)
     }
   }, [onNavigate])
 
+  // FIXED: Handle page changes without infinite loops
   const handlePageChange = useCallback((page: number): void => {
-    const params = {
-      ...currentParams,
-      page,
-    }
-    fetchTickets(params)
-  }, [currentParams, fetchTickets])
+    console.log("🎫 TicketsPage: Changing page to:", page)
+    setFilters({ page })
+  }, [setFilters])
 
+  // FIXED: Handle sorting
   const handleSort = useCallback((field: string): void => {
-    if (sortBy === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortBy(field)
-      setSortDirection('desc')
-    }
-  }, [sortBy, sortDirection])
+    const newDirection = filters.sort_by === field && filters.sort_direction === 'desc' ? 'asc' : 'desc'
+    console.log("🎫 TicketsPage: Sorting by:", field, newDirection)
+    setFilters({
+      sort_by: field,
+      sort_direction: newDirection
+    })
+  }, [filters.sort_by, filters.sort_direction, setFilters])
 
+  // FIXED: Handle refresh with proper error handling
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    try {
+      console.log("🎫 TicketsPage: Manual refresh")
+      await store.actions.refreshTickets()
+    } catch (error) {
+      console.error("❌ TicketsPage: Refresh error:", error)
+    }
+  }, [store.actions])
+
+  // Handle ticket selection
   const handleSelectTicket = useCallback((ticketId: number): void => {
-    setSelectedTickets(prev => 
-      prev.includes(ticketId) 
-        ? prev.filter(id => id !== ticketId)
-        : [...prev, ticketId]
-    )
-  }, [])
+    if (store.selectedTickets.has(ticketId)) {
+      store.actions.deselectTicket(ticketId)
+    } else {
+      store.actions.selectTicket(ticketId)
+    }
+  }, [store.selectedTickets, store.actions])
 
   const handleSelectAll = useCallback((): void => {
-    if (selectedTickets.length === tickets.length) {
-      setSelectedTickets([])
+    if (store.selectedTickets.size === currentTabTickets.length) {
+      store.actions.clearSelection()
     } else {
-      setSelectedTickets(tickets.map(t => t.id))
+      store.actions.clearSelection()
+      currentTabTickets.forEach(ticket => store.actions.selectTicket(ticket.id))
     }
-  }, [selectedTickets.length, tickets])
+  }, [store.selectedTickets.size, currentTabTickets, store.actions])
 
-  const handleRefresh = useCallback((): void => {
-    console.log("🎫 TicketsPage: Manual refresh")
-    // Clear cache on refresh
-    cacheRef.current = {}
-    fetchTickets(currentParams)
-  }, [fetchTickets, currentParams])
-
-  // Action handlers with loading states
+  // Handle ticket actions
   const handleTicketAction = useCallback(async (ticketId: number, action: string, params?: any) => {
-    setActionLoading(prev => ({ ...prev, [ticketId]: action }))
-    
     try {
       switch (action) {
         case 'assign':
-          await assignTicket(ticketId, params)
+          await store.actions.assignTicket(ticketId, params.assigned_to, params.reason)
           break
         case 'update_status':
-          await updateTicket(ticketId, params)
+          await store.actions.updateTicket(ticketId, { status: params.status })
           break
         case 'delete':
-          await deleteTicket(ticketId, params.reason, params.notifyUser)
+          await store.actions.deleteTicket(ticketId, params.reason, params.notifyUser)
+          break
+        case 'add_tag':
+          await store.actions.addTag(ticketId, params.tag)
+          break
+        case 'remove_tag':
+          await store.actions.removeTag(ticketId, params.tag)
+          break
+      }
+    } catch (error) {
+      console.error(`Failed to ${action} ticket:`, error)
+    }
+  }, [store.actions])
+
+  // Handle bulk actions
+  const handleBulkAction = useCallback(async (action: string, params?: any) => {
+    const selectedIds = Array.from(store.selectedTickets)
+    if (selectedIds.length === 0) return
+    
+    try {
+      switch (action) {
+        case 'bulk_assign':
+          await store.actions.bulkAssign(selectedIds, params.assigned_to, params.reason)
+          break
+        case 'bulk_update':
+          for (const id of selectedIds) {
+            await store.actions.updateTicket(id, params)
+          }
           break
       }
       
-      // Refresh tickets after action
-      await fetchTickets(currentParams)
-    } catch (error) {
-      console.error(`Failed to ${action} ticket:`, error)
-    } finally {
-      setActionLoading(prev => {
-        const newState = { ...prev }
-        delete newState[ticketId]
-        return newState
-      })
-    }
-  }, [assignTicket, updateTicket, deleteTicket, fetchTickets, currentParams])
-
-  const handleBulkAction = useCallback(async (action: string, params?: any) => {
-    if (selectedTickets.length === 0) return
-    
-    setActionLoading(prev => ({ ...prev, bulk: action }))
-    
-    try {
-      // Implement bulk actions based on action type
-      for (const ticketId of selectedTickets) {
-        await handleTicketAction(ticketId, action, params)
-      }
-      
-      setSelectedTickets([])
+      store.actions.clearSelection()
     } catch (error) {
       console.error(`Failed to perform bulk ${action}:`, error)
-    } finally {
-      setActionLoading(prev => {
-        const newState = { ...prev }
-        delete newState.bulk
-        return newState
-      })
     }
-  }, [selectedTickets, handleTicketAction])
+  }, [store.selectedTickets, store.actions])
 
+  // Handle export
   const handleExport = useCallback(async () => {
-    setActionLoading(prev => ({ ...prev, export: 'exporting' }))
-    
     try {
-      await exportTickets('csv', currentParams)
+      await store.actions.exportTickets('csv', filters)
     } catch (error) {
       console.error('Failed to export tickets:', error)
-    } finally {
-      setActionLoading(prev => {
-        const newState = { ...prev }
-        delete newState.export
-        return newState
-      })
     }
-  }, [exportTickets, currentParams])
+  }, [store.actions, filters])
 
   // Utility functions
   const getStatusColor = useCallback((status: string): string => {
@@ -382,40 +351,14 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
     }
   }, [currentUser?.role])
 
-  // Filter tickets by status for tabs - memoized with caching
-  const filteredTicketGroups = useMemo(() => {
-    const cacheKey = `filtered_groups_${tickets.length}_${currentView}`
-    const cached = getCachedData(cacheKey)
-    
-    if (cached) return cached
-
-    const groups = {
-      all: tickets,
-      open: tickets.filter((t: TicketData) => t.status === "Open" || t.status === "In Progress"),
-      closed: tickets.filter((t: TicketData) => t.status === "Resolved" || t.status === "Closed"),
-      crisis: tickets.filter((t: TicketData) => t.crisis_flag || t.priority === "Urgent"),
-      unassigned: tickets.filter((t: TicketData) => !t.assigned_to),
-      high_priority: tickets.filter((t: TicketData) => t.priority === "High" || t.priority === "Urgent"),
-      my_assigned: currentUser?.role !== 'student' ? tickets.filter((t: TicketData) => t.assigned_to === currentUser?.id) : [],
-    }
-
-    setCachedData(cacheKey, groups)
-    return groups
-  }, [tickets, currentView, getCachedData, setCachedData, currentUser?.id, currentUser?.role])
-
-  // Get current tab tickets
-  const currentTabTickets = useMemo(() => {
-    return filteredTicketGroups[currentView as keyof typeof filteredTicketGroups] || []
-  }, [filteredTicketGroups, currentView])
-
   // Action menu component
   const TicketActionMenu = useCallback(({ ticket }: { ticket: TicketData }) => {
-    const isLoading = actionLoading[ticket.id]
+    const isLoading = useTicketLoading(`action_${ticket.id}`)
     
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" disabled={!!isLoading}>
+          <Button variant="outline" size="sm" disabled={isLoading}>
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -468,11 +411,11 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
           )}
 
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigator.clipboard.writeText(`${window.location.origin}/tickets/${ticket.id}`)}>
             <Copy className="h-4 w-4 mr-2" />
             Copy Link
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => window.open(`/tickets/${ticket.id}`, '_blank')}>
             <ExternalLink className="h-4 w-4 mr-2" />
             Open in New Tab
           </DropdownMenuItem>
@@ -492,7 +435,20 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
         </DropdownMenuContent>
       </DropdownMenu>
     )
-  }, [actionLoading, permissions, currentUser, handleViewTicket, handleTicketAction])
+  }, [permissions, currentUser, handleViewTicket, handleTicketAction])
+
+  // Show loading state during initialization
+  if (!isInitialized && loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Loading Tickets</h3>
+          <p className="text-gray-600">Fetching your support requests...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -566,7 +522,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
         </div>
 
         {/* Crisis Alert for Staff/Admin */}
-        {(currentUser?.role !== 'student' && filteredTicketGroups.crisis.length > 0) && (
+        {(currentUser?.role !== 'student' && selectors.crisisTickets.length > 0) && (
           <Card className="border-red-200 bg-red-50 shadow-xl">
             <CardContent className="pt-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
@@ -575,11 +531,11 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                 </div>
                 <div className="flex-1">
                   <h3 className="font-semibold text-red-900 mb-1">🚨 Crisis Cases Require Immediate Attention</h3>
-                  <p className="text-red-700">{filteredTicketGroups.crisis.length} crisis ticket(s) need urgent response.</p>
+                  <p className="text-red-700">{selectors.crisisTickets.length} crisis ticket(s) need urgent response.</p>
                 </div>
                 <Button
                   onClick={() => {
-                    setPriorityFilter('Urgent')
+                    setFilters({ priority: 'Urgent' })
                     setCurrentView('crisis')
                   }}
                   className="bg-red-600 hover:bg-red-700 text-white w-full sm:w-auto"
@@ -592,7 +548,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
         )}
 
         {/* Unassigned Alert for Admin */}
-        {(currentUser?.role === 'admin' && filteredTicketGroups.unassigned.length > 0) && (
+        {(currentUser?.role === 'admin' && selectors.unassignedTickets.length > 0) && (
           <Card className="border-orange-200 bg-orange-50 shadow-xl">
             <CardContent className="pt-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
@@ -601,11 +557,11 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                 </div>
                 <div className="flex-1">
                   <h3 className="font-semibold text-orange-900 mb-1">⚠️ Unassigned Tickets</h3>
-                  <p className="text-orange-700">{filteredTicketGroups.unassigned.length} ticket(s) waiting for staff assignment.</p>
+                  <p className="text-orange-700">{selectors.unassignedTickets.length} ticket(s) waiting for staff assignment.</p>
                 </div>
                 <Button
                   onClick={() => {
-                    setAssignmentFilter('unassigned')
+                    setFilters({ assigned: 'unassigned' })
                     setCurrentView('unassigned')
                   }}
                   className="bg-orange-600 hover:bg-orange-700 text-white w-full sm:w-auto"
@@ -626,7 +582,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={clearError}
+                onClick={() => store.actions.clearError('list')}
                 className="text-red-600 hover:text-red-700 hover:bg-red-100 w-full sm:w-auto"
               >
                 Dismiss
@@ -650,12 +606,26 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                     className="pl-10 h-11"
                     disabled={loading}
                   />
+                  {searchTerm && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0 hover:bg-gray-100"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
 
               {/* Filter Dropdowns */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-                <Select value={statusFilter} onValueChange={setStatusFilter} disabled={loading}>
+                <Select 
+                  value={filters.status || 'all'} 
+                  onValueChange={(value) => setFilters({ status: value === 'all' ? undefined : value })} 
+                  disabled={loading}
+                >
                   <SelectTrigger className="h-11">
                     <Filter className="h-4 w-4 mr-2" />
                     <SelectValue placeholder="Filter by status" />
@@ -669,7 +639,11 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                   </SelectContent>
                 </Select>
                 
-                <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={loading}>
+                <Select 
+                  value={filters.category || 'all'} 
+                  onValueChange={(value) => setFilters({ category: value === 'all' ? undefined : value })} 
+                  disabled={loading}
+                >
                   <SelectTrigger className="h-11">
                     <SelectValue placeholder="Filter by category" />
                   </SelectTrigger>
@@ -684,7 +658,11 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                   </SelectContent>
                 </Select>
 
-                <Select value={priorityFilter} onValueChange={setPriorityFilter} disabled={loading}>
+                <Select 
+                  value={filters.priority || 'all'} 
+                  onValueChange={(value) => setFilters({ priority: value === 'all' ? undefined : value })} 
+                  disabled={loading}
+                >
                   <SelectTrigger className="h-11">
                     <SelectValue placeholder="Filter by priority" />
                   </SelectTrigger>
@@ -699,7 +677,11 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
 
                 {/* Assignment filter for staff/admin */}
                 {currentUser?.role !== 'student' && (
-                  <Select value={assignmentFilter} onValueChange={setAssignmentFilter} disabled={loading}>
+                  <Select 
+                    value={filters.assigned || 'all'} 
+                    onValueChange={(value) => setFilters({ assigned: value === 'all' ? undefined : value })} 
+                    disabled={loading}
+                  >
                     <SelectTrigger className="h-11">
                       <SelectValue placeholder="Filter by assignment" />
                     </SelectTrigger>
@@ -715,11 +697,14 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                 )}
 
                 {/* Sort options */}
-                <Select value={`${sortBy}-${sortDirection}`} onValueChange={(value) => {
-                  const [field, direction] = value.split('-') as [string, "asc" | "desc"]
-                  setSortBy(field)
-                  setSortDirection(direction)
-                }} disabled={loading}>
+                <Select 
+                  value={`${filters.sort_by}-${filters.sort_direction}`} 
+                  onValueChange={(value) => {
+                    const [field, direction] = value.split('-') as [string, "asc" | "desc"]
+                    setFilters({ sort_by: field, sort_direction: direction })
+                  }} 
+                  disabled={loading}
+                >
                   <SelectTrigger className="h-11">
                     <ArrowUpDown className="h-4 w-4 mr-2" />
                     <SelectValue />
@@ -738,30 +723,30 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3">
                   {/* Bulk actions for admin */}
-                  {currentUser?.role === 'admin' && selectedTickets.length > 0 && (
+                  {currentUser?.role === 'admin' && store.selectedTickets.size > 0 && (
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
                       <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => handleBulkAction('assign', { assigned_to: currentUser.id })}
-                        disabled={!!actionLoading.bulk}
+                        onClick={() => handleBulkAction('bulk_assign', { assigned_to: currentUser.id })}
+                        disabled={useTicketLoading('assign')}
                         className="w-full sm:w-auto"
                       >
-                        {actionLoading.bulk === 'assign' ? (
+                        {useTicketLoading('assign') ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         ) : (
                           <UserPlus className="h-4 w-4 mr-2" />
                         )}
-                        Bulk Assign ({selectedTickets.length})
+                        Bulk Assign ({store.selectedTickets.size})
                       </Button>
                       <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => handleBulkAction('update_status', { status: 'In Progress' })}
-                        disabled={!!actionLoading.bulk}
+                        onClick={() => handleBulkAction('bulk_update', { status: 'In Progress' })}
+                        disabled={useTicketLoading('update')}
                         className="w-full sm:w-auto"
                       >
-                        {actionLoading.bulk === 'update_status' ? (
+                        {useTicketLoading('update') ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         ) : (
                           <Settings className="h-4 w-4 mr-2" />
@@ -772,25 +757,35 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                   )}
                   
                   <div className="text-sm text-gray-600">
-                    {loading ? 'Loading...' : `${pagination.total || 0} tickets found`}
+                    {loading ? 'Loading...' : `${store.pagination.total || 0} tickets found`}
                   </div>
                 </div>
 
                 <div className="flex items-center space-x-2">
+                  {/* Clear filters */}
+                  {(filters.search || filters.status || filters.category || filters.priority || filters.assigned) && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={clearFilters}
+                      disabled={loading}
+                      className="w-full sm:w-auto"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Clear Filters
+                    </Button>
+                  )}
+                  
                   {/* Export for admin */}
                   {permissions.can_export && (
                     <Button 
                       variant="outline" 
                       size="sm"
                       onClick={handleExport}
-                      disabled={!!actionLoading.export}
+                      disabled={loading}
                       className="w-full sm:w-auto"
                     >
-                      {actionLoading.export ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4 mr-2" />
-                      )}
+                      <Download className="h-4 w-4 mr-2" />
                       Export
                     </Button>
                   )}
@@ -800,7 +795,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
           </CardContent>
         </Card>
 
-        {/* Tickets Tabs - Responsive Design */}
+        {/* Tickets Tabs */}
         <Card className="border-0 shadow-xl">
           <CardContent className="p-0">
             <Tabs value={currentView} onValueChange={setCurrentView} className="w-full">
@@ -815,7 +810,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                       <span className="hidden sm:inline">All Tickets</span>
                       <span className="sm:hidden">All</span>
                       <Badge variant="secondary" className="ml-2">
-                        {filteredTicketGroups.all.length}
+                        {selectors.tickets.length}
                       </Badge>
                     </TabsTrigger>
                     
@@ -826,7 +821,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                       <span className="hidden sm:inline">Active</span>
                       <span className="sm:hidden">Active</span>
                       <Badge variant="secondary" className="ml-2">
-                        {filteredTicketGroups.open.length}
+                        {selectors.openTickets.length}
                       </Badge>
                     </TabsTrigger>
                     
@@ -837,11 +832,11 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                       <span className="hidden sm:inline">Closed</span>
                       <span className="sm:hidden">Closed</span>
                       <Badge variant="secondary" className="ml-2">
-                        {filteredTicketGroups.closed.length}
+                        {selectors.closedTickets.length}
                       </Badge>
                     </TabsTrigger>
                     
-                    {(currentUser?.role !== 'student' && filteredTicketGroups.crisis.length > 0) && (
+                    {(currentUser?.role !== 'student' && selectors.crisisTickets.length > 0) && (
                       <TabsTrigger 
                         value="crisis" 
                         className="flex-shrink-0 px-4 py-3 text-sm font-medium data-[state=active]:bg-red-50 data-[state=active]:text-red-700 data-[state=active]:border-b-2 data-[state=active]:border-red-700 rounded-none border-b-2 border-transparent hover:text-red-600 hover:border-red-300 text-red-600"
@@ -850,12 +845,12 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                         <span className="hidden sm:inline">Crisis</span>
                         <span className="sm:hidden">Crisis</span>
                         <Badge variant="destructive" className="ml-2">
-                          {filteredTicketGroups.crisis.length}
+                          {selectors.crisisTickets.length}
                         </Badge>
                       </TabsTrigger>
                     )}
                     
-                    {(currentUser?.role === 'admin' && filteredTicketGroups.unassigned.length > 0) && (
+                    {(currentUser?.role === 'admin' && selectors.unassignedTickets.length > 0) && (
                       <TabsTrigger 
                         value="unassigned" 
                         className="flex-shrink-0 px-4 py-3 text-sm font-medium data-[state=active]:bg-orange-50 data-[state=active]:text-orange-700 data-[state=active]:border-b-2 data-[state=active]:border-orange-700 rounded-none border-b-2 border-transparent hover:text-orange-600 hover:border-orange-300 text-orange-600"
@@ -863,7 +858,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                         <span className="hidden sm:inline">Unassigned</span>
                         <span className="sm:hidden">Unassigned</span>
                         <Badge variant="outline" className="ml-2 border-orange-200 text-orange-700">
-                          {filteredTicketGroups.unassigned.length}
+                          {selectors.unassignedTickets.length}
                         </Badge>
                       </TabsTrigger>
                     )}
@@ -876,7 +871,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                         <span className="hidden sm:inline">My Cases</span>
                         <span className="sm:hidden">Mine</span>
                         <Badge variant="secondary" className="ml-2">
-                          {filteredTicketGroups.my_assigned.length}
+                          {selectors.myAssignedTickets.length}
                         </Badge>
                       </TabsTrigger>
                     )}
@@ -901,13 +896,13 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                           <div className="flex items-center space-x-3">
                             <input
                               type="checkbox"
-                              checked={selectedTickets.length === currentTabTickets.length && currentTabTickets.length > 0}
+                              checked={store.selectedTickets.size === currentTabTickets.length && currentTabTickets.length > 0}
                               onChange={handleSelectAll}
                               className="rounded border-gray-300"
                             />
                             <span className="text-sm font-medium">
-                              {selectedTickets.length > 0 
-                                ? `${selectedTickets.length} selected` 
+                              {store.selectedTickets.size > 0 
+                                ? `${store.selectedTickets.size} selected` 
                                 : 'Select all tickets'
                               }
                             </span>
@@ -927,7 +922,7 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                                 {currentUser?.role === 'admin' && (
                                   <input
                                     type="checkbox"
-                                    checked={selectedTickets.includes(ticket.id)}
+                                    checked={store.selectedTickets.has(ticket.id)}
                                     onChange={() => handleSelectTicket(ticket.id)}
                                     className="mt-1 rounded border-gray-300 flex-shrink-0"
                                   />
@@ -1024,9 +1019,9 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                                       size="sm" 
                                       className="text-orange-600 border-orange-200"
                                       onClick={() => handleTicketAction(ticket.id, 'assign', { assigned_to: currentUser?.id })}
-                                      disabled={actionLoading[ticket.id] === 'assign'}
+                                      disabled={useTicketLoading(`assign_${ticket.id}`)}
                                     >
-                                      {actionLoading[ticket.id] === 'assign' ? (
+                                      {useTicketLoading(`assign_${ticket.id}`) ? (
                                         <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                                       ) : (
                                         <UserPlus className="h-4 w-4 mr-1" />
@@ -1056,19 +1051,19 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                     </div>
 
                     {/* Pagination */}
-                    {pagination.last_page > 1 && (
+                    {store.pagination.last_page > 1 && (
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
                         <div className="text-sm text-gray-600 text-center sm:text-left">
-                          Showing {((pagination.current_page - 1) * pagination.per_page) + 1} to{' '}
-                          {Math.min(pagination.current_page * pagination.per_page, pagination.total)} of{' '}
-                          {pagination.total} tickets
+                          Showing {((store.pagination.current_page - 1) * store.pagination.per_page) + 1} to{' '}
+                          {Math.min(store.pagination.current_page * store.pagination.per_page, store.pagination.total)} of{' '}
+                          {store.pagination.total} tickets
                         </div>
                         <div className="flex items-center justify-center space-x-2">
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => handlePageChange(1)}
-                            disabled={pagination.current_page === 1 || loading}
+                            disabled={store.pagination.current_page === 1 || loading}
                             className="hidden sm:inline-flex"
                           >
                             First
@@ -1076,17 +1071,17 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handlePageChange(pagination.current_page - 1)}
-                            disabled={pagination.current_page === 1 || loading}
+                            onClick={() => handlePageChange(store.pagination.current_page - 1)}
+                            disabled={store.pagination.current_page === 1 || loading}
                           >
                             Previous
                           </Button>
                           
                           <div className="flex items-center space-x-1">
-                            {Array.from({ length: Math.min(5, pagination.last_page) }, (_, i) => {
+                            {Array.from({ length: Math.min(5, store.pagination.last_page) }, (_, i) => {
                               let pageNum: number
-                              const totalPages = pagination.last_page
-                              const currentPage = pagination.current_page
+                              const totalPages = store.pagination.last_page
+                              const currentPage = store.pagination.current_page
 
                               if (totalPages <= 5) {
                                 pageNum = i + 1
@@ -1101,11 +1096,11 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                               return (
                                 <Button
                                   key={pageNum}
-                                  variant={pageNum === pagination.current_page ? "default" : "outline"}
+                                  variant={pageNum === store.pagination.current_page ? "default" : "outline"}
                                   size="sm"
                                   onClick={() => handlePageChange(pageNum)}
                                   disabled={loading}
-                                  className={pageNum === pagination.current_page ? "bg-blue-600 hover:bg-blue-700" : ""}
+                                  className={pageNum === store.pagination.current_page ? "bg-blue-600 hover:bg-blue-700" : ""}
                                 >
                                   {pageNum}
                                 </Button>
@@ -1116,16 +1111,16 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handlePageChange(pagination.current_page + 1)}
-                            disabled={pagination.current_page === pagination.last_page || loading}
+                            onClick={() => handlePageChange(store.pagination.current_page + 1)}
+                            disabled={store.pagination.current_page === store.pagination.last_page || loading}
                           >
                             Next
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handlePageChange(pagination.last_page)}
-                            disabled={pagination.current_page === pagination.last_page || loading}
+                            onClick={() => handlePageChange(store.pagination.last_page)}
+                            disabled={store.pagination.current_page === store.pagination.last_page || loading}
                             className="hidden sm:inline-flex"
                           >
                             Last
@@ -1139,14 +1134,14 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
                     <Ticket className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No tickets found</h3>
                     <p className="text-gray-600 mb-4">
-                      {searchTerm || statusFilter !== 'all' || categoryFilter !== 'all' || priorityFilter !== 'all'
+                      {searchTerm || filters.status || filters.category || filters.priority
                         ? "Try adjusting your filters or search term"
                         : currentUser?.role === 'student' 
                           ? "Get started by submitting your first ticket"
                           : "No tickets have been assigned to you yet"
                       }
                     </p>
-                    {(!searchTerm && statusFilter === 'all' && categoryFilter === 'all' && priorityFilter === 'all' && currentUser?.role === 'student') && (
+                    {(!searchTerm && !filters.status && !filters.category && !filters.priority && currentUser?.role === 'student') && (
                       <Button 
                         onClick={handleCreateTicket}
                         className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
@@ -1161,133 +1156,6 @@ export function TicketsPage({ onNavigate }: TicketsPageProps) {
             </Tabs>
           </CardContent>
         </Card>
-
-        {/* Quick Stats Footer for Admin */}
-        {currentUser?.role === 'admin' && (
-          <Card className="border-0 shadow-xl bg-gradient-to-r from-gray-50 to-slate-50">
-            <CardContent className="pt-6">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-                <h3 className="font-semibold text-gray-900">System Overview</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 text-sm">
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-blue-600">{stats.total || 0}</div>
-                    <div className="text-gray-600">Total Tickets</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-orange-600">{filteredTicketGroups.unassigned.length}</div>
-                    <div className="text-gray-600">Unassigned</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-red-600">{filteredTicketGroups.crisis.length}</div>
-                    <div className="text-gray-600">Crisis Cases</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-green-600">
-                      {stats.total > 0 ? Math.round(((stats.resolved || 0) / stats.total) * 100) : 0}%
-                    </div>
-                    <div className="text-gray-600">Resolution Rate</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-purple-600">{(stats.open || 0) + (stats.in_progress || 0)}</div>
-                    <div className="text-gray-600">Active Cases</div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Performance Summary for Staff */}
-        {(currentUser?.role === 'counselor' || currentUser?.role === 'advisor') && (
-          <Card className="border-0 shadow-xl bg-gradient-to-r from-green-50 to-emerald-50">
-            <CardContent className="pt-6">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-                <h3 className="font-semibold text-gray-900">My Performance</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 text-sm">
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-blue-600">{filteredTicketGroups.my_assigned.length}</div>
-                    <div className="text-gray-600">Assigned to Me</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-orange-600">
-                      {filteredTicketGroups.my_assigned.filter((t: TicketData) => t.status === 'Open' || t.status === 'In Progress').length}
-                    </div>
-                    <div className="text-gray-600">Active Cases</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-green-600">
-                      {filteredTicketGroups.my_assigned.filter((t: TicketData) => t.status === 'Resolved').length}
-                    </div>
-                    <div className="text-gray-600">Resolved</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-red-600">
-                      {filteredTicketGroups.my_assigned.filter((t: TicketData) => t.crisis_flag).length}
-                    </div>
-                    <div className="text-gray-600">Crisis Handled</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-purple-600">
-                      {filteredTicketGroups.my_assigned.length > 0 ? 
-                        Math.round((filteredTicketGroups.my_assigned.filter((t: TicketData) => t.status === 'Resolved').length / filteredTicketGroups.my_assigned.length) * 100) : 0}%
-                    </div>
-                    <div className="text-gray-600">Success Rate</div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Help Section for Students */}
-        {currentUser?.role === 'student' && tickets.length === 0 && !loading && (
-          <Card className="border-0 shadow-xl bg-gradient-to-r from-blue-50 to-indigo-50">
-            <CardContent className="pt-6">
-              <div className="text-center py-8">
-                <div className="flex justify-center mb-6">
-                  <div className="bg-blue-100 p-4 rounded-full">
-                    <MessageSquare className="h-12 w-12 text-blue-600" />
-                  </div>
-                </div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-4">Welcome to Student Support</h3>
-                <p className="text-gray-600 mb-6 max-w-2xl mx-auto">
-                  Our support system is here to help you with academic questions, mental health support, 
-                  technical issues, and more. Submit a ticket and our dedicated team will respond within 24 hours.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                  <div className="p-4 bg-white rounded-lg border border-blue-200">
-                    <div className="text-blue-600 mb-2">📚</div>
-                    <h4 className="font-medium mb-1">Academic Help</h4>
-                    <p className="text-sm text-gray-600">Course questions, study support, academic planning</p>
-                  </div>
-                  <div className="p-4 bg-white rounded-lg border border-green-200">
-                    <div className="text-green-600 mb-2">💚</div>
-                    <h4 className="font-medium mb-1">Mental Health</h4>
-                    <p className="text-sm text-gray-600">Counseling, stress management, wellbeing support</p>
-                  </div>
-                  <div className="p-4 bg-white rounded-lg border border-purple-200">
-                    <div className="text-purple-600 mb-2">🛠️</div>
-                    <h4 className="font-medium mb-1">Technical Issues</h4>
-                    <p className="text-sm text-gray-600">Login problems, system errors, account access</p>
-                  </div>
-                  <div className="p-4 bg-white rounded-lg border border-red-200">
-                    <div className="text-red-600 mb-2">🚨</div>
-                    <h4 className="font-medium mb-1">Crisis Support</h4>
-                    <p className="text-sm text-gray-600">Immediate help for urgent situations</p>
-                  </div>
-                </div>
-                <Button 
-                  onClick={handleCreateTicket}
-                  className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-8 py-3"
-                  size="lg"
-                >
-                  <Plus className="h-5 w-5 mr-2" />
-                  Submit First Ticket
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   )
