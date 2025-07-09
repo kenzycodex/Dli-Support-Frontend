@@ -7,7 +7,6 @@ export type {
   TicketData,
   TicketResponseData,
   TicketAttachmentData,
-  TicketStats,
   TicketFilters,
   CreateTicketRequest,
   AddResponseRequest,

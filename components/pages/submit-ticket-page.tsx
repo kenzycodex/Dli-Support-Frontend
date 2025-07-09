@@ -1,4 +1,4 @@
-// components/pages/submit-ticket-page.tsx (Fixed TypeScript issues)
+// components/pages/submit-ticket-page.tsx (FIXED - Proper ticket creation)
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
@@ -40,19 +40,19 @@ interface SubmitTicketPageProps {
 }
 
 export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
-  // Zustand store hooks
-  const store = useTicketStore();
+  // FIXED: Get store actions properly
+  const actions = useTicketStore(state => state?.actions);
   const loading = useTicketLoading('create');
   const error = useTicketError('create');
   const permissions = useTicketPermissions();
 
-  // Form state - Fix: Initialize attachments as empty array instead of undefined
+  // Form state - FIXED: Initialize attachments as empty array
   const [formData, setFormData] = useState<CreateTicketRequest>({
     subject: '',
     category: '',
     priority: 'Medium',
     description: '',
-    attachments: [], // Fixed: Initialize as empty array
+    attachments: [], // FIXED: Initialize as empty array
   });
   const [success, setSuccess] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -86,11 +86,11 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
     (field: keyof CreateTicketRequest, value: any) => {
       setFormData((prev) => ({ ...prev, [field]: value }));
       setLocalError(null);
-      if (error) {
-        store.actions.clearError('create');
+      if (error && actions?.clearError) {
+        actions.clearError('create');
       }
     },
-    [error, store.actions]
+    [error, actions]
   );
 
   // Handle file upload with enhanced validation
@@ -100,8 +100,8 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
 
       // Clear previous errors
       setLocalError(null);
-      if (error) {
-        store.actions.clearError('create');
+      if (error && actions?.clearError) {
+        actions.clearError('create');
       }
 
       // Validate files using service
@@ -111,7 +111,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
         return;
       }
 
-      // Fix: Ensure attachments is always an array
+      // FIXED: Ensure attachments is always an array
       const currentAttachments = formData.attachments || [];
 
       // Check total attachments limit
@@ -122,28 +122,33 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
 
       setFormData((prev) => ({
         ...prev,
-        attachments: [...currentAttachments, ...files], // Fixed: Use currentAttachments
+        attachments: [...currentAttachments, ...files], // FIXED: Use currentAttachments
       }));
 
       // Reset file input
       event.target.value = '';
     },
-    [formData.attachments, error, store.actions]
+    [formData.attachments, error, actions]
   );
 
   // Remove file from attachments
   const removeFile = useCallback((index: number) => {
     setFormData((prev) => ({
       ...prev,
-      attachments: (prev.attachments || []).filter((_, i) => i !== index), // Fixed: Handle undefined
+      attachments: (prev.attachments || []).filter((_, i) => i !== index), // FIXED: Handle undefined
     }));
   }, []);
 
-  // Handle form submission
+  // FIXED: Handle form submission properly
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       setLocalError(null);
+
+      if (!actions?.createTicket) {
+        setLocalError('System not ready. Please try again.');
+        return;
+      }
 
       // Client-side validation using service
       const validation = ticketService.validateTicketData(formData);
@@ -153,20 +158,29 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
       }
 
       try {
-        const ticket = await store.actions.createTicket(formData);
+        console.log('🎫 SubmitTicketPage: Creating ticket with data:', formData);
+        
+        const ticket = await actions.createTicket(formData);
 
-        if (ticket) {
+        // Check if ticket was created successfully
+        const currentError = useTicketStore.getState().errors.create;
+        if (ticket && !currentError) {
+          console.log('✅ SubmitTicketPage: Ticket created successfully:', ticket);
           setSuccess(true);
           setTimeout(() => {
             onNavigate('tickets');
           }, 2500);
+        } else {
+          // If no ticket returned or there's an error, show it
+          const errorMessage = currentError || 'Failed to create ticket. Please try again.';
+          setLocalError(errorMessage);
         }
       } catch (err) {
-        console.error('Failed to create ticket:', err);
+        console.error('❌ SubmitTicketPage: Failed to create ticket:', err);
         setLocalError('Failed to create ticket. Please try again.');
       }
     },
-    [formData, store.actions, onNavigate]
+    [formData, actions, onNavigate]
   );
 
   // Check if form is valid
@@ -402,7 +416,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
               />
               <div className="flex justify-between text-xs text-gray-500">
                 <span>
-                  Minimum 20 characters required
+                Minimum 20 characters required
                   {formData.description.length >= 20 && (
                     <CheckCircle className="inline h-3 w-3 text-green-500 ml-1" />
                   )}
@@ -452,10 +466,10 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                     variant="outline"
                     onClick={() => document.getElementById('file-upload')?.click()}
                     className="mt-2 hover:bg-blue-50 hover:border-blue-200"
-                    disabled={loading || (formData.attachments || []).length >= 5} // Fixed: Handle undefined
+                    disabled={loading || (formData.attachments || []).length >= 5} // FIXED: Handle undefined
                   >
                     Choose Files ({(formData.attachments || []).length}/5){' '}
-                    {/* Fixed: Handle undefined */}
+                    {/* FIXED: Handle undefined */}
                   </Button>
                 </div>
                 <p className="text-xs text-gray-500 mt-4">
@@ -465,7 +479,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
 
               {/* Uploaded Files Display */}
               {formData.attachments &&
-                formData.attachments.length > 0 && ( // Fixed: Check for undefined
+                formData.attachments.length > 0 && ( // FIXED: Check for undefined
                   <div className="space-y-3">
                     <Label className="text-sm font-medium text-gray-700">
                       Uploaded Files ({formData.attachments.length}/5)
@@ -474,7 +488,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                       {formData.attachments.map(
                         (
                           file,
-                          index // Fixed: Now safe to iterate
+                          index // FIXED: Now safe to iterate
                         ) => (
                           <div
                             key={index}
@@ -548,12 +562,16 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
               <Button
                 type="submit"
                 disabled={!isFormValid || loading}
-                className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`w-full sm:w-auto transition-all duration-200 ${
+                  loading 
+                    ? 'bg-blue-400 cursor-not-allowed' 
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 hover:shadow-md'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Creating Ticket...
+                    <span className="animate-pulse">Creating Ticket...</span>
                   </>
                 ) : (
                   <>

@@ -1,4 +1,4 @@
-// components/pages/ticket-details-page.tsx (Fixed TypeScript issue)
+// components/pages/ticket-details-page.tsx (FIXED - All TypeScript errors resolved)
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
@@ -47,13 +47,14 @@ interface TicketDetailsPageProps {
 }
 
 export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPageProps) {
-  // Zustand store hooks
-  const store = useTicketStore()
+  // FIXED: Use store hooks properly
+  const actions = useTicketStore(state => state?.actions)
   const ticket = useTicketById(ticketId)
   const loadingDetails = useTicketLoading('update')
-  const loadingResponse = useTicketLoading('response')
+  const loadingResponse = useTicketLoading('response') // FIXED: Now response is valid
   const error = useTicketError('update')
-  const responseError = useTicketError('response')
+  // FIXED: Get error state at component level, not in callback
+  const currentResponseError = useTicketError('response')
   const permissions = useTicketPermissions()
 
   // Local state for response form
@@ -68,10 +69,10 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
   useEffect(() => {
     console.log("🎫 TicketDetailsPage: Loading ticket details for ID:", ticketId)
     
-    if (ticketId && !ticket) {
+    if (ticketId && !ticket && actions) {
       fetchTicketDetails()
     }
-  }, [ticketId])
+  }, [ticketId, ticket, actions])
 
   // Auto-refresh ticket details periodically
   useEffect(() => {
@@ -85,16 +86,16 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
   }, [ticket?.status])
 
   const fetchTicketDetails = useCallback(async (silent = false) => {
+    if (!actions?.fetchTicket) return
+    
     if (!silent) {
       setRefreshing(true)
     }
     setLocalError(null)
     
     try {
-      const detailedTicket = await store.actions.fetchTicket(ticketId)
-      if (!detailedTicket && !silent) {
-        setLocalError("Ticket not found or you don't have access to it")
-      }
+      await actions.fetchTicket(ticketId) // FIXED: fetchTicket returns void
+      console.log('✅ TicketDetailsPage: Ticket details loaded')
     } catch (err) {
       console.error("Failed to fetch ticket details:", err)
       if (!silent) {
@@ -105,14 +106,14 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
         setRefreshing(false)
       }
     }
-  }, [ticketId, store.actions])
+  }, [ticketId, actions])
 
   // Handle sending response
   const handleSendResponse = useCallback(async () => {
-    if (!newResponse.trim() || !ticket) return
+    if (!newResponse.trim() || !ticket || !actions?.addResponse) return
 
     setLocalError(null)
-    store.actions.clearError('response')
+    actions.clearError && actions.clearError('response')
 
     // Validate response
     if (newResponse.length < 5) {
@@ -135,9 +136,11 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
         attachments: attachments.length > 0 ? attachments : undefined,
       }
 
-      const response = await store.actions.addResponse(ticket.id, responseData)
+      await actions.addResponse(ticket.id, responseData) // FIXED: addResponse returns void
 
-      if (response) {
+      // Check if there was an error after the call
+      const errorAfterCall = useTicketStore.getState().errors.response
+      if (!errorAfterCall) {
         setNewResponse("")
         setAttachments([])
         
@@ -148,7 +151,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
       console.error("Failed to add response:", err)
       setLocalError("Failed to send response. Please try again.")
     }
-  }, [ticket, newResponse, attachments, store.actions, fetchTicketDetails])
+  }, [ticket, newResponse, attachments, actions, fetchTicketDetails])
 
   // Handle file upload for responses
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -180,34 +183,42 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
 
   // Handle attachment download
   const handleDownloadAttachment = useCallback(async (attachmentId: number, fileName: string) => {
+    if (!actions?.downloadAttachment) return
+    
     try {
-      await store.actions.downloadAttachment(attachmentId, fileName)
+      await actions.downloadAttachment(attachmentId, fileName) // FIXED: Method now exists
     } catch (err) {
       console.error("Failed to download attachment:", err)
       setLocalError("Failed to download attachment")
     }
-  }, [store.actions])
+  }, [actions])
 
   // Quick actions
   const handleQuickAction = useCallback(async (action: string, params?: any) => {
-    if (!ticket) return
+    if (!ticket || !actions) return
     
     try {
       switch (action) {
         case 'assign_to_me':
-          if (currentUser) {
-            await store.actions.assignTicket(ticket.id, currentUser.id, 'Self-assigned')
+          if (currentUser && actions.assignTicket) {
+            await actions.assignTicket(ticket.id, currentUser.id) // FIXED: Only 2 params
           }
           break
         case 'mark_in_progress':
-          await store.actions.updateTicket(ticket.id, { status: 'In Progress' })
+          if (actions.updateTicket) {
+            await actions.updateTicket(ticket.id, { status: 'In Progress' })
+          }
           break
         case 'mark_resolved':
-          await store.actions.updateTicket(ticket.id, { status: 'Resolved' })
+          if (actions.updateTicket) {
+            await actions.updateTicket(ticket.id, { status: 'Resolved' })
+          }
           break
         case 'escalate':
-          await store.actions.updateTicket(ticket.id, { priority: 'Urgent' })
-          await store.actions.addTag(ticket.id, 'escalated')
+          if (actions.updateTicket && actions.addTag) {
+            await actions.updateTicket(ticket.id, { priority: 'Urgent' })
+            await actions.addTag(ticket.id, 'escalated') // FIXED: Method now exists
+          }
           break
       }
       
@@ -216,7 +227,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     } catch (error) {
       console.error(`Failed to ${action}:`, error)
     }
-  }, [ticket, currentUser, store.actions, fetchTicketDetails])
+  }, [ticket, currentUser, actions, fetchTicketDetails])
 
   // Utility functions
   const formatDate = useCallback((dateString: string) => {
@@ -263,7 +274,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     return !isTicketClosed && (isOwner || isAssigned || isStaff)
   }, [ticket, currentUser])
 
-  // Fixed: Calculate isTicketClosed from ticket status directly
+  // FIXED: Calculate isTicketClosed from ticket status directly
   const isTicketClosed = useMemo(() => {
     return ticket ? (ticket.status === "Closed" || ticket.status === "Resolved") : false
   }, [ticket?.status])
@@ -418,17 +429,17 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
       </div>
 
       {/* Error Alert */}
-      {(error || responseError || localError) && (
+      {(error || currentResponseError || localError) && (
         <Alert variant="destructive" className="mb-6">
           <AlertCircle className="h-4 w-4" />
           <div className="flex justify-between items-center">
-            <AlertDescription>{error || responseError || localError}</AlertDescription>
+            <AlertDescription>{error || currentResponseError || localError}</AlertDescription>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
-                store.actions.clearError('update')
-                store.actions.clearError('response')
+                actions?.clearError && actions.clearError('update')
+                actions?.clearError && actions.clearError('response') // FIXED: Now valid
                 setLocalError(null)
               }}
               className="text-red-600 hover:text-red-700 hover:bg-red-50"
@@ -698,7 +709,9 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                 />
                 <div className="flex justify-between text-xs text-gray-500">
                   <span>Share your thoughts or ask questions</span>
-                  <span>{newResponse.length}/5000</span>
+                  <span className={newResponse.length < 5 ? 'text-red-500' : 'text-gray-500'}>
+                    {newResponse.length}/5000 {newResponse.length < 5 && '(minimum 5 characters)'}
+                  </span>
                 </div>
               </div>
               
@@ -731,6 +744,9 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                       Choose Files ({attachments.length}/3)
                     </Button>
                   </div>
+                  <p className="text-xs text-gray-500 mt-4">
+                    PDF, PNG, JPG, DOC, TXT files up to 10MB each (Max 3 files)
+                  </p>
                 </div>
                 
                 {attachments.length > 0 && (
@@ -771,13 +787,17 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                 </div>
                 <Button
                   onClick={handleSendResponse}
-                  disabled={!newResponse.trim() || loadingResponse}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  disabled={!newResponse.trim() || newResponse.length < 5 || loadingResponse}
+                  className={`transition-all duration-200 ${
+                    loadingResponse 
+                      ? 'bg-blue-400 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700 hover:shadow-md'
+                  }`}
                 >
                   {loadingResponse ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Sending...
+                      <span className="animate-pulse">Sending...</span>
                     </>
                   ) : (
                     <>
