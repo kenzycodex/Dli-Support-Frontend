@@ -282,23 +282,23 @@ class ApiClient {
   }
 
   async get<T = any>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
-    return this.makeRequest<T>(endpoint, "GET", undefined, options, 40000, true) // 40s for GET with rate limiting
+    return this.makeRequest<T>(endpoint, "GET", undefined, options, 30000, true) // 30s for GET with rate limiting
   }
 
   async post<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
     // Use longer timeout for POST requests with files
-    const timeout = data instanceof FormData ? 120000 : 40000 // 2 min for files, 40s for others
+    const timeout = data instanceof FormData ? 120000 : 30000 // 2 min for files, 30s for others
     // Don't rate limit POST requests as they modify data
     return this.makeRequest<T>(endpoint, "POST", data, options, timeout, false)
   }
 
   async put<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 40000
+    const timeout = data instanceof FormData ? 120000 : 30000
     return this.makeRequest<T>(endpoint, "PUT", data, options, timeout, false)
   }
 
   async patch<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 40000
+    const timeout = data instanceof FormData ? 120000 : 30000
     return this.makeRequest<T>(endpoint, "PATCH", data, options, timeout, false)
   }
 
@@ -312,72 +312,38 @@ class ApiClient {
     
     // For traditional DELETE requests without body
     if (!data) {
-      return this.makeRequest<T>(endpoint, "DELETE", undefined, undefined, 40000, false)
+      return this.makeRequest<T>(endpoint, "DELETE", undefined, undefined, 30000, false)
     }
     
     // For DELETE requests with body, use POST to a delete endpoint
     console.warn('🌐 DELETE with body not supported, consider using POST to a delete endpoint')
-    return this.makeRequest<T>(endpoint, "DELETE", data, undefined,40000, false)
+    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 30000, false)
   }
 
-  // FIXED: Special method for ticket deletion with fallback and better error handling
+  // FIXED: Special method for ticket deletion to avoid confusion
   async deleteTicket<T = any>(ticketId: number, reason: string, notifyUser: boolean = false): Promise<ApiResponse<T>> {
+    const endpoint = `/tickets/${ticketId}/delete`
     const data = {
       reason,
       notify_user: notifyUser
     }
     
-    console.log('🌐 Deleting ticket ID:', ticketId, 'with data:', data)
-    
-    // Try POST to delete endpoint first (preferred)
-    const postEndpoint = `/tickets/${ticketId}/delete`
-    console.log('🌐 Attempting DELETE via POST:', postEndpoint)
+    console.log('🌐 Deleting ticket via POST:', endpoint, data)
     
     try {
-      // Use longer timeout for deletion (30s) as it might involve database operations
-      const result = await this.makeRequest<T>(postEndpoint, "POST", data, undefined, 40000, false)
+      // Use shorter timeout for deletion
+      const result = await this.makeRequest<T>(endpoint, "POST", data, undefined, 15000, false)
       
+      // FIXED: Add extra logging for delete operations
       if (result.success) {
-        console.log('✅ Ticket deletion successful via POST')
-        return result
+        console.log('✅ Ticket deletion successful')
       } else {
-        console.warn('⚠️ POST delete failed, trying DELETE method:', result.message)
-        
-        // If POST fails, try traditional DELETE with body
-        const deleteEndpoint = `/tickets/${ticketId}`
-        console.log('🌐 Attempting DELETE via DELETE method:', deleteEndpoint)
-        
-        const deleteResult = await this.makeRequest<T>(deleteEndpoint, "DELETE", data, undefined, 40000, false)
-        
-        if (deleteResult.success) {
-          console.log('✅ Ticket deletion successful via DELETE')
-          return deleteResult
-        } else {
-          console.error('❌ Both POST and DELETE methods failed')
-          return deleteResult
-        }
+        console.error('❌ Ticket deletion failed:', result)
       }
-    } catch (error: any) {
+      
+      return result
+    } catch (error) {
       console.error('❌ Ticket deletion error:', error)
-      
-      // Check if it's a timeout error
-      if (error.message && error.message.includes('timeout')) {
-        return {
-          success: false,
-          message: 'Delete operation timed out. The ticket may have been deleted. Please refresh the page to check.',
-          errors: error
-        }
-      }
-      
-      // Check if it's a network error
-      if (error.message && error.message.includes('Network')) {
-        return {
-          success: false,
-          message: 'Network error during deletion. Please check your connection and try again.',
-          errors: error
-        }
-      }
-      
       return {
         success: false,
         message: 'Failed to delete ticket. Please try again.',
