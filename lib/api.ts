@@ -282,23 +282,23 @@ class ApiClient {
   }
 
   async get<T = any>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
-    return this.makeRequest<T>(endpoint, "GET", undefined, options, 30000, true) // 30s for GET with rate limiting
+    return this.makeRequest<T>(endpoint, "GET", undefined, options, 40000, true) // 40s for GET with rate limiting
   }
 
   async post<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
     // Use longer timeout for POST requests with files
-    const timeout = data instanceof FormData ? 120000 : 30000 // 2 min for files, 30s for others
+    const timeout = data instanceof FormData ? 120000 : 40000 // 2 min for files, 40s for others
     // Don't rate limit POST requests as they modify data
     return this.makeRequest<T>(endpoint, "POST", data, options, timeout, false)
   }
 
   async put<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 30000
+    const timeout = data instanceof FormData ? 120000 : 40000
     return this.makeRequest<T>(endpoint, "PUT", data, options, timeout, false)
   }
 
   async patch<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 30000
+    const timeout = data instanceof FormData ? 120000 : 40000
     return this.makeRequest<T>(endpoint, "PATCH", data, options, timeout, false)
   }
 
@@ -312,12 +312,12 @@ class ApiClient {
     
     // For traditional DELETE requests without body
     if (!data) {
-      return this.makeRequest<T>(endpoint, "DELETE", undefined, undefined, 30000, false)
+      return this.makeRequest<T>(endpoint, "DELETE", undefined, undefined, 40000, false)
     }
     
     // For DELETE requests with body, use POST to a delete endpoint
     console.warn('🌐 DELETE with body not supported, consider using POST to a delete endpoint')
-    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 30000, false)
+    return this.makeRequest<T>(endpoint, "DELETE", data, undefined,40000, false)
   }
 
   // FIXED: Special method for ticket deletion with fallback and better error handling
@@ -335,7 +335,7 @@ class ApiClient {
     
     try {
       // Use longer timeout for deletion (30s) as it might involve database operations
-      const result = await this.makeRequest<T>(postEndpoint, "POST", data, undefined, 30000, false)
+      const result = await this.makeRequest<T>(postEndpoint, "POST", data, undefined, 40000, false)
       
       if (result.success) {
         console.log('✅ Ticket deletion successful via POST')
@@ -347,7 +347,7 @@ class ApiClient {
         const deleteEndpoint = `/tickets/${ticketId}`
         console.log('🌐 Attempting DELETE via DELETE method:', deleteEndpoint)
         
-        const deleteResult = await this.makeRequest<T>(deleteEndpoint, "DELETE", data, undefined, 30000, false)
+        const deleteResult = await this.makeRequest<T>(deleteEndpoint, "DELETE", data, undefined, 40000, false)
         
         if (deleteResult.success) {
           console.log('✅ Ticket deletion successful via DELETE')
