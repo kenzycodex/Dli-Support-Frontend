@@ -350,3 +350,7 @@ export function useApiMonitor() {
 
   return stats
 }
+
+function useState(arg0: RateLimitStats & { pendingCount: number; cacheHitRate: number }): [any, any] {
+  throw new Error('Function not implemented.')
+}

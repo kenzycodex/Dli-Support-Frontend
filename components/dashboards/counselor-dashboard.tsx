@@ -1,7 +1,7 @@
-// components/dashboards/counselor-dashboard.tsx (Fixed infinite loops and TypeScript errors)
+// components/dashboards/counselor-dashboard.tsx (FIXED - Smart initialization like AdminDashboard)
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -73,7 +73,7 @@ interface PersonalAnalytics {
 }
 
 export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps) {
-  // Use ticket store instead of hooks
+  // FIXED: Use store state directly instead of hooks to prevent loading loops
   const store = useTicketStore()
   const stats = useTicketStats()
   const loading = useTicketLoading('list')
@@ -82,33 +82,60 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
   // Local state
   const [activeTab, setActiveTab] = useState("overview")
   const [isInitialized, setIsInitialized] = useState(false)
+  const [hasData, setHasData] = useState(false)
+  const initRef = useRef(false)
 
   // Memoized assigned tickets to prevent re-renders
   const assignedTickets = useMemo(() => {
     return selectors.myAssignedTickets
   }, [selectors.myAssignedTickets])
 
-  // FIXED: Proper initialization with dependency array
+  // FIXED: Smart initialization that doesn't always show loading (same as AdminDashboard)
   useEffect(() => {
     let isMounted = true
 
     const initializeDashboard = async () => {
-      if (isInitialized) return
+      // FIXED: Check if we already have recent data
+      const hasRecentData = store.tickets.length > 0 && 
+        Date.now() - store.lastFetch < 60000 // 1 minute cache
+
+      if (hasRecentData) {
+        console.log("🎫 CounselorDashboard: Using cached data")
+        if (isMounted) {
+          setIsInitialized(true)
+          setHasData(true)
+        }
+        return
+      }
+
+      // Only fetch if we don't have recent data
+      if (initRef.current || isInitialized) return
+      
+      initRef.current = true
       
       try {
         console.log("🎫 CounselorDashboard: Initializing dashboard data")
-        await store.actions.fetchTickets({ 
-          page: 1, 
-          per_page: 10,
-          sort_by: 'updated_at',
-          sort_direction: 'desc'
-        })
+        
+        // Only fetch if we don't have tickets or data is stale
+        if (store.tickets.length === 0 || Date.now() - store.lastFetch > 60000) {
+          await store.actions.fetchTickets({ 
+            page: 1, 
+            per_page: 10,
+            sort_by: 'updated_at',
+            sort_direction: 'desc'
+          })
+        }
         
         if (isMounted) {
           setIsInitialized(true)
+          setHasData(true)
         }
       } catch (error) {
         console.error("❌ CounselorDashboard: Failed to initialize:", error)
+        if (isMounted) {
+          setIsInitialized(true)
+          setHasData(false)
+        }
       }
     }
 
@@ -117,7 +144,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
     return () => {
       isMounted = false
     }
-  }, [store.actions, isInitialized]) // FIXED: Added proper dependencies
+  }, [store.actions, store.tickets.length, store.lastFetch, isInitialized])
 
   // Sample data for counselor-specific features - FIXED: Memoized
   const todaySessions: SessionData[] = useMemo(() => [
@@ -265,8 +292,8 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
     [assignedTickets]
   )
 
-  // Show loading state during initialization
-  if (!isInitialized && loading) {
+  // FIXED: Only show loading for initial load, not for refresh or cached data
+  if (!isInitialized && !hasData && loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -451,7 +478,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-6">
-                {loading ? (
+                {loading && recentTickets.length === 0 ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-blue-600 mr-2" />
                     <span className="text-gray-600">Loading cases...</span>
@@ -545,9 +572,9 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                 <div>
                   <div className="flex justify-between text-sm mb-2">
                     <span>Cases Resolved</span>
-                    <span>{stats.resolved}/{stats.total}</span>
+                    <span>{stats.resolved || 0}/{stats.total || 0}</span>
                   </div>
-                  <Progress value={stats.total > 0 ? (stats.resolved / stats.total) * 100 : 0} className="h-2" />
+                  <Progress value={(stats.total || 0) > 0 ? ((stats.resolved || 0) / (stats.total || 0)) * 100 : 0} className="h-2" />
                 </div>
               </CardContent>
             </Card>
@@ -689,7 +716,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
               {urgentTickets.length > 0 && (
                 <Card className="border-orange-200 bg-orange-50">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-orange-900 flex items-center space-x-2">
+                  <CardTitle className="text-orange-900 flex items-center space-x-2">
                       <Zap className="h-5 w-5" />
                       <span>High Priority ({urgentTickets.length})</span>
                     </CardTitle>
@@ -726,7 +753,7 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
               <CardTitle>All Assigned Cases</CardTitle>
             </CardHeader>
             <CardContent>
-              {loading ? (
+              {loading && assignedTickets.length === 0 ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
                   <span className="text-gray-600">Loading your cases...</span>

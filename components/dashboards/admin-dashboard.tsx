@@ -1,7 +1,7 @@
-// components/dashboards/admin-dashboard.tsx (Fixed infinite loops and TypeScript errors)
+// components/dashboards/admin-dashboard.tsx (FIXED - No more loading loops)
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -86,7 +86,7 @@ interface StaffPerformance {
 }
 
 export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
-  // Use ticket store instead of hooks
+  // FIXED: Use store state directly instead of hooks
   const store = useTicketStore()
   const stats = useTicketStats()
   const loading = useTicketLoading('list')
@@ -103,33 +103,60 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
   })
   const [activeTab, setActiveTab] = useState("overview")
   const [isInitialized, setIsInitialized] = useState(false)
+  const [hasData, setHasData] = useState(false)
+  const initRef = useRef(false)
 
   // Memoized recent tickets to prevent re-renders
   const recentTickets = useMemo(() => {
     return selectors.tickets.slice(0, 8)
   }, [selectors.tickets])
 
-  // FIXED: Proper initialization with dependency array
+  // FIXED: Smart initialization that doesn't always show loading
   useEffect(() => {
     let isMounted = true
 
     const initializeDashboard = async () => {
-      if (isInitialized) return
+      // FIXED: Check if we already have recent data
+      const hasRecentData = store.tickets.length > 0 && 
+        Date.now() - store.lastFetch < 60000 // 1 minute cache
+
+      if (hasRecentData) {
+        console.log("🎫 AdminDashboard: Using cached data")
+        if (isMounted) {
+          setIsInitialized(true)
+          setHasData(true)
+        }
+        return
+      }
+
+      // Only fetch if we don't have recent data
+      if (initRef.current || isInitialized) return
+      
+      initRef.current = true
       
       try {
         console.log("🎫 AdminDashboard: Initializing dashboard data")
-        await store.actions.fetchTickets({ 
-          page: 1, 
-          per_page: 10,
-          sort_by: 'updated_at',
-          sort_direction: 'desc'
-        })
+        
+        // Only fetch if we don't have tickets or data is stale
+        if (store.tickets.length === 0 || Date.now() - store.lastFetch > 60000) {
+          await store.actions.fetchTickets({ 
+            page: 1, 
+            per_page: 10,
+            sort_by: 'updated_at',
+            sort_direction: 'desc'
+          })
+        }
         
         if (isMounted) {
           setIsInitialized(true)
+          setHasData(true)
         }
       } catch (error) {
         console.error("❌ AdminDashboard: Failed to initialize:", error)
+        if (isMounted) {
+          setIsInitialized(true)
+          setHasData(false)
+        }
       }
     }
 
@@ -138,7 +165,7 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
     return () => {
       isMounted = false
     }
-  }, [store.actions, isInitialized]) // FIXED: Added proper dependencies
+  }, [store.actions, store.tickets.length, store.lastFetch, isInitialized])
 
   // Memoized alert data
   const recentAlerts: AlertItem[] = useMemo(() => [
@@ -278,8 +305,8 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
     [recentTickets]
   )
 
-  // Show loading state during initialization
-  if (!isInitialized && loading) {
+  // FIXED: Only show loading for initial load, not for refresh or cached data
+  if (!isInitialized && !hasData && loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -630,10 +657,11 @@ export function AdminDashboard({ user, onNavigate }: AdminDashboardProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-6">
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
-                  <span className="text-gray-600">Loading tickets...</span>
+              {/* FIXED: Show minimal loading only during refresh */}
+              {loading && recentTickets.length > 0 ? (
+                <div className="flex justify-center items-center py-4">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600 mr-2" />
+                  <span className="text-gray-600 text-sm">Updating...</span>
                 </div>
               ) : recentTickets.length > 0 ? (
                 <div className="space-y-4">

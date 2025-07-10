@@ -1,4 +1,4 @@
-// lib/api.ts (UPDATED with enhanced timeout, error handling, and rate limiting)
+// lib/api.ts (ENHANCED - Better error handling and debugging)
 
 import { apiRateLimiter } from './api-rate-limiter'
 
@@ -38,7 +38,7 @@ class ApiClient {
     return headers
   }
 
-  private async handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  private async handleResponse<T>(response: Response, url: string): Promise<ApiResponse<T>> {
     try {
       const contentType = response.headers.get("content-type")
       
@@ -51,6 +51,8 @@ class ApiClient {
             data: response as any // For blob responses
           }
         } else {
+          const text = await response.text()
+          console.error('🌐 Non-JSON error response:', text)
           return {
             success: false,
             message: `Request failed with status ${response.status}`,
@@ -59,6 +61,16 @@ class ApiClient {
       }
 
       const data = await response.json()
+      
+      // Enhanced error logging for debugging
+      if (!response.ok) {
+        console.error('🌐 API Error Response:', {
+          url,
+          status: response.status,
+          statusText: response.statusText,
+          data
+        })
+      }
       
       // Handle cases where backend doesn't return success field
       if (data.success === undefined) {
@@ -72,7 +84,11 @@ class ApiClient {
       
       return data
     } catch (error) {
-      console.error("🌐 Response parsing error:", error)
+      console.error("🌐 Response parsing error:", {
+        url,
+        error,
+        status: response.status
+      })
       return {
         success: false,
         message: "Invalid response format",
@@ -121,6 +137,16 @@ class ApiClient {
         console.log("🌐 Headers:", headers)
         if (data instanceof FormData) {
           console.log("🌐 FormData keys:", Array.from(data.keys()))
+          // Log FormData values for debugging (excluding files)
+          const formDataEntries: Record<string, any> = {}
+          for (const [key, value] of data.entries()) {
+            if (value instanceof File) {
+              formDataEntries[key] = `File: ${value.name} (${value.size} bytes)`
+            } else {
+              formDataEntries[key] = value
+            }
+          }
+          console.log("🌐 FormData entries:", formDataEntries)
         } else {
           console.log("🌐 Body:", data)
         }
@@ -138,7 +164,7 @@ class ApiClient {
         console.log(`🌐 Response status: ${response.status}`)
         console.log("🌐 Response headers:", Object.fromEntries(response.headers.entries()))
         
-        const result = await this.handleResponse<T>(response)
+        const result = await this.handleResponse<T>(response, url)
         console.log("🌐 Parsed response:", result)
         
         return result
@@ -368,7 +394,7 @@ class ApiClient {
             }, {} as Record<string, string>))
           })
           
-          const result = await this.handleResponse<T>(response)
+          const result = await this.handleResponse<T>(response, url)
           resolve(result)
         } catch (error) {
           reject(error)

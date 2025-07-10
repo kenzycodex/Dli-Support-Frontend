@@ -1,4 +1,4 @@
-// components/pages/ticket-details-page.tsx (FIXED - All TypeScript errors resolved)
+// components/pages/ticket-details-page.tsx (FIXED - Complete data loading)
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
@@ -47,13 +47,12 @@ interface TicketDetailsPageProps {
 }
 
 export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPageProps) {
-  // FIXED: Use store hooks properly
+  // FIXED: Proper store access with fallbacks
   const actions = useTicketStore(state => state?.actions)
   const ticket = useTicketById(ticketId)
-  const loadingDetails = useTicketLoading('update')
-  const loadingResponse = useTicketLoading('response') // FIXED: Now response is valid
-  const error = useTicketError('update')
-  // FIXED: Get error state at component level, not in callback
+  const loadingDetails = useTicketLoading('details') // FIXED: Use correct loading state
+  const loadingResponse = useTicketLoading('response')
+  const error = useTicketError('details') // FIXED: Use correct error state
   const currentResponseError = useTicketError('response')
   const permissions = useTicketPermissions()
 
@@ -62,31 +61,61 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
   const [attachments, setAttachments] = useState<File[]>([])
   const [localError, setLocalError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [isInitialized, setIsInitialized] = useState(false)
 
   const currentUser = useMemo(() => authService.getStoredUser(), [])
 
-  // Fetch ticket details on mount or when ticketId changes
+  // FIXED: Comprehensive ticket loading with proper initialization
   useEffect(() => {
-    console.log("🎫 TicketDetailsPage: Loading ticket details for ID:", ticketId)
-    
-    if (ticketId && !ticket && actions) {
-      fetchTicketDetails()
-    }
-  }, [ticketId, ticket, actions])
+    let isMounted = true
 
-  // Auto-refresh ticket details periodically
+    const loadTicketDetails = async () => {
+      if (!ticketId || !actions) return
+      
+      console.log("🎫 TicketDetailsPage: Loading ticket details for ID:", ticketId)
+      
+      try {
+        // Always fetch fresh ticket details when component mounts
+        await actions.fetchTicket(ticketId)
+        
+        if (isMounted) {
+          setIsInitialized(true)
+          console.log('✅ TicketDetailsPage: Ticket details loaded and initialized')
+        }
+      } catch (error) {
+        console.error("❌ TicketDetailsPage: Failed to load ticket details:", error)
+        if (isMounted) {
+          setLocalError("Failed to load ticket details")
+          setIsInitialized(true) // Still mark as initialized to show error state
+        }
+      }
+    }
+
+    loadTicketDetails()
+
+    return () => {
+      isMounted = false
+    }
+  }, [ticketId, actions]) // FIXED: Only depend on ticketId and actions
+
+  // Auto-refresh ticket details periodically for open tickets
   useEffect(() => {
-    if (ticket && !isTicketClosed) {
+    if (!ticket || !isInitialized) return
+
+    const isTicketOpen = ticket.status === "Open" || ticket.status === "In Progress"
+    
+    if (isTicketOpen) {
       const interval = setInterval(() => {
+        console.log("🔄 TicketDetailsPage: Auto-refreshing ticket details")
         fetchTicketDetails(true) // Silent refresh
       }, 30000) // Refresh every 30 seconds for open tickets
 
       return () => clearInterval(interval)
     }
-  }, [ticket?.status])
+  }, [ticket?.status, isInitialized])
 
   const fetchTicketDetails = useCallback(async (silent = false) => {
-    if (!actions?.fetchTicket) return
+    if (!actions?.fetchTicket || !ticketId) return
     
     if (!silent) {
       setRefreshing(true)
@@ -94,12 +123,12 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     setLocalError(null)
     
     try {
-      await actions.fetchTicket(ticketId) // FIXED: fetchTicket returns void
-      console.log('✅ TicketDetailsPage: Ticket details loaded')
+      await actions.fetchTicket(ticketId)
+      console.log('✅ TicketDetailsPage: Ticket details refreshed')
     } catch (err) {
-      console.error("Failed to fetch ticket details:", err)
+      console.error("❌ TicketDetailsPage: Failed to refresh ticket details:", err)
       if (!silent) {
-        setLocalError("Failed to load ticket details")
+        setLocalError("Failed to refresh ticket details")
       }
     } finally {
       if (!silent) {
@@ -108,7 +137,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     }
   }, [ticketId, actions])
 
-  // Handle sending response
+  // FIXED: Clear form after successful response
   const handleSendResponse = useCallback(async () => {
     if (!newResponse.trim() || !ticket || !actions?.addResponse) return
 
@@ -136,19 +165,25 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
         attachments: attachments.length > 0 ? attachments : undefined,
       }
 
-      await actions.addResponse(ticket.id, responseData) // FIXED: addResponse returns void
+      console.log("🎫 TicketDetailsPage: Sending response:", responseData)
+      await actions.addResponse(ticket.id, responseData)
 
       // Check if there was an error after the call
       const errorAfterCall = useTicketStore.getState().errors.response
       if (!errorAfterCall) {
+        // FIXED: Clear form immediately after successful submission
+        console.log("✅ TicketDetailsPage: Response sent successfully, clearing form")
         setNewResponse("")
         setAttachments([])
         
         // Refresh ticket to get updated conversation
         await fetchTicketDetails(true)
+      } else {
+        console.error("❌ TicketDetailsPage: Response submission failed:", errorAfterCall)
+        setLocalError(errorAfterCall)
       }
     } catch (err) {
-      console.error("Failed to add response:", err)
+      console.error("❌ TicketDetailsPage: Failed to add response:", err)
       setLocalError("Failed to send response. Please try again.")
     }
   }, [ticket, newResponse, attachments, actions, fetchTicketDetails])
@@ -186,7 +221,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     if (!actions?.downloadAttachment) return
     
     try {
-      await actions.downloadAttachment(attachmentId, fileName) // FIXED: Method now exists
+      await actions.downloadAttachment(attachmentId, fileName)
     } catch (err) {
       console.error("Failed to download attachment:", err)
       setLocalError("Failed to download attachment")
@@ -201,7 +236,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
       switch (action) {
         case 'assign_to_me':
           if (currentUser && actions.assignTicket) {
-            await actions.assignTicket(ticket.id, currentUser.id) // FIXED: Only 2 params
+            await actions.assignTicket(ticket.id, currentUser.id)
           }
           break
         case 'mark_in_progress':
@@ -217,7 +252,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
         case 'escalate':
           if (actions.updateTicket && actions.addTag) {
             await actions.updateTicket(ticket.id, { priority: 'Urgent' })
-            await actions.addTag(ticket.id, 'escalated') // FIXED: Method now exists
+            await actions.addTag(ticket.id, 'escalated')
           }
           break
       }
@@ -274,13 +309,12 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     return !isTicketClosed && (isOwner || isAssigned || isStaff)
   }, [ticket, currentUser])
 
-  // FIXED: Calculate isTicketClosed from ticket status directly
   const isTicketClosed = useMemo(() => {
     return ticket ? (ticket.status === "Closed" || ticket.status === "Resolved") : false
   }, [ticket?.status])
 
-  // Loading state
-  if (loadingDetails && !ticket) {
+  // FIXED: Show loading state only during initial load or when not initialized
+  if ((loadingDetails && !isInitialized) || !actions) {
     return (
       <div className="w-full max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center gap-4 mb-6">
@@ -438,8 +472,8 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
               variant="ghost"
               size="sm"
               onClick={() => {
-                actions?.clearError && actions.clearError('update')
-                actions?.clearError && actions.clearError('response') // FIXED: Now valid
+                actions?.clearError && actions.clearError('details')
+                actions?.clearError && actions.clearError('response')
                 setLocalError(null)
               }}
               className="text-red-600 hover:text-red-700 hover:bg-red-50"
@@ -718,7 +752,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
               {/* File Upload */}
               <div className="space-y-4">
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors bg-gray-50/50">
-                  <div className="flex flex-col items-center justify-center gap-3">
+                <div className="flex flex-col items-center justify-center gap-3">
                     <Paperclip className="h-8 w-8 text-gray-400" />
                     <div>
                       <p className="text-gray-600 font-medium">Drag and drop files here</p>

@@ -1,7 +1,7 @@
-// components/dashboards/student-dashboard.tsx (Fixed infinite loops and TypeScript errors)
+// components/dashboards/student-dashboard.tsx (FIXED - Smart initialization + NaN error)
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -63,7 +63,7 @@ interface SelfHelpResource {
 }
 
 export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
-  // Use ticket store instead of hooks
+  // FIXED: Use store state directly instead of hooks to prevent loading loops
   const store = useTicketStore()
   const stats = useTicketStats()
   const loading = useTicketLoading('list')
@@ -71,33 +71,60 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
   
   // Local state
   const [isInitialized, setIsInitialized] = useState(false)
+  const [hasData, setHasData] = useState(false)
+  const initRef = useRef(false)
 
   // Memoized recent tickets to prevent re-renders
   const recentTickets = useMemo(() => {
     return selectors.tickets.slice(0, 3)
   }, [selectors.tickets])
 
-  // FIXED: Proper initialization with dependency array
+  // FIXED: Smart initialization that doesn't always show loading (same as AdminDashboard)
   useEffect(() => {
     let isMounted = true
 
     const initializeDashboard = async () => {
-      if (isInitialized) return
+      // FIXED: Check if we already have recent data
+      const hasRecentData = store.tickets.length > 0 && 
+        Date.now() - store.lastFetch < 60000 // 1 minute cache
+
+      if (hasRecentData) {
+        console.log("🎫 StudentDashboard: Using cached data")
+        if (isMounted) {
+          setIsInitialized(true)
+          setHasData(true)
+        }
+        return
+      }
+
+      // Only fetch if we don't have recent data
+      if (initRef.current || isInitialized) return
+      
+      initRef.current = true
       
       try {
         console.log("🎫 StudentDashboard: Initializing dashboard data")
-        await store.actions.fetchTickets({ 
-          page: 1, 
-          per_page: 3,
-          sort_by: 'updated_at',
-          sort_direction: 'desc'
-        })
+        
+        // Only fetch if we don't have tickets or data is stale
+        if (store.tickets.length === 0 || Date.now() - store.lastFetch > 60000) {
+          await store.actions.fetchTickets({ 
+            page: 1, 
+            per_page: 3,
+            sort_by: 'updated_at',
+            sort_direction: 'desc'
+          })
+        }
         
         if (isMounted) {
           setIsInitialized(true)
+          setHasData(true)
         }
       } catch (error) {
         console.error("❌ StudentDashboard: Failed to initialize:", error)
+        if (isMounted) {
+          setIsInitialized(true)
+          setHasData(false)
+        }
       }
     }
 
@@ -106,7 +133,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
     return () => {
       isMounted = false
     }
-  }, [store.actions, isInitialized]) // FIXED: Added proper dependencies
+  }, [store.actions, store.tickets.length, store.lastFetch, isInitialized])
 
   // Memoized appointment data
   const upcomingAppointments: AppointmentData[] = useMemo(() => [
@@ -236,8 +263,8 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
     }
   }, [store.actions])
 
-  // Show loading state during initialization
-  if (!isInitialized && loading) {
+  // FIXED: Only show loading for initial load, not for refresh or cached data
+  if (!isInitialized && !hasData && loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -301,7 +328,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
             <div className="flex items-center space-x-2">
               <Ticket className="h-5 w-5 text-blue-600" />
               <div>
-                <p className="text-2xl font-bold text-blue-900">{stats.total}</p>
+                <p className="text-2xl font-bold text-blue-900">{stats.total || 0}</p>
                 <p className="text-sm text-blue-600">Total Tickets</p>
               </div>
             </div>
@@ -313,7 +340,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
             <div className="flex items-center space-x-2">
               <Clock className="h-5 w-5 text-amber-600" />
               <div>
-                <p className="text-2xl font-bold text-amber-900">{stats.open + stats.in_progress}</p>
+                <p className="text-2xl font-bold text-amber-900">{(stats.open || 0) + (stats.in_progress || 0)}</p>
                 <p className="text-sm text-amber-600">Active Tickets</p>
               </div>
             </div>
@@ -325,7 +352,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
             <div className="flex items-center space-x-2">
               <CheckCircle className="h-5 w-5 text-green-600" />
               <div>
-                <p className="text-2xl font-bold text-green-900">{stats.resolved}</p>
+                <p className="text-2xl font-bold text-green-900">{stats.resolved || 0}</p>
                 <p className="text-sm text-green-600">Resolved</p>
               </div>
             </div>
@@ -337,7 +364,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
             <div className="flex items-center space-x-2">
               <AlertCircle className="h-5 w-5 text-red-600" />
               <div>
-                <p className="text-2xl font-bold text-red-900">{stats.urgent + stats.crisis}</p>
+                <p className="text-2xl font-bold text-red-900">{(stats.high_priority || 0) + (stats.crisis || 0)}</p>
                 <p className="text-sm text-red-600">High Priority</p>
               </div>
             </div>
@@ -406,7 +433,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-6">
-            {loading ? (
+            {loading && recentTickets.length === 0 ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
                 <span className="text-gray-600">Loading your tickets...</span>
