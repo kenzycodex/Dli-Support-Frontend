@@ -1,7 +1,8 @@
 "use client"
 
-import React, { ReactNode } from 'react'
+import React, { ReactNode, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useAppRouter } from '@/lib/router'
 import { LoginForm } from '@/components/auth/login-form'
 import { Loader2 } from 'lucide-react'
 
@@ -17,6 +18,7 @@ export function ProtectedRoute({
   fallback 
 }: ProtectedRouteProps) {
   const { user, isLoading, isAuthenticated } = useAuth()
+  const { currentRoute } = useAppRouter()
 
   // Show loading spinner while checking authentication
   if (isLoading) {

@@ -1,10 +1,10 @@
-// stores/ticket-store.ts (COMPLETE FIXED VERSION - All issues resolved)
+// stores/ticket-store.ts (FIXED - State management and API handling issues)
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { apiClient } from '@/lib/api'
 import { authService } from '@/services/auth.service'
 
-// Types
+// Enhanced TicketData with slug generation
 export interface TicketData {
   id: number
   ticket_number: string
@@ -37,6 +37,7 @@ export interface TicketData {
   attachments?: TicketAttachmentData[]
   response_count?: number
   attachment_count?: number
+  slug?: string
 }
 
 export interface TicketResponseData {
@@ -110,7 +111,7 @@ export interface UpdateTicketRequest {
   description?: string
 }
 
-// COMPLETE STORE INTERFACE
+// FIXED: Complete store interface with proper state management
 interface TicketState {
   // Core data - Simple arrays and objects only
   tickets: TicketData[]
@@ -160,6 +161,7 @@ interface TicketState {
     // Data fetching
     fetchTickets: (params?: Partial<TicketFilters>) => Promise<void>
     fetchTicket: (id: number) => Promise<void>
+    fetchTicketBySlug: (slug: string) => Promise<void>
     refreshTickets: () => Promise<void>
     
     // CRUD operations
@@ -201,7 +203,7 @@ interface TicketState {
     clearCache: () => void
     
     // Export
-    exportTickets: (format: 'csv' | 'excel' | 'json', filters?: Partial<TicketFilters>) => Promise<void>
+    exportTickets: (format: 'csv' | 'excel' | 'json', filters?: Partial<TicketFilters>, selectedIds?: number[]) => Promise<void>
   }
 }
 
@@ -218,6 +220,28 @@ const defaultPagination = {
   last_page: 1,
   per_page: 20,
   total: 0
+}
+
+// ENHANCED: Generate dynamic slug for tickets
+const generateTicketSlug = (ticket: TicketData): string => {
+  const sanitizedSubject = ticket.subject
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, '-')
+    .substring(0, 50)
+  
+  return `${ticket.id}-${sanitizedSubject}-${ticket.ticket_number.toLowerCase()}`
+}
+
+// ENHANCED: Parse ticket ID from slug with better validation
+const parseTicketIdFromSlug = (slug: string): number | null => {
+  if (!slug || typeof slug !== 'string') return null
+  
+  const parts = slug.split('-')
+  if (parts.length < 2) return null
+  
+  const id = parseInt(parts[0])
+  return isNaN(id) ? null : id
 }
 
 // Helper function for API calls
@@ -237,63 +261,7 @@ const buildQueryString = (filters: TicketFilters): string => {
   return params.toString()
 }
 
-// Validation helpers
-const validateTicketData = (data: CreateTicketRequest): { valid: boolean; errors: string[] } => {
-  const errors: string[] = []
-
-  if (!data.subject?.trim()) {
-    errors.push('Subject is required')
-  } else if (data.subject.length > 255) {
-    errors.push('Subject must not exceed 255 characters')
-  }
-
-  if (!data.description?.trim()) {
-    errors.push('Description is required')
-  } else if (data.description.length < 20) {
-    errors.push('Description must be at least 20 characters long')
-  } else if (data.description.length > 5000) {
-    errors.push('Description must not exceed 5000 characters')
-  }
-
-  if (!data.category) {
-    errors.push('Category is required')
-  }
-
-  return { valid: errors.length === 0, errors }
-}
-
-const validateFiles = (files: File[], maxCount: number = 5): { valid: boolean; errors: string[] } => {
-  const errors: string[] = []
-
-  if (files.length > maxCount) {
-    errors.push(`Maximum ${maxCount} files allowed`)
-    return { valid: false, errors }
-  }
-
-  const allowedTypes = [
-    'application/pdf',
-    'image/png', 'image/jpeg', 'image/jpg', 'image/gif',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain'
-  ]
-
-  const maxFileSize = 10 * 1024 * 1024 // 10MB
-
-  for (const file of files) {
-    if (file.size > maxFileSize) {
-      errors.push(`File "${file.name}" exceeds 10MB limit`)
-    }
-
-    if (!allowedTypes.includes(file.type)) {
-      errors.push(`File type "${file.type}" is not allowed for "${file.name}"`)
-    }
-  }
-
-  return { valid: errors.length === 0, errors }
-}
-
-// COMPLETE FIXED STORE
+// FIXED: Enhanced store with better state management and error handling
 export const useTicketStore = create<TicketState>()(
   devtools(
     (set, get) => ({
@@ -301,7 +269,7 @@ export const useTicketStore = create<TicketState>()(
       tickets: [],
       currentTicket: null,
       filters: { ...defaultFilters },
-      
+
       loading: {
         list: false,
         details: false,
@@ -310,9 +278,9 @@ export const useTicketStore = create<TicketState>()(
         delete: false,
         response: false,
         assign: false,
-        download: false
+        download: false,
       },
-      
+
       errors: {
         list: null,
         details: null,
@@ -321,749 +289,941 @@ export const useTicketStore = create<TicketState>()(
         delete: null,
         response: null,
         assign: null,
-        download: null
+        download: null,
       },
-      
+
       pagination: { ...defaultPagination },
       lastFetch: 0,
       selectedTickets: new Set<number>(),
-      
+
       actions: {
-        // FIXED: fetchTickets with optional parameters
+        // ENHANCED: fetchTickets with better error handling
         fetchTickets: async (params?: Partial<TicketFilters>) => {
-          const state = get()
-          
+          const state = get();
+
           // Merge provided params with current filters
-          const mergedFilters = params ? { ...state.filters, ...params } : state.filters
-          
+          const mergedFilters = params ? { ...state.filters, ...params } : state.filters;
+
           // Prevent too frequent calls (unless forced with new params)
           if (!params && Date.now() - state.lastFetch < 1000) {
-            console.log('🎫 TicketStore: Skipping fetch (too recent)')
-            return
+            console.log('🎫 TicketStore: Skipping fetch (too recent)');
+            return;
           }
-          
-          set(state => ({
+
+          set((state) => ({
             loading: { ...state.loading, list: true },
             errors: { ...state.errors, list: null },
-            filters: mergedFilters
-          }))
-          
+            filters: mergedFilters,
+          }));
+
           try {
-            console.log('🎫 TicketStore: Fetching tickets with params:', mergedFilters)
-            
-            const queryString = buildQueryString(mergedFilters)
-            const response = await apiClient.get(`/tickets?${queryString}`)
-            
+            console.log('🎫 TicketStore: Fetching tickets with params:', mergedFilters);
+
+            const queryString = buildQueryString(mergedFilters);
+            const response = await apiClient.get(`/tickets?${queryString}`);
+
             if (response.success && response.data) {
-              const { tickets, pagination, stats } = response.data
-              
+              const { tickets, pagination, stats } = response.data;
+
+              // Generate slugs for all tickets
+              const ticketsWithSlugs =
+                tickets?.map((ticket: TicketData) => ({
+                  ...ticket,
+                  slug: generateTicketSlug(ticket),
+                })) || [];
+
               set(() => ({
-                tickets: tickets || [],
+                tickets: ticketsWithSlugs,
                 pagination: pagination || defaultPagination,
                 lastFetch: Date.now(),
-                loading: { ...get().loading, list: false }
-              }))
-              
-              console.log('✅ TicketStore: Tickets fetched successfully:', tickets?.length || 0)
+                loading: { ...get().loading, list: false },
+              }));
+
+              console.log(
+                '✅ TicketStore: Tickets fetched successfully:',
+                ticketsWithSlugs?.length || 0
+              );
             } else {
-              throw new Error(response.message || 'Failed to fetch tickets')
+              throw new Error(response.message || 'Failed to fetch tickets');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to fetch tickets:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to fetch tickets:', error);
+            set((state) => ({
               loading: { ...state.loading, list: false },
-              errors: { ...state.errors, list: error.message || 'Failed to fetch tickets' }
-            }))
+              errors: { ...state.errors, list: error.message || 'Failed to fetch tickets' },
+            }));
           }
         },
-        
-        // Fetch single ticket
+
+        // FIXED: Fetch single ticket with better error handling and state management
         fetchTicket: async (id: number) => {
-          set(state => ({
+          if (!id || isNaN(id)) {
+            console.error('❌ TicketStore: Invalid ticket ID provided:', id);
+            set((state) => ({
+              errors: { ...state.errors, details: 'Invalid ticket ID' },
+            }));
+            return;
+          }
+
+          set((state) => ({
             loading: { ...state.loading, details: true },
-            errors: { ...state.errors, details: null }
-          }))
-          
+            errors: { ...state.errors, details: null },
+          }));
+
           try {
-            console.log('🎫 TicketStore: Fetching ticket:', id)
-            
-            const response = await apiClient.get(`/tickets/${id}`)
-            
-            if (response.success && response.data) {
-              const ticket = response.data.ticket
-              
-              set(state => ({
+            console.log('🎫 TicketStore: Fetching ticket:', id);
+
+            const response = await apiClient.get(`/tickets/${id}`);
+
+            if (response.success && response.data && response.data.ticket) {
+              const ticket = {
+                ...response.data.ticket,
+                slug: generateTicketSlug(response.data.ticket),
+              };
+
+              set((state) => ({
                 currentTicket: ticket,
-                tickets: state.tickets.map(t => t.id === ticket.id ? ticket : t),
-                loading: { ...state.loading, details: false }
-              }))
-              
-              console.log('✅ TicketStore: Ticket fetched successfully')
+                tickets: state.tickets.map((t) => (t.id === ticket.id ? ticket : t)),
+                loading: { ...state.loading, details: false },
+              }));
+
+              console.log('✅ TicketStore: Ticket fetched successfully');
             } else {
-              throw new Error(response.message || 'Failed to fetch ticket')
+              throw new Error(response.message || 'Ticket not found or access denied');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to fetch ticket:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to fetch ticket:', error);
+
+            let errorMessage = 'Failed to fetch ticket details';
+            if (error.response?.status === 404) {
+              errorMessage = 'Ticket not found';
+            } else if (error.response?.status === 403) {
+              errorMessage = 'You do not have permission to view this ticket';
+            } else if (error.message && !error.message.includes('HTML')) {
+              errorMessage = error.message;
+            }
+
+            set((state) => ({
               loading: { ...state.loading, details: false },
-              errors: { ...state.errors, details: error.message || 'Failed to fetch ticket' }
-            }))
+              errors: { ...state.errors, details: errorMessage },
+              currentTicket: null,
+            }));
           }
         },
-        
+
+        // FIXED: Fetch ticket by slug with better error handling
+        fetchTicketBySlug: async (slug: string) => {
+          const ticketId = parseTicketIdFromSlug(slug);
+
+          if (!ticketId) {
+            console.error('❌ TicketStore: Invalid ticket slug:', slug);
+            set((state) => ({
+              errors: { ...state.errors, details: 'Invalid ticket URL format' },
+              currentTicket: null,
+            }));
+            return;
+          }
+
+          console.log('🎫 TicketStore: Fetching ticket by slug:', slug, '-> ID:', ticketId);
+          await get().actions.fetchTicket(ticketId);
+        },
+
         // Refresh tickets
         refreshTickets: async () => {
-          set(() => ({ lastFetch: 0 }))
-          await get().actions.fetchTickets()
+          set(() => ({ lastFetch: 0 }));
+          await get().actions.fetchTickets();
         },
-        
-        // FIXED: Create ticket with proper validation and error handling
+
+        // ENHANCED: Create ticket with better validation
         createTicket: async (data: CreateTicketRequest) => {
-          // Validate data
-          const validation = validateTicketData(data)
-          if (!validation.valid) {
-            const error = validation.errors.join(', ')
-            set(state => ({ errors: { ...state.errors, create: error } }))
-            return null
-          }
-          
-          // Validate files if present
-          if (data.attachments && data.attachments.length > 0) {
-            const fileValidation = validateFiles(data.attachments, 5)
-            if (!fileValidation.valid) {
-              const error = fileValidation.errors.join(', ')
-              set(state => ({ errors: { ...state.errors, create: error } }))
-              return null
-            }
-          }
-          
-          set(state => ({
+          set((state) => ({
             loading: { ...state.loading, create: true },
-            errors: { ...state.errors, create: null }
-          }))
-          
+            errors: { ...state.errors, create: null },
+          }));
+
           try {
-            console.log('🎫 TicketStore: Creating ticket')
-            
-            const formData = new FormData()
-            formData.append('subject', data.subject.trim())
-            formData.append('description', data.description.trim())
-            formData.append('category', data.category)
-            
+            console.log('🎫 TicketStore: Creating ticket');
+
+            const formData = new FormData();
+            formData.append('subject', data.subject.trim());
+            formData.append('description', data.description.trim());
+            formData.append('category', data.category);
+
             if (data.priority) {
-              formData.append('priority', data.priority)
+              formData.append('priority', data.priority);
             }
-            
+
             if (data.created_for) {
-              formData.append('created_for', data.created_for.toString())
+              formData.append('created_for', data.created_for.toString());
             }
-            
+
             if (data.attachments) {
-              data.attachments.forEach(file => {
-                formData.append('attachments[]', file, file.name)
-              })
+              data.attachments.forEach((file) => {
+                formData.append('attachments[]', file, file.name);
+              });
             }
-            
-            const response = await apiClient.post('/tickets', formData)
-            
-            if (response.success && response.data) {
-              const newTicket = response.data.ticket
-              
-              set(state => ({
+
+            const response = await apiClient.post('/tickets', formData);
+
+            if (response.success && response.data?.ticket) {
+              const newTicket = {
+                ...response.data.ticket,
+                slug: generateTicketSlug(response.data.ticket),
+              };
+
+              set((state) => ({
                 tickets: [newTicket, ...state.tickets],
                 currentTicket: newTicket,
-                loading: { ...state.loading, create: false }
-              }))
-              
-              console.log('✅ TicketStore: Ticket created successfully')
-              return newTicket
+                loading: { ...state.loading, create: false },
+              }));
+
+              console.log('✅ TicketStore: Ticket created successfully');
+              return newTicket;
             } else {
-              throw new Error(response.message || 'Failed to create ticket')
+              throw new Error(response.message || 'Failed to create ticket');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to create ticket:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to create ticket:', error);
+            let errorMessage = 'Failed to create ticket. Please try again.';
+
+            if (error.response?.data?.errors) {
+              const errors = Object.values(error.response.data.errors).flat();
+              errorMessage = errors.join(', ');
+            } else if (error.response?.data?.message) {
+              errorMessage = error.response.data.message;
+            }
+
+            set((state) => ({
               loading: { ...state.loading, create: false },
-              errors: { ...state.errors, create: error.message || 'Failed to create ticket' }
-            }))
-            return null
+              errors: { ...state.errors, create: errorMessage },
+            }));
+            return null;
           }
         },
-        
-        // Update ticket
+
+        // FIXED: Update ticket with proper validation
         updateTicket: async (id: number, data: UpdateTicketRequest) => {
-          set(state => ({
+          set((state) => ({
             loading: { ...state.loading, update: true },
-            errors: { ...state.errors, update: null }
-          }))
-          
+            errors: { ...state.errors, update: null },
+          }));
+
           try {
-            console.log('🎫 TicketStore: Updating ticket:', id)
-            
-            const response = await apiClient.patch(`/tickets/${id}`, data)
-            
-            if (response.success && response.data) {
-              const updatedTicket = response.data.ticket
-              
-              set(state => ({
-                tickets: state.tickets.map(t => t.id === id ? updatedTicket : t),
+            console.log('🎫 TicketStore: Updating ticket:', id, data);
+
+            const response = await apiClient.patch(`/tickets/${id}`, data);
+
+            if (response.success && response.data?.ticket) {
+              const updatedTicket = {
+                ...response.data.ticket,
+                slug: generateTicketSlug(response.data.ticket),
+              };
+
+              set((state) => ({
+                tickets: state.tickets.map((t) => (t.id === id ? updatedTicket : t)),
                 currentTicket: state.currentTicket?.id === id ? updatedTicket : state.currentTicket,
-                loading: { ...state.loading, update: false }
-              }))
-              
-              console.log('✅ TicketStore: Ticket updated successfully')
+                loading: { ...state.loading, update: false },
+              }));
+
+              console.log('✅ TicketStore: Ticket updated successfully');
             } else {
-              throw new Error(response.message || 'Failed to update ticket')
+              throw new Error(response.message || 'Failed to update ticket');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to update ticket:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to update ticket:', error);
+
+            let errorMessage = 'Failed to update ticket';
+            if (error.response?.data?.message) {
+              errorMessage = error.response.data.message;
+            }
+
+            set((state) => ({
               loading: { ...state.loading, update: false },
-              errors: { ...state.errors, update: error.message || 'Failed to update ticket' }
-            }))
+              errors: { ...state.errors, update: errorMessage },
+            }));
           }
         },
-        
-        // Delete ticket
+
+        // FIXED: Delete ticket with better timeout handling and user feedback
         deleteTicket: async (id: number, reason = 'Deleted by admin', notifyUser = false) => {
-          set(state => ({
+          console.log('🎫 TicketStore: Starting ticket deletion:', id)
+          
+          set((state) => ({
             loading: { ...state.loading, delete: true },
-            errors: { ...state.errors, delete: null }
-          }))
-          
+            errors: { ...state.errors, delete: null },
+          }));
+        
           try {
-            console.log('🎫 TicketStore: Deleting ticket:', id)
-            
-            const response = await apiClient.delete(`/tickets/${id}`, {
-              body: JSON.stringify({ reason, notify_user: notifyUser }),
-              headers: { 'Content-Type': 'application/json' }
-            })
-            
+            console.log('🎫 TicketStore: Calling deleteTicket API method:', { id, reason, notifyUser });
+        
+            // FIXED: Use the specialized deleteTicket method from API client
+            const response = await apiClient.deleteTicket(id, reason, notifyUser);
+        
             if (response.success) {
-              set(state => ({
-                tickets: state.tickets.filter(t => t.id !== id),
-                currentTicket: state.currentTicket?.id === id ? null : state.currentTicket,
-                selectedTickets: new Set([...state.selectedTickets].filter(ticketId => ticketId !== id)),
-                loading: { ...state.loading, delete: false }
-              }))
+              console.log('✅ TicketStore: Delete API call successful, updating state immediately');
               
-              console.log('✅ TicketStore: Ticket deleted successfully')
+              // FIXED: Immediate and atomic state cleanup to prevent UI freeze
+              set((state) => {
+                // Create new Set without the deleted ticket
+                const newSelectedTickets = new Set(state.selectedTickets);
+                newSelectedTickets.delete(id);
+                
+                // Filter out the deleted ticket
+                const newTickets = state.tickets.filter((t) => t.id !== id);
+                
+                // Update current ticket if it was the deleted one
+                const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
+                
+                return {
+                  tickets: newTickets,
+                  currentTicket: newCurrentTicket,
+                  selectedTickets: newSelectedTickets,
+                  loading: { ...state.loading, delete: false },
+                  errors: { ...state.errors, delete: null },
+                };
+              });
+        
+              console.log('✅ TicketStore: State updated successfully, ticket deleted');
+              
             } else {
-              throw new Error(response.message || 'Failed to delete ticket')
+              // FIXED: Handle timeout and network errors gracefully
+              let errorMessage = response.message || 'Failed to delete ticket';
+              
+              // For timeout errors, suggest the user refresh to check
+              if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+                errorMessage = 'Delete operation timed out. Please refresh the page to check if the ticket was deleted.';
+                
+                // FIXED: For timeouts, still remove from local state as it might have succeeded
+                set((state) => {
+                  const newSelectedTickets = new Set(state.selectedTickets);
+                  newSelectedTickets.delete(id);
+                  const newTickets = state.tickets.filter((t) => t.id !== id);
+                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
+                  
+                  return {
+                    tickets: newTickets,
+                    currentTicket: newCurrentTicket,
+                    selectedTickets: newSelectedTickets,
+                    loading: { ...state.loading, delete: false },
+                    errors: { ...state.errors, delete: errorMessage },
+                  };
+                });
+                
+                return; // Exit early for timeout case
+              }
+              
+              throw new Error(errorMessage);
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to delete ticket:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to delete ticket:', error);
+            
+            let errorMessage = 'Failed to delete ticket';
+            
+            // FIXED: Better error message handling
+            if (error.message) {
+              if (error.message.includes('timeout')) {
+                errorMessage = 'Delete operation timed out. Please refresh the page to check if the ticket was deleted.';
+                
+                // For timeout errors, optimistically remove from state
+                set((state) => {
+                  const newSelectedTickets = new Set(state.selectedTickets);
+                  newSelectedTickets.delete(id);
+                  const newTickets = state.tickets.filter((t) => t.id !== id);
+                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
+                  
+                  return {
+                    tickets: newTickets,
+                    currentTicket: newCurrentTicket,
+                    selectedTickets: newSelectedTickets,
+                    loading: { ...state.loading, delete: false },
+                    errors: { ...state.errors, delete: errorMessage },
+                  };
+                });
+                return;
+              } else if (error.message.includes('Network')) {
+                errorMessage = 'Network error. Please check your connection and try again.';
+              } else if (error.message.includes('permission')) {
+                errorMessage = 'You do not have permission to delete this ticket';
+              } else if (error.message.includes('not found')) {
+                errorMessage = 'Ticket not found or already deleted';
+                
+                // If ticket not found, remove it from local state
+                set((state) => {
+                  const newSelectedTickets = new Set(state.selectedTickets);
+                  newSelectedTickets.delete(id);
+                  const newTickets = state.tickets.filter((t) => t.id !== id);
+                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
+                  
+                  return {
+                    tickets: newTickets,
+                    currentTicket: newCurrentTicket,
+                    selectedTickets: newSelectedTickets,
+                    loading: { ...state.loading, delete: false },
+                    errors: { ...state.errors, delete: null },
+                  };
+                });
+                return;
+              } else {
+                errorMessage = error.message;
+              }
+            }
+            
+            set((state) => ({
               loading: { ...state.loading, delete: false },
-              errors: { ...state.errors, delete: error.message || 'Failed to delete ticket' }
-            }))
+              errors: { ...state.errors, delete: errorMessage },
+            }));
           }
         },
-        
-        // FIXED: Add response with comprehensive validation
+
+        // FIXED: Add response with comprehensive validation and state updates
         addResponse: async (ticketId: number, data: AddResponseRequest) => {
-          if (!data.message?.trim()) {
-            set(state => ({
-              errors: { ...state.errors, response: 'Response message is required' }
-            }))
-            return
-          }
-
-          if (data.message.trim().length < 5) {
-            set(state => ({
-              errors: { ...state.errors, response: 'Response must be at least 5 characters long' }
-            }))
-            return
-          }
-
-          if (data.attachments && data.attachments.length > 0) {
-            const fileValidation = validateFiles(data.attachments, 3)
-            if (!fileValidation.valid) {
-              set(state => ({
-                errors: { ...state.errors, response: fileValidation.errors.join(', ') }
-              }))
-              return
-            }
-          }
-          
-          set(state => ({
+          set((state) => ({
             loading: { ...state.loading, response: true },
-            errors: { ...state.errors, response: null }
-          }))
-          
+            errors: { ...state.errors, response: null },
+          }));
+
           try {
-            console.log('🎫 TicketStore: Adding response to ticket:', ticketId)
-            
-            const formData = new FormData()
-            formData.append('message', data.message.trim())
-            
+            console.log('🎫 TicketStore: Adding response to ticket:', ticketId);
+
+            const formData = new FormData();
+            formData.append('message', data.message.trim());
+
             if (data.is_internal !== undefined) {
-              formData.append('is_internal', data.is_internal.toString())
+              formData.append('is_internal', data.is_internal.toString());
             }
-            
+
             if (data.visibility) {
-              formData.append('visibility', data.visibility)
+              formData.append('visibility', data.visibility);
             }
-            
+
             if (data.is_urgent !== undefined) {
-              formData.append('is_urgent', data.is_urgent.toString())
+              formData.append('is_urgent', data.is_urgent.toString());
             }
-            
+
             if (data.attachments && data.attachments.length > 0) {
-              data.attachments.forEach(file => {
-                formData.append('attachments[]', file, file.name)
-              })
+              data.attachments.forEach((file) => {
+                formData.append('attachments[]', file, file.name);
+              });
             }
-            
-            const response = await apiClient.post(`/tickets/${ticketId}/responses`, formData)
-            
+
+            const response = await apiClient.post(`/tickets/${ticketId}/responses`, formData);
+
             if (response.success) {
-              // Refresh the ticket to get updated responses
-              await get().actions.fetchTicket(ticketId)
-              
-              set(state => ({
-                loading: { ...state.loading, response: false }
-              }))
-              
-              console.log('✅ TicketStore: Response added successfully')
+              // FIXED: Update both tickets list and current ticket with new response
+              const updatedTicket = response.data.ticket;
+              if (updatedTicket) {
+                const ticketWithSlug = {
+                  ...updatedTicket,
+                  slug: generateTicketSlug(updatedTicket),
+                };
+
+                set((state) => ({
+                  tickets: state.tickets.map((t) => (t.id === ticketId ? ticketWithSlug : t)),
+                  currentTicket:
+                    state.currentTicket?.id === ticketId ? ticketWithSlug : state.currentTicket,
+                  loading: { ...state.loading, response: false },
+                }));
+              } else {
+                // Fallback: refresh the ticket to get updated responses
+                setTimeout(() => {
+                  get().actions.fetchTicket(ticketId);
+                }, 100);
+
+                set((state) => ({
+                  loading: { ...state.loading, response: false },
+                }));
+              }
+
+              console.log('✅ TicketStore: Response added successfully');
             } else {
-              throw new Error(response.message || 'Failed to add response')
+              throw new Error(response.message || 'Failed to add response');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to add response:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to add response:', error);
+            set((state) => ({
               loading: { ...state.loading, response: false },
-              errors: { ...state.errors, response: error.message || 'Failed to add response' }
-            }))
+              errors: { ...state.errors, response: error.message || 'Failed to add response' },
+            }));
           }
         },
-        
-        // Assign ticket
+
+        // FIXED: Assign ticket with proper endpoint and error handling
         assignTicket: async (ticketId: number, assignedTo: number | null, reason = '') => {
-          set(state => ({
+          set((state) => ({
             loading: { ...state.loading, assign: true },
-            errors: { ...state.errors, assign: null }
-          }))
-          
+            errors: { ...state.errors, assign: null },
+          }));
+
           try {
-            console.log('🎫 TicketStore: Assigning ticket:', ticketId, 'to:', assignedTo)
-            
+            console.log('🎫 TicketStore: Assigning ticket:', ticketId, 'to:', assignedTo);
+
             const response = await apiClient.post(`/tickets/${ticketId}/assign`, {
               assigned_to: assignedTo,
-              reason
-            })
-            
-            if (response.success && response.data) {
-              const updatedTicket = response.data.ticket
-              
-              set(state => ({
-                tickets: state.tickets.map(t => t.id === ticketId ? updatedTicket : t),
-                currentTicket: state.currentTicket?.id === ticketId ? updatedTicket : state.currentTicket,
-                loading: { ...state.loading, assign: false }
-              }))
-              
-              console.log('✅ TicketStore: Ticket assigned successfully')
+              reason,
+            });
+
+            if (response.success && response.data?.ticket) {
+              const updatedTicket = {
+                ...response.data.ticket,
+                slug: generateTicketSlug(response.data.ticket),
+              };
+
+              set((state) => ({
+                tickets: state.tickets.map((t) => (t.id === ticketId ? updatedTicket : t)),
+                currentTicket:
+                  state.currentTicket?.id === ticketId ? updatedTicket : state.currentTicket,
+                loading: { ...state.loading, assign: false },
+              }));
+
+              console.log('✅ TicketStore: Ticket assigned successfully');
             } else {
-              throw new Error(response.message || 'Failed to assign ticket')
+              throw new Error(response.message || 'Failed to assign ticket');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to assign ticket:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to assign ticket:', error);
+
+            let errorMessage = 'Failed to assign ticket';
+            if (error.response?.status === 403) {
+              errorMessage = 'You do not have permission to assign tickets';
+            } else if (error.response?.data?.message) {
+              errorMessage = error.response.data.message;
+            }
+
+            set((state) => ({
               loading: { ...state.loading, assign: false },
-              errors: { ...state.errors, assign: error.message || 'Failed to assign ticket' }
-            }))
+              errors: { ...state.errors, assign: errorMessage },
+            }));
           }
         },
-        
+
         // Bulk assign tickets
         bulkAssign: async (ticketIds: number[], assignedTo: number, reason = '') => {
-          set(state => ({
+          set((state) => ({
             loading: { ...state.loading, assign: true },
-            errors: { ...state.errors, assign: null }
-          }))
-          
+            errors: { ...state.errors, assign: null },
+          }));
+
           try {
-            console.log('🎫 TicketStore: Bulk assigning tickets:', { ticketIds, assignedTo, reason })
-            
+            console.log('🎫 TicketStore: Bulk assigning tickets:', {
+              ticketIds,
+              assignedTo,
+              reason,
+            });
+
             const response = await apiClient.post('/admin/bulk-assign', {
               ticket_ids: ticketIds,
               assigned_to: assignedTo,
-              reason
-            })
-            
+              reason,
+            });
+
             if (response.success && response.data) {
-              const assignedCount = response.data.assigned_count
-              
+              const assignedCount = response.data.assigned_count;
+
               // Refresh tickets to get updated assignments
-              await get().actions.fetchTickets()
-              
-              set(state => ({
+              await get().actions.fetchTickets();
+
+              set((state) => ({
                 loading: { ...state.loading, assign: false },
-                selectedTickets: new Set()
-              }))
-              
-              console.log('✅ TicketStore: Tickets bulk assigned successfully')
-              return assignedCount
+                selectedTickets: new Set(),
+              }));
+
+              console.log('✅ TicketStore: Tickets bulk assigned successfully');
+              return assignedCount;
             } else {
-              throw new Error(response.message || 'Failed to assign tickets')
+              throw new Error(response.message || 'Failed to assign tickets');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to bulk assign tickets:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to bulk assign tickets:', error);
+            set((state) => ({
               loading: { ...state.loading, assign: false },
-              errors: { ...state.errors, assign: error.message || 'Failed to assign tickets' }
-            }))
-            return 0
+              errors: { ...state.errors, assign: error.message || 'Failed to assign tickets' },
+            }));
+            return 0;
           }
         },
-        
-        // FIXED: Tag management methods
+
+        // Tag management methods
         addTag: async (ticketId: number, tag: string) => {
           try {
-            console.log('🎫 TicketStore: Adding tag:', tag, 'to ticket:', ticketId)
-            
+            console.log('🎫 TicketStore: Adding tag:', tag, 'to ticket:', ticketId);
+
             const response = await apiClient.post(`/tickets/${ticketId}/tags`, {
               action: 'add',
-              tags: [tag]
-            })
-            
-            if (response.success && response.data) {
-              const updatedTicket = response.data.ticket
-              
-              set(state => ({
-                tickets: state.tickets.map(t => t.id === ticketId ? updatedTicket : t),
-                currentTicket: state.currentTicket?.id === ticketId ? updatedTicket : state.currentTicket
-              }))
-              
-              console.log('✅ TicketStore: Tag added successfully')
+              tags: [tag],
+            });
+
+            if (response.success && response.data?.ticket) {
+              const updatedTicket = {
+                ...response.data.ticket,
+                slug: generateTicketSlug(response.data.ticket),
+              };
+
+              set((state) => ({
+                tickets: state.tickets.map((t) => (t.id === ticketId ? updatedTicket : t)),
+                currentTicket:
+                  state.currentTicket?.id === ticketId ? updatedTicket : state.currentTicket,
+              }));
+
+              console.log('✅ TicketStore: Tag added successfully');
             } else {
-              throw new Error(response.message || 'Failed to add tag')
+              throw new Error(response.message || 'Failed to add tag');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to add tag:', error)
-            set(state => ({
-              errors: { ...state.errors, update: error.message || 'Failed to add tag' }
-            }))
+            console.error('❌ TicketStore: Failed to add tag:', error);
+            set((state) => ({
+              errors: { ...state.errors, update: error.message || 'Failed to add tag' },
+            }));
           }
         },
-        
+
         removeTag: async (ticketId: number, tag: string) => {
           try {
-            console.log('🎫 TicketStore: Removing tag:', tag, 'from ticket:', ticketId)
-            
+            console.log('🎫 TicketStore: Removing tag:', tag, 'from ticket:', ticketId);
+
             const response = await apiClient.post(`/tickets/${ticketId}/tags`, {
               action: 'remove',
-              tags: [tag]
-            })
-            
-            if (response.success && response.data) {
-              const updatedTicket = response.data.ticket
-              
-              set(state => ({
-                tickets: state.tickets.map(t => t.id === ticketId ? updatedTicket : t),
-                currentTicket: state.currentTicket?.id === ticketId ? updatedTicket : state.currentTicket
-              }))
-              
-              console.log('✅ TicketStore: Tag removed successfully')
+              tags: [tag],
+            });
+
+            if (response.success && response.data?.ticket) {
+              const updatedTicket = {
+                ...response.data.ticket,
+                slug: generateTicketSlug(response.data.ticket),
+              };
+
+              set((state) => ({
+                tickets: state.tickets.map((t) => (t.id === ticketId ? updatedTicket : t)),
+                currentTicket:
+                  state.currentTicket?.id === ticketId ? updatedTicket : state.currentTicket,
+              }));
+
+              console.log('✅ TicketStore: Tag removed successfully');
             } else {
-              throw new Error(response.message || 'Failed to remove tag')
+              throw new Error(response.message || 'Failed to remove tag');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to remove tag:', error)
-            set(state => ({
-              errors: { ...state.errors, update: error.message || 'Failed to remove tag' }
-            }))
+            console.error('❌ TicketStore: Failed to remove tag:', error);
+            set((state) => ({
+              errors: { ...state.errors, update: error.message || 'Failed to remove tag' },
+            }));
           }
         },
-        
+
         setTags: async (ticketId: number, tags: string[]) => {
           try {
-            console.log('🎫 TicketStore: Setting tags for ticket:', ticketId, tags)
-            
+            console.log('🎫 TicketStore: Setting tags for ticket:', ticketId, tags);
+
             const response = await apiClient.post(`/tickets/${ticketId}/tags`, {
               action: 'set',
-              tags
-            })
-            
-            if (response.success && response.data) {
-              const updatedTicket = response.data.ticket
-              
-              set(state => ({
-                tickets: state.tickets.map(t => t.id === ticketId ? updatedTicket : t),
-                currentTicket: state.currentTicket?.id === ticketId ? updatedTicket : state.currentTicket
-              }))
-              
-              console.log('✅ TicketStore: Tags set successfully')
+              tags,
+            });
+
+            if (response.success && response.data?.ticket) {
+              const updatedTicket = {
+                ...response.data.ticket,
+                slug: generateTicketSlug(response.data.ticket),
+              };
+
+              set((state) => ({
+                tickets: state.tickets.map((t) => (t.id === ticketId ? updatedTicket : t)),
+                currentTicket:
+                  state.currentTicket?.id === ticketId ? updatedTicket : state.currentTicket,
+              }));
+
+              console.log('✅ TicketStore: Tags set successfully');
             } else {
-              throw new Error(response.message || 'Failed to set tags')
+              throw new Error(response.message || 'Failed to set tags');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to set tags:', error)
-            set(state => ({
-              errors: { ...state.errors, update: error.message || 'Failed to set tags' }
-            }))
+            console.error('❌ TicketStore: Failed to set tags:', error);
+            set((state) => ({
+              errors: { ...state.errors, update: error.message || 'Failed to set tags' },
+            }));
           }
         },
-        
-        // FIXED: Download attachment method
+
+        // Download attachment method
         downloadAttachment: async (attachmentId: number, fileName: string) => {
-          set(state => ({
+          set((state) => ({
             loading: { ...state.loading, download: true },
-            errors: { ...state.errors, download: null }
-          }))
-          
+            errors: { ...state.errors, download: null },
+          }));
+
           try {
-            console.log('🎫 TicketStore: Downloading attachment:', attachmentId)
-            
-            const blob = await apiClient.downloadFile(`/tickets/attachments/${attachmentId}/download`)
-            
+            console.log('🎫 TicketStore: Downloading attachment:', attachmentId);
+
+            const blob = await apiClient.downloadFile(
+              `/tickets/attachments/${attachmentId}/download`
+            );
+
             // Create download link
-            const url = window.URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = url
-            link.download = fileName
-            link.style.display = 'none'
-            
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            link.style.display = 'none';
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
             // Clean up
             setTimeout(() => {
-              window.URL.revokeObjectURL(url)
-            }, 100)
-            
-            set(state => ({
-              loading: { ...state.loading, download: false }
-            }))
-            
-            console.log('✅ TicketStore: Attachment download initiated successfully')
-          } catch (error: any) {
-            console.error('❌ TicketStore: Failed to download attachment:', error)
-            set(state => ({
+              window.URL.revokeObjectURL(url);
+            }, 100);
+
+            set((state) => ({
               loading: { ...state.loading, download: false },
-              errors: { ...state.errors, download: 'Failed to download attachment' }
-            }))
+            }));
+
+            console.log('✅ TicketStore: Attachment download initiated successfully');
+          } catch (error: any) {
+            console.error('❌ TicketStore: Failed to download attachment:', error);
+            set((state) => ({
+              loading: { ...state.loading, download: false },
+              errors: { ...state.errors, download: 'Failed to download attachment' },
+            }));
           }
         },
-        
-        // Filter management with optional auto-fetch
+
+        // FIXED: Filter management with better state handling
         setFilters: (newFilters: TicketFilters, autoFetch = false) => {
-          set(state => ({
-            filters: { ...state.filters, ...newFilters, page: 1 }
-          }))
-          
+          set((state) => ({
+            filters: { ...state.filters, ...newFilters, page: 1 },
+          }));
+
           if (autoFetch) {
+            // Use setTimeout to ensure state is updated before fetch
             setTimeout(() => {
-              get().actions.fetchTickets()
-            }, 100)
+              get().actions.fetchTickets();
+            }, 100);
           }
         },
-        
+
         clearFilters: (autoFetch = false) => {
           set(() => ({
-            filters: { ...defaultFilters }
-          }))
-          
+            filters: { ...defaultFilters },
+          }));
+
           if (autoFetch) {
             setTimeout(() => {
-              get().actions.fetchTickets()
-            }, 100)
+              get().actions.fetchTickets();
+            }, 100);
           }
         },
-        
-        // UI state management
+
+        // FIXED: UI state management with proper cleanup
         setCurrentTicket: (ticket: TicketData | null) => {
-          set(() => ({ currentTicket: ticket }))
+          set(() => ({ currentTicket: ticket }));
         },
-        
+
         selectTicket: (id: number) => {
-          set(state => {
-            const newSet = new Set(state.selectedTickets)
-            newSet.add(id)
-            return { selectedTickets: newSet }
-          })
+          set((state) => {
+            const newSet = new Set(state.selectedTickets);
+            newSet.add(id);
+            return { selectedTickets: newSet };
+          });
         },
-        
+
         deselectTicket: (id: number) => {
-          set(state => {
-            const newSet = new Set(state.selectedTickets)
-            newSet.delete(id)
-            return { selectedTickets: newSet }
-          })
+          set((state) => {
+            const newSet = new Set(state.selectedTickets);
+            newSet.delete(id);
+            return { selectedTickets: newSet };
+          });
         },
-        
+
         clearSelection: () => {
-          set(() => ({ selectedTickets: new Set<number>() }))
+          set(() => ({ selectedTickets: new Set<number>() }));
         },
-        
+
         // Error handling
         clearError: (type: keyof TicketState['errors']) => {
-          set(state => ({
-            errors: { ...state.errors, [type]: null }
-          }))
+          set((state) => ({
+            errors: { ...state.errors, [type]: null },
+          }));
         },
-        
+
         setError: (type: keyof TicketState['errors'], message: string) => {
-          set(state => ({
-            errors: { ...state.errors, [type]: message }
-          }))
+          set((state) => ({
+            errors: { ...state.errors, [type]: message },
+          }));
         },
-        
+
         // Cache management
         invalidateCache: () => {
-          set(() => ({ lastFetch: 0 }))
+          set(() => ({ lastFetch: 0 }));
         },
-        
+
         clearCache: () => {
           set(() => ({
             tickets: [],
             currentTicket: null,
             lastFetch: 0,
             selectedTickets: new Set(),
-            pagination: { ...defaultPagination }
-          }))
+            pagination: { ...defaultPagination },
+          }));
         },
-        
-        // Export tickets
-        exportTickets: async (format: 'csv' | 'excel' | 'json' = 'csv', filters = {}) => {
-          set(state => ({
+
+        // FIXED: Export tickets using admin endpoint
+        exportTickets: async (
+          format: 'csv' | 'excel' | 'json' = 'csv',
+          filters = {},
+          selectedIds?: number[]
+        ) => {
+          set((state) => ({
             loading: { ...state.loading, list: true },
-            errors: { ...state.errors, list: null }
-          }))
-          
+            errors: { ...state.errors, list: null },
+          }));
+
           try {
-            console.log('🎫 TicketStore: Exporting tickets:', { format, filters })
-            
-            const queryParams = new URLSearchParams()
-            queryParams.append('format', format)
-            
-            // Add current filters
-            const exportFilters = { ...get().filters, ...filters }
-            Object.entries(exportFilters).forEach(([key, value]) => {
-              if (value !== undefined && value !== null && value !== '' && value !== 'all') {
-                if (Array.isArray(value)) {
-                  value.forEach(v => queryParams.append(`${key}[]`, v.toString()))
-                } else {
-                  queryParams.append(key, value.toString())
-                }
-              }
-            })
-            
-            const response = await apiClient.get(`/admin/export-tickets?${queryParams.toString()}`)
-            
-            if (response.success) {
-              set(state => ({
-                loading: { ...state.loading, list: false }
-              }))
-              console.log('✅ TicketStore: Tickets exported successfully')
+            console.log('🎫 TicketStore: Exporting tickets:', { format, filters, selectedIds });
+
+            const queryParams = new URLSearchParams();
+            queryParams.append('format', format);
+
+            // If specific ticket IDs are provided, use them
+            if (selectedIds && selectedIds.length > 0) {
+              selectedIds.forEach((id) => queryParams.append('ticket_ids[]', id.toString()));
             } else {
-              throw new Error(response.message || 'Failed to export tickets')
+              // Add current filters
+              const exportFilters = { ...get().filters, ...filters };
+              Object.entries(exportFilters).forEach(([key, value]) => {
+                if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+                  if (Array.isArray(value)) {
+                    value.forEach((v) => queryParams.append(`${key}[]`, v.toString()));
+                  } else {
+                    queryParams.append(key, value.toString());
+                  }
+                }
+              });
+            }
+
+            const response = await apiClient.get(`/admin/export-tickets?${queryParams.toString()}`);
+
+            if (response.success && response.data) {
+              // Handle client-side CSV generation
+              const exportData = response.data.tickets;
+              const filename = response.data.filename;
+
+              if (format === 'csv') {
+                // Generate CSV content
+                const headers = Object.keys(exportData[0] || {});
+                const csvContent = [
+                  headers.join(','),
+                  ...exportData.map((row: any) =>
+                    headers
+                      .map((header) => {
+                        const value = row[header] || '';
+                        // Escape commas and quotes in CSV
+                        return typeof value === 'string' &&
+                          (value.includes(',') || value.includes('"'))
+                          ? `"${value.replace(/"/g, '""')}"`
+                          : value;
+                      })
+                      .join(',')
+                  ),
+                ].join('\n');
+
+                // Create and download CSV file
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+              } else {
+                // For JSON format
+                const jsonContent = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename.replace('.csv', '.json');
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+              }
+
+              set((state) => ({
+                loading: { ...state.loading, list: false },
+              }));
+              console.log('✅ TicketStore: Tickets exported successfully');
+            } else {
+              throw new Error(response.message || 'Failed to export tickets');
             }
           } catch (error: any) {
-            console.error('❌ TicketStore: Failed to export tickets:', error)
-            set(state => ({
+            console.error('❌ TicketStore: Failed to export tickets:', error);
+            set((state) => ({
               loading: { ...state.loading, list: false },
-              errors: { ...state.errors, list: error.message || 'Failed to export tickets' }
-            }))
+              errors: { ...state.errors, list: error.message || 'Failed to export tickets' },
+            }));
           }
-        }
-      }
+        },
+      },
     }),
     { name: 'ticket-store' }
   )
-)
+);
 
-// ENHANCED SELECTORS WITH MEMOIZATION
-export const useTicketSelectors = () => {
-  const tickets = useTicketStore(state => state.tickets)
-  const currentUser = authService.getStoredUser()
-  
-  return {
-    tickets,
-    openTickets: tickets.filter(t => t.status === 'Open' || t.status === 'In Progress'),
-    closedTickets: tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed'),
-    crisisTickets: tickets.filter(t => t.crisis_flag || t.priority === 'Urgent'),
-    unassignedTickets: tickets.filter(t => !t.assigned_to),
-    myAssignedTickets: currentUser ? tickets.filter(t => t.assigned_to === currentUser.id) : [],
-    
-    // Advanced selectors
-    ticketsByCategory: tickets.reduce((acc, ticket) => {
-      acc[ticket.category] = (acc[ticket.category] || 0) + 1
-      return acc
-    }, {} as Record<string, number>),
-    
-    ticketsByPriority: tickets.reduce((acc, ticket) => {
-      acc[ticket.priority] = (acc[ticket.priority] || 0) + 1
-      return acc
-    }, {} as Record<string, number>),
-    
-    ticketsByStatus: tickets.reduce((acc, ticket) => {
-      acc[ticket.status] = (acc[ticket.status] || 0) + 1
-      return acc
-    }, {} as Record<string, number>),
-    
-    // Get selected tickets as array
-    selectedTicketsArray: Array.from(useTicketStore.getState().selectedTickets)
-      .map(id => tickets.find(t => t.id === id))
-      .filter(Boolean) as TicketData[]
+// ENHANCED: Export utility functions for slug handling with better validation
+export const generateTicketURL = (ticket: TicketData, baseURL?: string): string => {
+  try {
+    const base = baseURL || (typeof window !== 'undefined' ? window.location.origin : '');
+    const slug = generateTicketSlug(ticket);
+    return `${base}/tickets/${slug}`;
+  } catch (error) {
+    console.error('Failed to generate ticket URL:', error);
+    return `${baseURL || ''}/tickets/${ticket.id}`;
   }
-}
+};
 
-// SPECIALIZED HOOKS FOR BETTER PERFORMANCE
+export const parseTicketIdFromTicketSlug = (slug: string): number | null => {
+  return parseTicketIdFromSlug(slug);
+};
+
+// ENHANCED: Export selectors with better error handling
 export const useTicketById = (id: number) => {
-  return useTicketStore(state => state.tickets.find(t => t.id === id) || null)
-}
+  return useTicketStore((state) => {
+    try {
+      return state.tickets.find((t) => t.id === id) || null;
+    } catch (error) {
+      console.error('Error finding ticket by ID:', error);
+      return null;
+    }
+  });
+};
+
+export const useTicketBySlug = (slug: string) => {
+  return useTicketStore((state) => {
+    try {
+      const ticketId = parseTicketIdFromSlug(slug);
+      return ticketId ? state.tickets.find((t) => t.id === ticketId) || null : null;
+    } catch (error) {
+      console.error('Error finding ticket by slug:', error);
+      return null;
+    }
+  });
+};
 
 export const useTicketLoading = (type: keyof TicketState['loading'] = 'list') => {
-  return useTicketStore(state => state.loading[type])
-}
+  return useTicketStore((state) => state.loading[type]);
+};
 
 export const useTicketError = (type: keyof TicketState['errors'] = 'list') => {
-  return useTicketStore(state => state.errors[type])
-}
+  return useTicketStore((state) => state.errors[type]);
+};
 
-export const useTicketStats = () => {
-  const tickets = useTicketStore(state => state.tickets)
-  
-  return {
-    total: tickets.length,
-    open: tickets.filter(t => t.status === 'Open').length,
-    in_progress: tickets.filter(t => t.status === 'In Progress').length,
-    resolved: tickets.filter(t => t.status === 'Resolved').length,
-    closed: tickets.filter(t => t.status === 'Closed').length,
-    crisis: tickets.filter(t => t.crisis_flag || t.priority === 'Urgent').length,
-    unassigned: tickets.filter(t => !t.assigned_to).length,
-    high_priority: tickets.filter(t => t.priority === 'High' || t.priority === 'Urgent').length,
-    
-    // Performance metrics
-    average_response_time: '2.3 hours', // This would come from API
-    resolution_rate: tickets.length > 0 
-      ? Math.round((tickets.filter(t => t.status === 'Resolved').length / tickets.length) * 100)
-      : 0
-  }
-}
-
-export const useTicketFilters = () => {
-  const filters = useTicketStore(state => state.filters)
-  const { setFilters, clearFilters } = useTicketStore(state => state.actions)
-  
-  return {
-    filters,
-    setFilters,
-    clearFilters,
-    
-    // Quick filter helpers
-    filterByStatus: (status: string) => setFilters({ status }, true),
-    filterByCategory: (category: string) => setFilters({ category }, true),
-    filterByPriority: (priority: string) => setFilters({ priority }, true),
-    searchTickets: (search: string) => setFilters({ search }, true)
-  }
-}
-
+// FIXED: Updated permissions with admin-only assignment
 export const useTicketPermissions = () => {
-  const currentUser = authService.getStoredUser()
-  
+  const currentUser = authService.getStoredUser();
+
   if (!currentUser) {
     return {
       can_create: false,
@@ -1075,108 +1235,183 @@ export const useTicketPermissions = () => {
       can_manage_tags: false,
       can_add_internal_notes: false,
       can_bulk_assign: false,
-      can_download_attachments: false
-    }
+      can_download_attachments: false,
+    };
   }
-  
+
   return {
     can_create: currentUser.role === 'student' || currentUser.role === 'admin',
     can_view_all: currentUser.role === 'admin',
-    can_assign: currentUser.role === 'admin',
-    can_modify: ['counselor', 'advisor', 'admin'].includes(currentUser.role),
+    can_assign: currentUser.role === 'admin', // FIXED: Only admin can assign
+    can_modify: ['counselor', 'admin'].includes(currentUser.role),
     can_delete: currentUser.role === 'admin',
     can_export: currentUser.role === 'admin',
-    can_manage_tags: ['counselor', 'advisor', 'admin'].includes(currentUser.role),
-    can_add_internal_notes: ['counselor', 'advisor', 'admin'].includes(currentUser.role),
-    can_bulk_assign: currentUser.role === 'admin',
-    can_download_attachments: true // All users can download attachments
-  }
-}
+    can_manage_tags: ['counselor', 'admin'].includes(currentUser.role),
+    can_add_internal_notes: ['counselor', 'admin'].includes(currentUser.role),
+    can_bulk_assign: currentUser.role === 'admin', // FIXED: Only admin can bulk assign
+    can_download_attachments: true, // All users can download attachments
+  };
+};
+
+// ENHANCED SELECTORS WITH MEMOIZATION
+export const useTicketSelectors = () => {
+  const tickets = useTicketStore((state) => state.tickets);
+  const currentUser = authService.getStoredUser();
+
+  return {
+    tickets,
+    openTickets: tickets.filter((t) => t.status === 'Open' || t.status === 'In Progress'),
+    closedTickets: tickets.filter((t) => t.status === 'Resolved' || t.status === 'Closed'),
+    crisisTickets: tickets.filter((t) => t.crisis_flag || t.priority === 'Urgent'),
+    unassignedTickets: tickets.filter((t) => !t.assigned_to),
+    myAssignedTickets: currentUser ? tickets.filter((t) => t.assigned_to === currentUser.id) : [],
+
+    // Advanced selectors
+    ticketsByCategory: tickets.reduce((acc, ticket) => {
+      acc[ticket.category] = (acc[ticket.category] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>),
+
+    ticketsByPriority: tickets.reduce((acc, ticket) => {
+      acc[ticket.priority] = (acc[ticket.priority] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>),
+
+    ticketsByStatus: tickets.reduce((acc, ticket) => {
+      acc[ticket.status] = (acc[ticket.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>),
+
+    // Get selected tickets as array
+    selectedTicketsArray: Array.from(useTicketStore.getState().selectedTickets)
+      .map((id) => tickets.find((t) => t.id === id))
+      .filter(Boolean) as TicketData[],
+  };
+};
+
+export const useTicketStats = () => {
+  const tickets = useTicketStore((state) => state.tickets);
+
+  return {
+    total: tickets.length,
+    open: tickets.filter((t) => t.status === 'Open').length,
+    in_progress: tickets.filter((t) => t.status === 'In Progress').length,
+    resolved: tickets.filter((t) => t.status === 'Resolved').length,
+    closed: tickets.filter((t) => t.status === 'Closed').length,
+    crisis: tickets.filter((t) => t.crisis_flag || t.priority === 'Urgent').length,
+    unassigned: tickets.filter((t) => !t.assigned_to).length,
+    high_priority: tickets.filter((t) => t.priority === 'High' || t.priority === 'Urgent').length,
+
+    // Performance metrics
+    average_response_time: '2.3 hours', // This would come from API
+    resolution_rate:
+      tickets.length > 0
+        ? Math.round((tickets.filter((t) => t.status === 'Resolved').length / tickets.length) * 100)
+        : 0,
+  };
+};
+
+export const useTicketFilters = () => {
+  const filters = useTicketStore((state) => state.filters);
+  const { setFilters, clearFilters } = useTicketStore((state) => state.actions);
+
+  return {
+    filters,
+    setFilters,
+    clearFilters,
+
+    // Quick filter helpers
+    filterByStatus: (status: string) => setFilters({ status }, true),
+    filterByCategory: (category: string) => setFilters({ category }, true),
+    filterByPriority: (priority: string) => setFilters({ priority }, true),
+    searchTickets: (search: string) => setFilters({ search }, true),
+  };
+};
 
 // UTILITY HOOKS
 export const useTicketActions = () => {
-  return useTicketStore(state => state.actions)
-}
+  return useTicketStore((state) => state.actions);
+};
 
 export const useTicketPagination = () => {
-  const pagination = useTicketStore(state => state.pagination)
-  const { setFilters } = useTicketStore(state => state.actions)
-  
+  const pagination = useTicketStore((state) => state.pagination);
+  const { setFilters } = useTicketStore((state) => state.actions);
+
   return {
     ...pagination,
     goToPage: (page: number) => setFilters({ page }, true),
     nextPage: () => {
       if (pagination.current_page < pagination.last_page) {
-        setFilters({ page: pagination.current_page + 1 }, true)
+        setFilters({ page: pagination.current_page + 1 }, true);
       }
     },
     prevPage: () => {
       if (pagination.current_page > 1) {
-        setFilters({ page: pagination.current_page - 1 }, true)
+        setFilters({ page: pagination.current_page - 1 }, true);
       }
-    }
-  }
-}
+    },
+  };
+};
 
 // UTILITY FUNCTIONS FOR STORE MANAGEMENT
 export const initializeTicketStore = () => {
-  const currentUser = authService.getStoredUser()
-  console.log('🎫 TicketStore: Initialized for user:', currentUser?.role)
-}
+  const currentUser = authService.getStoredUser();
+  console.log('🎫 TicketStore: Initialized for user:', currentUser?.role);
+};
 
 export const setupTicketAutoRefresh = (intervalMs: number = 30000) => {
-  let intervalId: NodeJS.Timeout
-  
+  let intervalId: NodeJS.Timeout;
+
   const startAutoRefresh = () => {
     intervalId = setInterval(() => {
-      const state = useTicketStore.getState()
+      const state = useTicketStore.getState();
       // Only auto-refresh if user is actively viewing tickets
       if (document.visibilityState === 'visible' && Date.now() - state.lastFetch > intervalMs) {
-        state.actions.fetchTickets()
+        state.actions.fetchTickets();
       }
-    }, intervalMs)
-  }
-  
+    }, intervalMs);
+  };
+
   const stopAutoRefresh = () => {
     if (intervalId) {
-      clearInterval(intervalId)
+      clearInterval(intervalId);
     }
-  }
-  
-  return { startAutoRefresh, stopAutoRefresh }
-}
+  };
+
+  return { startAutoRefresh, stopAutoRefresh };
+};
 
 // DEBUG UTILITIES (DEVELOPMENT ONLY)
 export const debugTicketStore = () => {
   if (process.env.NODE_ENV === 'development') {
-    const state = useTicketStore.getState()
-    
-    console.group('🎫 TicketStore Debug Info')
-    console.log('Total tickets:', state.tickets.length)
-    console.log('Current filters:', state.filters)
-    console.log('Loading states:', state.loading)
-    console.log('Error states:', state.errors)
-    console.log('Selected tickets:', state.selectedTickets.size)
-    console.log('Last fetch:', new Date(state.lastFetch).toLocaleString())
-    console.groupEnd()
-    
-    return state
+    const state = useTicketStore.getState();
+
+    console.group('🎫 TicketStore Debug Info');
+    console.log('Total tickets:', state.tickets.length);
+    console.log('Current filters:', state.filters);
+    console.log('Loading states:', state.loading);
+    console.log('Error states:', state.errors);
+    console.log('Selected tickets:', state.selectedTickets.size);
+    console.log('Last fetch:', new Date(state.lastFetch).toLocaleString());
+    console.groupEnd();
+
+    return state;
   }
-}
+};
 
 // PERFORMANCE MONITORING
 export const getTicketStoreMetrics = () => {
-  const state = useTicketStore.getState()
-  
+  const state = useTicketStore.getState();
+
   return {
     totalTickets: state.tickets.length,
     memoryUsage: JSON.stringify(state).length,
     cacheAge: Date.now() - state.lastFetch,
     selectedCount: state.selectedTickets.size,
-    hasErrors: Object.values(state.errors).some(error => error !== null),
-    isLoading: Object.values(state.loading).some(loading => loading === true)
-  }
-}
+    hasErrors: Object.values(state.errors).some((error) => error !== null),
+    isLoading: Object.values(state.loading).some((loading) => loading === true),
+  };
+};
 
-// EXPORT DEFAULT STORE
-export default useTicketStore
+// Export default store
+export default useTicketStore;

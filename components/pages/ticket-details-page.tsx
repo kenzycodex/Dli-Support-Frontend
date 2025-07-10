@@ -1,7 +1,7 @@
-// components/pages/ticket-details-page.tsx (FIXED - Complete data loading)
+// components/pages/ticket-details-page.tsx (FIXED - Enhanced loading and URL handling)
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,39 +22,81 @@ import {
   ImageIcon,
   Loader2,
   RefreshCw,
-  AlertCircle,
+	AlertCircle,
   X,
   Flag,
   Edit,
   Tags,
   UserPlus,
+  Copy,
+  ExternalLink,
+  Settings,
 } from "lucide-react"
 import { 
   useTicketStore, 
   useTicketById,
+  useTicketBySlug,
   useTicketLoading, 
   useTicketError,
   useTicketPermissions,
   TicketData,
-  AddResponseRequest 
+  AddResponseRequest,
+  generateTicketURL
 } from "@/stores/ticket-store"
 import { authService } from "@/services/auth.service"
 import { ticketService } from "@/services/ticket.service"
+import { useToast } from "@/hooks/use-toast"
 
 interface TicketDetailsPageProps {
-  ticketId: number
+  ticketId?: number
+  slug?: string
   onNavigate: (page: string, params?: any) => void
 }
 
-export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPageProps) {
-  // FIXED: Proper store access with fallbacks
+export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsPageProps) {
+  // ENHANCED: Store access with better initialization handling
   const actions = useTicketStore(state => state?.actions)
-  const ticket = useTicketById(ticketId)
-  const loadingDetails = useTicketLoading('details') // FIXED: Use correct loading state
+  const tickets = useTicketStore(state => state?.tickets || [])
+  
+  // ENHANCED: Try to get ticket by slug first, then by ID, with fallback search
+  const ticketBySlug = useTicketBySlug(slug || '')
+  const ticketById = useTicketById(ticketId || 0)
+  
+  // Enhanced ticket resolution with local search fallback
+  const ticket = useMemo(() => {
+    // First try slug-based lookup
+    if (slug && ticketBySlug) {
+      console.log('🎫 TicketDetailsPage: Found ticket by slug:', ticketBySlug.id)
+      return ticketBySlug
+    }
+    
+    // Then try ID-based lookup
+    if (ticketId && ticketById) {
+      console.log('🎫 TicketDetailsPage: Found ticket by ID:', ticketById.id)
+      return ticketById
+    }
+    
+    // Fallback: search in current tickets array
+    if (ticketId && tickets.length > 0) {
+      const foundTicket = tickets.find(t => t.id === ticketId)
+      if (foundTicket) {
+        console.log('🎫 TicketDetailsPage: Found ticket in array fallback:', foundTicket.id)
+        return foundTicket
+      }
+    }
+    
+    console.log('🎫 TicketDetailsPage: No ticket found', { ticketId, slug, ticketsCount: tickets.length })
+    return null
+  }, [ticketBySlug, ticketById, ticketId, slug, tickets])
+  
+  const loadingDetails = useTicketLoading('details')
   const loadingResponse = useTicketLoading('response')
-  const error = useTicketError('details') // FIXED: Use correct error state
+  const error = useTicketError('details')
   const currentResponseError = useTicketError('response')
   const permissions = useTicketPermissions()
+
+  // Toast hook
+  const { toast } = useToast()
 
   // Local state for response form
   const [newResponse, setNewResponse] = useState("")
@@ -62,31 +104,70 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
   const [localError, setLocalError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   const currentUser = useMemo(() => authService.getStoredUser(), [])
+  const initRef = useRef(false)
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // FIXED: Comprehensive ticket loading with proper initialization
+  // ENHANCED: Load ticket details with better error handling and direct URL support
   useEffect(() => {
     let isMounted = true
-
+    
     const loadTicketDetails = async () => {
-      if (!ticketId || !actions) return
+      if (!actions || initRef.current) return
       
-      console.log("🎫 TicketDetailsPage: Loading ticket details for ID:", ticketId)
+      initRef.current = true
+      
+      console.log("🎫 TicketDetailsPage: Starting ticket load", { ticketId, slug, hasTicket: !!ticket })
+      
+      // If we already have the ticket, mark as initialized
+      if (ticket) {
+        console.log('🎫 TicketDetailsPage: Ticket already available, marking as initialized')
+        if (isMounted) {
+          setIsInitialized(true)
+          setIsLoading(false)
+        }
+        return
+      }
+      
+      // Set a timeout to prevent infinite loading
+      loadingTimeoutRef.current = setTimeout(() => {
+        if (isMounted && !ticket) {
+          console.warn('🎫 TicketDetailsPage: Loading timeout reached')
+          setLocalError("Failed to load ticket details - request timed out")
+          setIsLoading(false)
+          setIsInitialized(true)
+        }
+      }, 10000) // 10 second timeout
       
       try {
-        // Always fetch fresh ticket details when component mounts
-        await actions.fetchTicket(ticketId)
+        console.log("🎫 TicketDetailsPage: Fetching ticket details")
+        
+        // If we have a slug, use slug-based fetch
+        if (slug) {
+          console.log('🎫 TicketDetailsPage: Fetching by slug:', slug)
+          await actions.fetchTicketBySlug(slug)
+        } 
+        // Otherwise use ID-based fetch
+        else if (ticketId) {
+          console.log('🎫 TicketDetailsPage: Fetching by ID:', ticketId)
+          await actions.fetchTicket(ticketId)
+        } else {
+          throw new Error('No ticket ID or slug provided')
+        }
         
         if (isMounted) {
           setIsInitialized(true)
+          setIsLoading(false)
           console.log('✅ TicketDetailsPage: Ticket details loaded and initialized')
         }
       } catch (error) {
         console.error("❌ TicketDetailsPage: Failed to load ticket details:", error)
         if (isMounted) {
           setLocalError("Failed to load ticket details")
-          setIsInitialized(true) // Still mark as initialized to show error state
+          setIsLoading(false)
+          setIsInitialized(true)
         }
       }
     }
@@ -95,8 +176,11 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
 
     return () => {
       isMounted = false
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
+      }
     }
-  }, [ticketId, actions]) // FIXED: Only depend on ticketId and actions
+  }, [ticketId, slug, actions, ticket])
 
   // Auto-refresh ticket details periodically for open tickets
   useEffect(() => {
@@ -115,7 +199,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
   }, [ticket?.status, isInitialized])
 
   const fetchTicketDetails = useCallback(async (silent = false) => {
-    if (!actions?.fetchTicket || !ticketId) return
+    if (!actions || (!ticketId && !slug)) return
     
     if (!silent) {
       setRefreshing(true)
@@ -123,21 +207,37 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     setLocalError(null)
     
     try {
-      await actions.fetchTicket(ticketId)
+      if (slug) {
+        await actions.fetchTicketBySlug(slug)
+      } else if (ticketId) {
+        await actions.fetchTicket(ticketId)
+      }
       console.log('✅ TicketDetailsPage: Ticket details refreshed')
+      
+      if (!silent) {
+        toast({
+          title: "Success",
+          description: "Ticket details refreshed"
+        })
+      }
     } catch (err) {
       console.error("❌ TicketDetailsPage: Failed to refresh ticket details:", err)
       if (!silent) {
         setLocalError("Failed to refresh ticket details")
+        toast({
+          title: "Error",
+          description: "Failed to refresh ticket details",
+          variant: "destructive"
+        })
       }
     } finally {
       if (!silent) {
         setRefreshing(false)
       }
     }
-  }, [ticketId, actions])
+  }, [ticketId, slug, actions, toast])
 
-  // FIXED: Clear form after successful response
+  // ENHANCED: Clear form after successful response
   const handleSendResponse = useCallback(async () => {
     if (!newResponse.trim() || !ticket || !actions?.addResponse) return
 
@@ -147,6 +247,11 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     // Validate response
     if (newResponse.length < 5) {
       setLocalError("Response must be at least 5 characters long")
+      toast({
+        title: "Error",
+        description: "Response must be at least 5 characters long",
+        variant: "destructive"
+      })
       return
     }
 
@@ -155,6 +260,11 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
       const validation = ticketService.validateFiles(attachments, 3)
       if (!validation.valid) {
         setLocalError(validation.errors.join(', '))
+        toast({
+          title: "Error",
+          description: validation.errors.join(', '),
+          variant: "destructive"
+        })
         return
       }
     }
@@ -171,22 +281,36 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
       // Check if there was an error after the call
       const errorAfterCall = useTicketStore.getState().errors.response
       if (!errorAfterCall) {
-        // FIXED: Clear form immediately after successful submission
         console.log("✅ TicketDetailsPage: Response sent successfully, clearing form")
         setNewResponse("")
         setAttachments([])
         
         // Refresh ticket to get updated conversation
         await fetchTicketDetails(true)
+        
+        toast({
+          title: "Success",
+          description: "Response sent successfully"
+        })
       } else {
         console.error("❌ TicketDetailsPage: Response submission failed:", errorAfterCall)
         setLocalError(errorAfterCall)
+        toast({
+          title: "Error",
+          description: errorAfterCall,
+          variant: "destructive"
+        })
       }
     } catch (err) {
       console.error("❌ TicketDetailsPage: Failed to add response:", err)
       setLocalError("Failed to send response. Please try again.")
+      toast({
+        title: "Error",
+        description: "Failed to send response. Please try again.",
+        variant: "destructive"
+      })
     }
-  }, [ticket, newResponse, attachments, actions, fetchTicketDetails])
+  }, [ticket, newResponse, attachments, actions, fetchTicketDetails, toast])
 
   // Handle file upload for responses
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -198,11 +322,21 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     const validation = ticketService.validateFiles(files, 3)
     if (!validation.valid) {
       setLocalError(validation.errors.join(', '))
+      toast({
+        title: "Error",
+        description: validation.errors.join(', '),
+        variant: "destructive"
+      })
       return
     }
 
     if (attachments.length + files.length > 3) {
       setLocalError("Maximum 3 attachments allowed per response")
+      toast({
+        title: "Error",
+        description: "Maximum 3 attachments allowed per response",
+        variant: "destructive"
+      })
       return
     }
 
@@ -210,7 +344,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     
     // Reset file input
     event.target.value = ''
-  }, [attachments.length])
+  }, [attachments.length, toast])
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index))
@@ -222,38 +356,72 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     
     try {
       await actions.downloadAttachment(attachmentId, fileName)
+      toast({
+        title: "Success",
+        description: "Attachment downloaded successfully"
+      })
     } catch (err) {
       console.error("Failed to download attachment:", err)
       setLocalError("Failed to download attachment")
+      toast({
+        title: "Error",
+        description: "Failed to download attachment",
+        variant: "destructive"
+      })
     }
-  }, [actions])
+  }, [actions, toast])
 
-  // Quick actions
+  // ENHANCED: Quick actions with proper feedback - FIXED: Only admin can assign
   const handleQuickAction = useCallback(async (action: string, params?: any) => {
     if (!ticket || !actions) return
     
     try {
       switch (action) {
         case 'assign_to_me':
-          if (currentUser && actions.assignTicket) {
+          // FIXED: Only admin can assign tickets
+          if (currentUser?.role === 'admin' && actions.assignTicket) {
             await actions.assignTicket(ticket.id, currentUser.id)
+            toast({
+              title: "Success",
+              description: "Ticket assigned to you"
+            })
           }
           break
         case 'mark_in_progress':
           if (actions.updateTicket) {
             await actions.updateTicket(ticket.id, { status: 'In Progress' })
+            toast({
+              title: "Success",
+              description: "Ticket marked as In Progress"
+            })
           }
           break
         case 'mark_resolved':
           if (actions.updateTicket) {
             await actions.updateTicket(ticket.id, { status: 'Resolved' })
+            toast({
+              title: "Success",
+              description: "Ticket marked as Resolved"
+            })
           }
           break
         case 'escalate':
           if (actions.updateTicket && actions.addTag) {
             await actions.updateTicket(ticket.id, { priority: 'Urgent' })
             await actions.addTag(ticket.id, 'escalated')
+            toast({
+              title: "Success",
+              description: "Ticket escalated to Urgent priority"
+            })
           }
+          break
+        case 'copy_link':
+          const url = generateTicketURL(ticket)
+          await navigator.clipboard.writeText(url)
+          toast({
+            title: "Success",
+            description: "Ticket link copied to clipboard"
+          })
           break
       }
       
@@ -261,8 +429,13 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
       await fetchTicketDetails(true)
     } catch (error) {
       console.error(`Failed to ${action}:`, error)
+      toast({
+        title: "Error",
+        description: `Failed to ${action.replace('_', ' ')}`,
+        variant: "destructive"
+      })
     }
-  }, [ticket, currentUser, actions, fetchTicketDetails])
+  }, [ticket, currentUser, actions, fetchTicketDetails, toast])
 
   // Utility functions
   const formatDate = useCallback((dateString: string) => {
@@ -304,7 +477,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     const isTicketClosed = ticket.status === "Closed" || ticket.status === "Resolved"
     const isOwner = ticket.user_id === currentUser.id
     const isAssigned = ticket.assigned_to === currentUser.id
-    const isStaff = ['counselor', 'advisor', 'admin'].includes(currentUser.role)
+    const isStaff = ['counselor', 'admin'].includes(currentUser.role)
     
     return !isTicketClosed && (isOwner || isAssigned || isStaff)
   }, [ticket, currentUser])
@@ -313,8 +486,18 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     return ticket ? (ticket.status === "Closed" || ticket.status === "Resolved") : false
   }, [ticket?.status])
 
-  // FIXED: Show loading state only during initial load or when not initialized
-  if ((loadingDetails && !isInitialized) || !actions) {
+  // FIXED: Show staff actions only for admin and counselors, not students
+  const showStaffActions = useMemo(() => {
+    return currentUser?.role !== 'student'
+  }, [currentUser?.role])
+
+  // FIXED: Show ticket information only for admin and counselors
+  const showTicketInformation = useMemo(() => {
+    return currentUser?.role !== 'student'
+  }, [currentUser?.role])
+
+  // ENHANCED: Show loading state with better UX
+  if (isLoading || (loadingDetails && !isInitialized) || !actions) {
     return (
       <div className="w-full max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center gap-4 mb-6">
@@ -332,6 +515,9 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
             <div className="flex flex-col items-center justify-center gap-4">
               <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
               <span className="text-lg text-gray-600">Loading ticket details...</span>
+              {slug && (
+                <span className="text-sm text-gray-500">Loading ticket from URL: {slug}</span>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -339,7 +525,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
     )
   }
 
-  // Error state
+  // ENHANCED: Error state with better messaging
   if (!ticket && (error || localError)) {
     return (
       <div className="w-full max-w-6xl mx-auto px-4 py-6">
@@ -358,10 +544,17 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
             <div className="text-center flex flex-col items-center gap-4">
               <AlertCircle className="h-12 w-12 text-gray-400" />
               <h3 className="text-lg font-medium text-gray-900">Ticket Not Found</h3>
-              <p className="text-gray-600">{error || localError || "The ticket you're looking for doesn't exist or you don't have access to it."}</p>
-              <Button onClick={() => fetchTicketDetails()}>
-                Try Again
-              </Button>
+              <p className="text-gray-600">
+                {error || localError || "The ticket you're looking for doesn't exist or you don't have access to it."}
+              </p>
+              <div className="flex gap-2">
+                <Button onClick={() => fetchTicketDetails()}>
+                  Try Again
+                </Button>
+                <Button variant="outline" onClick={() => onNavigate('tickets')}>
+                  Back to Tickets
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -416,10 +609,10 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
             Refresh
           </Button>
 
-          {/* Quick Actions for Staff */}
-          {currentUser?.role !== 'student' && (
+          {/* Quick Actions for Staff - FIXED: Only admin can assign */}
+          {showStaffActions && (
             <>
-              {!ticket.assigned_to && permissions.can_assign && (
+              {!ticket.assigned_to && currentUser?.role === 'admin' && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -431,32 +624,44 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                   Assign to Me
                 </Button>
               )}
-              
-              {ticket.status === 'Open' && permissions.can_modify && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleQuickAction('mark_in_progress')}
-                  disabled={loadingDetails}
-                  className="hover:bg-yellow-50"
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Start Progress
-                </Button>
-              )}
 
-              {ticket.status === 'In Progress' && permissions.can_modify && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleQuickAction('mark_resolved')}
-                  disabled={loadingDetails}
-                  className="hover:bg-green-50"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Mark Resolved
-                </Button>
-              )}
+              {ticket.status === 'Open' &&
+                (currentUser?.role === 'admin' || currentUser?.role === 'counselor') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleQuickAction('mark_in_progress')}
+                    disabled={loadingDetails}
+                    className="hover:bg-yellow-50"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Start Progress
+                  </Button>
+                )}
+
+              {ticket.status === 'In Progress' &&
+                (currentUser?.role === 'admin' || currentUser?.role === 'counselor') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleQuickAction('mark_resolved')}
+                    disabled={loadingDetails}
+                    className="hover:bg-green-50"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Mark Resolved
+                  </Button>
+                )}
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleQuickAction('copy_link')}
+                className="hover:bg-blue-50"
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                Copy Link
+              </Button>
             </>
           )}
         </div>
@@ -472,9 +677,9 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
               variant="ghost"
               size="sm"
               onClick={() => {
-                actions?.clearError && actions.clearError('details')
-                actions?.clearError && actions.clearError('response')
-                setLocalError(null)
+                actions?.clearError && actions.clearError('details');
+                actions?.clearError && actions.clearError('response');
+                setLocalError(null);
               }}
               className="text-red-600 hover:text-red-700 hover:bg-red-50"
             >
@@ -507,7 +712,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
               {ticket.tags && ticket.tags.length > 0 && (
                 <div className="flex items-center gap-1">
                   <Tags className="h-3 w-3 text-gray-500" />
-                  {ticket.tags.map(tag => (
+                  {ticket.tags.map((tag) => (
                     <Badge key={tag} variant="secondary" className="text-xs">
                       {tag}
                     </Badge>
@@ -524,11 +729,12 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
             <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
               <span>Created: {formatDate(ticket.created_at)}</span>
               <span>Last Updated: {formatDate(ticket.updated_at)}</span>
-              {ticket.resolved_at && (
-                <span>Resolved: {formatDate(ticket.resolved_at)}</span>
-              )}
+              {ticket.resolved_at && <span>Resolved: {formatDate(ticket.resolved_at)}</span>}
               {ticket.resolved_at && ticket.created_at && (
-                <span>Resolution Time: {ticketService.getResolutionTime(ticket.created_at, ticket.resolved_at)}</span>
+                <span>
+                  Resolution Time:{' '}
+                  {ticketService.getResolutionTime(ticket.created_at, ticket.resolved_at)}
+                </span>
               )}
             </div>
           </div>
@@ -541,9 +747,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
           <CardTitle className="flex items-center gap-3">
             <MessageSquare className="h-5 w-5" />
             <span>Conversation</span>
-            <Badge variant="secondary">
-              {ticket.responses?.length || 0} responses
-            </Badge>
+            <Badge variant="secondary">{ticket.responses?.length || 0} responses</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6">
@@ -557,36 +761,38 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
               {/* Initial Ticket Message */}
               <div className="space-y-4">
                 <div className="flex items-start gap-4">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 ${
-                    ticket.user?.role === "student" 
-                      ? "bg-blue-100 text-blue-700" 
-                      : "bg-green-100 text-green-700"
-                  }`}>
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 ${
+                      ticket.user?.role === 'student'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                  >
                     {ticket.user?.name
-                      .split(" ")
+                      .split(' ')
                       .map((n) => n[0])
-                      .join("") || "?"}
+                      .join('') || '?'}
                   </div>
                   <div className="flex-1 space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium text-sm text-gray-900">
-                        {ticket.user?.name || "Unknown User"}
+                        {ticket.user?.name || 'Unknown User'}
                       </span>
                       <Badge
                         className={
-                          ticket.user?.role === "student"
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-green-100 text-green-800"
+                          ticket.user?.role === 'student'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-green-100 text-green-800'
                         }
                       >
-                        {ticket.user?.role === "student" ? "Student" : "Staff"}
+                        {ticket.user?.role === 'student' ? 'Student' : 'Staff'}
                       </Badge>
-                      <span className="text-xs text-gray-500">
-                        {formatDate(ticket.created_at)}
-                      </span>
+                      <span className="text-xs text-gray-500">{formatDate(ticket.created_at)}</span>
                     </div>
                     <div className="bg-gray-50 rounded-lg p-4 border">
-                      <p className="text-sm whitespace-pre-wrap leading-relaxed text-gray-800">{ticket.description}</p>
+                      <p className="text-sm whitespace-pre-wrap leading-relaxed text-gray-800">
+                        {ticket.description}
+                      </p>
                     </div>
                     {ticket.attachments && ticket.attachments.length > 0 && (
                       <div className="space-y-2">
@@ -603,16 +809,20 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                                 <FileText className="h-5 w-5 text-gray-600" />
                               )}
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate text-gray-900">{attachment.original_name}</p>
+                                <p className="text-sm font-medium truncate text-gray-900">
+                                  {attachment.original_name}
+                                </p>
                                 <p className="text-xs text-gray-500">
                                   {formatFileSize(attachment.file_size)}
                                 </p>
                               </div>
                             </div>
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               size="sm"
-                              onClick={() => handleDownloadAttachment(attachment.id, attachment.original_name)}
+                              onClick={() =>
+                                handleDownloadAttachment(attachment.id, attachment.original_name)
+                              }
                               className="hover:bg-blue-50"
                             >
                               <Download className="h-4 w-4" />
@@ -633,29 +843,29 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                     <div className="flex items-start gap-4">
                       <div
                         className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 ${
-                          response.user?.role === "student" 
-                            ? "bg-blue-100 text-blue-700" 
-                            : "bg-green-100 text-green-700"
+                          response.user?.role === 'student'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-green-100 text-green-700'
                         }`}
                       >
                         {response.user?.name
-                          .split(" ")
+                          .split(' ')
                           .map((n) => n[0])
-                          .join("") || "?"}
+                          .join('') || '?'}
                       </div>
                       <div className="flex-1 space-y-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium text-sm text-gray-900">
-                            {response.user?.name || "Unknown User"}
+                            {response.user?.name || 'Unknown User'}
                           </span>
                           <Badge
                             className={
-                              response.user?.role === "student"
-                                ? "bg-blue-100 text-blue-800"
-                                : "bg-green-100 text-green-800"
+                              response.user?.role === 'student'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-green-100 text-green-800'
                             }
                           >
-                            {response.user?.role === "student" ? "Student" : "Staff"}
+                            {response.user?.role === 'student' ? 'Student' : 'Staff'}
                           </Badge>
                           {response.is_urgent && (
                             <Badge variant="destructive" className="text-xs">
@@ -663,7 +873,10 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                             </Badge>
                           )}
                           {response.is_internal && (
-                            <Badge variant="outline" className="text-xs border-orange-200 text-orange-700">
+                            <Badge
+                              variant="outline"
+                              className="text-xs border-orange-200 text-orange-700"
+                            >
                               Internal
                             </Badge>
                           )}
@@ -672,7 +885,9 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                           </span>
                         </div>
                         <div className="bg-gray-50 rounded-lg p-4 border">
-                          <p className="text-sm whitespace-pre-wrap leading-relaxed text-gray-800">{response.message}</p>
+                          <p className="text-sm whitespace-pre-wrap leading-relaxed text-gray-800">
+                            {response.message}
+                          </p>
                         </div>
                         {response.attachments && response.attachments.length > 0 && (
                           <div className="space-y-2">
@@ -689,16 +904,23 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                                     <FileText className="h-5 w-5 text-gray-600" />
                                   )}
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate text-gray-900">{attachment.original_name}</p>
+                                    <p className="text-sm font-medium truncate text-gray-900">
+                                      {attachment.original_name}
+                                    </p>
                                     <p className="text-xs text-gray-500">
                                       {formatFileSize(attachment.file_size)}
                                     </p>
                                   </div>
                                 </div>
-                                <Button 
-                                  variant="ghost" 
+                                <Button
+                                  variant="ghost"
                                   size="sm"
-                                  onClick={() => handleDownloadAttachment(attachment.id, attachment.original_name)}
+                                  onClick={() =>
+                                    handleDownloadAttachment(
+                                      attachment.id,
+                                      attachment.original_name
+                                    )
+                                  }
                                   className="hover:bg-blue-50"
                                 >
                                   <Download className="h-4 w-4" />
@@ -748,11 +970,11 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                   </span>
                 </div>
               </div>
-              
+
               {/* File Upload */}
               <div className="space-y-4">
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors bg-gray-50/50">
-                <div className="flex flex-col items-center justify-center gap-3">
+                  <div className="flex flex-col items-center justify-center gap-3">
                     <Paperclip className="h-8 w-8 text-gray-400" />
                     <div>
                       <p className="text-gray-600 font-medium">Drag and drop files here</p>
@@ -770,7 +992,7 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => document.getElementById("response-file-upload")?.click()}
+                      onClick={() => document.getElementById('response-file-upload')?.click()}
                       disabled={loadingResponse || attachments.length >= 3}
                       className="hover:bg-purple-50 hover:border-purple-200"
                     >
@@ -782,12 +1004,15 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                     PDF, PNG, JPG, DOC, TXT files up to 10MB each (Max 3 files)
                   </p>
                 </div>
-                
+
                 {attachments.length > 0 && (
                   <div className="space-y-2">
                     <span className="text-sm font-medium text-gray-700">Selected Files:</span>
                     {attachments.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border"
+                      >
                         <div className="flex items-center gap-3">
                           {ticketService.isImage(file.type) ? (
                             <ImageIcon className="h-5 w-5 text-blue-600" />
@@ -795,7 +1020,9 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                             <FileText className="h-5 w-5 text-gray-600" />
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate text-gray-900">{file.name}</p>
+                            <p className="text-sm font-medium truncate text-gray-900">
+                              {file.name}
+                            </p>
                             <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
                           </div>
                         </div>
@@ -823,8 +1050,8 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
                   onClick={handleSendResponse}
                   disabled={!newResponse.trim() || newResponse.length < 5 || loadingResponse}
                   className={`transition-all duration-200 ${
-                    loadingResponse 
-                      ? 'bg-blue-400 cursor-not-allowed' 
+                    loadingResponse
+                      ? 'bg-blue-400 cursor-not-allowed'
                       : 'bg-blue-600 hover:bg-blue-700 hover:shadow-md'
                   }`}
                 >
@@ -860,6 +1087,179 @@ export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPagePro
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Crisis Alert for crisis tickets */}
+      {ticket.crisis_flag && (
+        <Alert className="border-red-200 bg-red-50">
+          <AlertTriangle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-800">
+            <strong>🚨 Crisis Ticket:</strong> This ticket has been flagged for urgent attention. If
+            this is a life-threatening emergency, please contact emergency services immediately at
+            911.
+            {currentUser?.role !== 'student' && (
+              <span className="block mt-2">
+                <strong>Staff Notice:</strong> Crisis tickets require immediate response within 1
+                hour.
+              </span>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Staff-only Quick Actions Panel - FIXED: Only for admin and counselors */}
+      {showStaffActions && (
+        <Card className="border shadow-sm">
+          <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50 border-b px-6 py-4">
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Staff Actions
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* FIXED: Only admin can assign tickets */}
+              {!ticket.assigned_to && currentUser?.role === 'admin' && (
+                <Button
+                  variant="outline"
+                  onClick={() => handleQuickAction('assign_to_me')}
+                  disabled={loadingDetails}
+                  className="flex items-center gap-2 hover:bg-green-50"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  Assign to Me
+                </Button>
+              )}
+
+              {ticket.status === 'Open' &&
+                (currentUser?.role === 'admin' || currentUser?.role === 'counselor') && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleQuickAction('mark_in_progress')}
+                    disabled={loadingDetails}
+                    className="flex items-center gap-2 hover:bg-yellow-50"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Mark In Progress
+                  </Button>
+                )}
+
+              {(ticket.status === 'Open' || ticket.status === 'In Progress') &&
+                (currentUser?.role === 'admin' || currentUser?.role === 'counselor') && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleQuickAction('mark_resolved')}
+                    disabled={loadingDetails}
+                    className="flex items-center gap-2 hover:bg-green-50"
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                    Mark Resolved
+                  </Button>
+                )}
+
+              {ticket.priority !== 'Urgent' &&
+                (currentUser?.role === 'admin' || currentUser?.role === 'counselor') && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleQuickAction('escalate')}
+                    disabled={loadingDetails}
+                    className="flex items-center gap-2 hover:bg-red-50"
+                  >
+                    <Flag className="h-4 w-4" />
+                    Escalate
+                  </Button>
+                )}
+
+              <Button
+                variant="outline"
+                onClick={() => handleQuickAction('copy_link')}
+                className="flex items-center gap-2 hover:bg-blue-50"
+              >
+                <Copy className="h-4 w-4" />
+                Copy Link
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const url = generateTicketURL(ticket);
+                  window.open(url, '_blank');
+                }}
+                className="flex items-center gap-2 hover:bg-purple-50"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open in New Tab
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Ticket Information Panel - FIXED: Only show for admin and counselors, not students */}
+      {showTicketInformation && (
+        <Card className="border shadow-sm">
+          <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50 border-b px-6 py-4">
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Ticket Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Ticket Number</label>
+                  <p className="text-sm text-gray-900">{ticket.ticket_number}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Category</label>
+                  <p className="text-sm text-gray-900">
+                    {ticketService.getCategoryDisplayName(ticket.category)}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Priority</label>
+                  <p className="text-sm text-gray-900">{ticket.priority}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Status</label>
+                  <p className="text-sm text-gray-900">{ticket.status}</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Created By</label>
+                  <p className="text-sm text-gray-900">{ticket.user?.name || 'Unknown User'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Assigned To</label>
+                  <p className="text-sm text-gray-900">{ticket.assignedTo?.name || 'Unassigned'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Created Date</label>
+                  <p className="text-sm text-gray-900">{formatDate(ticket.created_at)}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Last Updated</label>
+                  <p className="text-sm text-gray-900">{formatDate(ticket.updated_at)}</p>
+                </div>
+              </div>
+            </div>
+
+            {ticket.tags && ticket.tags.length > 0 && (
+              <div className="mt-6 pt-6 border-t">
+                <label className="text-sm font-medium text-gray-500 block mb-2">Tags</label>
+                <div className="flex flex-wrap gap-2">
+                  {ticket.tags.map((tag) => (
+                    <Badge key={tag} variant="secondary" className="text-xs">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
-  )
+  );
 }

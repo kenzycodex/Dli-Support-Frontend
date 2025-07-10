@@ -1,4 +1,4 @@
-// lib/api.ts (ENHANCED - Better error handling and debugging)
+// lib/api.ts (FIXED - Better error handling and DELETE method fix)
 
 import { apiRateLimiter } from './api-rate-limiter'
 
@@ -7,6 +7,7 @@ interface ApiResponse<T = any> {
   message: string
   data?: T
   errors?: any
+  status?: number
 }
 
 class ApiClient {
@@ -38,6 +39,7 @@ class ApiClient {
     return headers
   }
 
+  // FIXED: Better response handling with detailed error processing
   private async handleResponse<T>(response: Response, url: string): Promise<ApiResponse<T>> {
     try {
       const contentType = response.headers.get("content-type")
@@ -48,7 +50,8 @@ class ApiClient {
           return {
             success: true,
             message: "Request successful",
-            data: response as any // For blob responses
+            data: response as any, // For blob responses
+            status: response.status
           }
         } else {
           const text = await response.text()
@@ -56,13 +59,14 @@ class ApiClient {
           return {
             success: false,
             message: `Request failed with status ${response.status}`,
+            status: response.status
           }
         }
       }
 
       const data = await response.json()
       
-      // Enhanced error logging for debugging
+      // ENHANCED: Detailed error logging for debugging
       if (!response.ok) {
         console.error('🌐 API Error Response:', {
           url,
@@ -70,6 +74,67 @@ class ApiClient {
           statusText: response.statusText,
           data
         })
+        
+        // Handle specific error cases
+        if (response.status === 401) {
+          // Token expired or invalid
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('auth_token')
+            localStorage.removeItem('user')
+            // Don't redirect immediately, let the app handle it
+          }
+          
+          return {
+            success: false,
+            message: data?.message || 'Session expired. Please log in again.',
+            status: 401,
+            errors: data?.errors
+          }
+        }
+        
+        if (response.status === 403) {
+          return {
+            success: false,
+            message: data?.message || 'You do not have permission to perform this action.',
+            status: 403,
+            errors: data?.errors
+          }
+        }
+        
+        if (response.status === 404) {
+          return {
+            success: false,
+            message: data?.message || 'The requested resource was not found.',
+            status: 404,
+            errors: data?.errors
+          }
+        }
+        
+        if (response.status === 422) {
+          return {
+            success: false,
+            message: data?.message || 'Validation failed',
+            errors: data?.errors,
+            status: 422
+          }
+        }
+        
+        if (response.status >= 500) {
+          return {
+            success: false,
+            message: data?.message || 'Server error occurred. Please try again later.',
+            status: response.status,
+            errors: data?.errors
+          }
+        }
+        
+        // Generic error fallback
+        return {
+          success: false,
+          message: data?.message || `Request failed with status ${response.status}`,
+          status: response.status,
+          errors: data?.errors
+        }
       }
       
       // Handle cases where backend doesn't return success field
@@ -78,11 +143,15 @@ class ApiClient {
           success: response.ok,
           message: response.ok ? "Request successful" : data.message || `HTTP ${response.status}`,
           data: response.ok ? data : undefined,
-          errors: response.ok ? undefined : data
+          errors: response.ok ? undefined : data,
+          status: response.status
         }
       }
       
-      return data
+      return {
+        ...data,
+        status: response.status
+      }
     } catch (error) {
       console.error("🌐 Response parsing error:", {
         url,
@@ -92,11 +161,13 @@ class ApiClient {
       return {
         success: false,
         message: "Invalid response format",
-        errors: error
+        errors: error,
+        status: response.status
       }
     }
   }
 
+  // FIXED: Better request handling with improved error handling and timeout management
   private async makeRequest<T>(
     endpoint: string, 
     method: string, 
@@ -147,7 +218,7 @@ class ApiClient {
             }
           }
           console.log("🌐 FormData entries:", formDataEntries)
-        } else {
+        } else if (data !== undefined) {
           console.log("🌐 Body:", data)
         }
 
@@ -176,15 +247,28 @@ class ApiClient {
           return {
             success: false,
             message: `Request timeout after ${requestTimeout / 1000} seconds. Please try again.`,
-            errors: error
+            errors: error,
+            status: 408
           }
         }
         
-        console.error("🌐 Network error:", error)
+        // FIXED: Better network error handling
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+          console.error("🌐 Network fetch error:", error)
+          return {
+            success: false,
+            message: "Network connection failed. Please check your connection and try again.",
+            errors: error,
+            status: 0
+          }
+        }
+        
+        console.error("🌐 Unexpected error:", error)
         return {
           success: false,
-          message: "Network error. Please check your connection and try again.",
-          errors: error
+          message: "An unexpected error occurred. Please try again.",
+          errors: error,
+          status: 0
         }
       }
     }
@@ -198,28 +282,108 @@ class ApiClient {
   }
 
   async get<T = any>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
-    return this.makeRequest<T>(endpoint, "GET", undefined, options, 120000, true) // 2 min for GET with rate limiting
+    return this.makeRequest<T>(endpoint, "GET", undefined, options, 30000, true) // 30s for GET with rate limiting
   }
 
   async post<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
     // Use longer timeout for POST requests with files
-    const timeout = data instanceof FormData ? 120000 : 60000 // 2 min for files, 1 min for others
+    const timeout = data instanceof FormData ? 120000 : 30000 // 2 min for files, 30s for others
     // Don't rate limit POST requests as they modify data
     return this.makeRequest<T>(endpoint, "POST", data, options, timeout, false)
   }
 
   async put<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 60000
+    const timeout = data instanceof FormData ? 120000 : 30000
     return this.makeRequest<T>(endpoint, "PUT", data, options, timeout, false)
   }
 
   async patch<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 60000
+    const timeout = data instanceof FormData ? 120000 : 30000
     return this.makeRequest<T>(endpoint, "PATCH", data, options, timeout, false)
   }
 
-  async delete<T = any>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
-    return this.makeRequest<T>(endpoint, "DELETE", undefined, options, 120000, false)
+  // FIXED: Delete method - completely rewritten to avoid body parsing issues
+  async delete<T = any>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
+    // For ticket deletion, we'll use POST to the delete endpoint instead
+    if (endpoint.includes('/tickets/') && endpoint.includes('/delete')) {
+      console.log('🌐 Using POST for ticket deletion endpoint:', endpoint)
+      return this.post<T>(endpoint, data)
+    }
+    
+    // For traditional DELETE requests without body
+    if (!data) {
+      return this.makeRequest<T>(endpoint, "DELETE", undefined, undefined, 30000, false)
+    }
+    
+    // For DELETE requests with body, use POST to a delete endpoint
+    console.warn('🌐 DELETE with body not supported, consider using POST to a delete endpoint')
+    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 30000, false)
+  }
+
+  // FIXED: Special method for ticket deletion with fallback and better error handling
+  async deleteTicket<T = any>(ticketId: number, reason: string, notifyUser: boolean = false): Promise<ApiResponse<T>> {
+    const data = {
+      reason,
+      notify_user: notifyUser
+    }
+    
+    console.log('🌐 Deleting ticket ID:', ticketId, 'with data:', data)
+    
+    // Try POST to delete endpoint first (preferred)
+    const postEndpoint = `/tickets/${ticketId}/delete`
+    console.log('🌐 Attempting DELETE via POST:', postEndpoint)
+    
+    try {
+      // Use longer timeout for deletion (30s) as it might involve database operations
+      const result = await this.makeRequest<T>(postEndpoint, "POST", data, undefined, 30000, false)
+      
+      if (result.success) {
+        console.log('✅ Ticket deletion successful via POST')
+        return result
+      } else {
+        console.warn('⚠️ POST delete failed, trying DELETE method:', result.message)
+        
+        // If POST fails, try traditional DELETE with body
+        const deleteEndpoint = `/tickets/${ticketId}`
+        console.log('🌐 Attempting DELETE via DELETE method:', deleteEndpoint)
+        
+        const deleteResult = await this.makeRequest<T>(deleteEndpoint, "DELETE", data, undefined, 30000, false)
+        
+        if (deleteResult.success) {
+          console.log('✅ Ticket deletion successful via DELETE')
+          return deleteResult
+        } else {
+          console.error('❌ Both POST and DELETE methods failed')
+          return deleteResult
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Ticket deletion error:', error)
+      
+      // Check if it's a timeout error
+      if (error.message && error.message.includes('timeout')) {
+        return {
+          success: false,
+          message: 'Delete operation timed out. The ticket may have been deleted. Please refresh the page to check.',
+          errors: error
+        }
+      }
+      
+      // Check if it's a network error
+      if (error.message && error.message.includes('Network')) {
+        return {
+          success: false,
+          message: 'Network error during deletion. Please check your connection and try again.',
+          errors: error
+        }
+      }
+      
+      return {
+        success: false,
+        message: 'Failed to delete ticket. Please try again.',
+        errors: error
+      }
+    }
   }
 
   // Helper method for file downloads
@@ -251,7 +415,7 @@ class ApiClient {
     }
   }
 
-  // Helper method to retry failed requests with enhanced logic
+  // FIXED: Better retry logic with exponential backoff
   async retryRequest<T>(
     requestFn: () => Promise<ApiResponse<T>>, 
     maxRetries: number = 3,
@@ -271,12 +435,9 @@ class ApiClient {
         
         lastError = result
         
-        // Don't retry on validation errors (4xx) or authentication errors
-        if (result.message?.includes('Validation') || 
-            result.message?.includes('Unauthorized') ||
-            result.message?.includes('Forbidden') ||
-            result.message?.includes('Not Found')) {
-          console.log(`🚫 Not retrying due to client error: ${result.message}`)
+        // Don't retry on client errors (4xx)
+        if (result.status && result.status >= 400 && result.status < 500) {
+          console.log(`🚫 Not retrying client error: ${result.status}`)
           break
         }
         
@@ -318,14 +479,14 @@ class ApiClient {
     return typeof navigator !== 'undefined' ? navigator.onLine : true
   }
 
-  // Helper method for batch requests with proper error handling
+  // FIXED: Better batch request handling
   async batchRequest<T>(
     requests: Array<() => Promise<ApiResponse<T>>>,
-    maxConcurrent: number = 5
+    maxConcurrent: number = 3 // Reduced from 5 to avoid overwhelming
   ): Promise<Array<ApiResponse<T>>> {
     const results: Array<ApiResponse<T>> = []
     
-    // Process requests in batches
+    // Process requests in smaller batches to avoid overwhelming the browser
     for (let i = 0; i < requests.length; i += maxConcurrent) {
       const batch = requests.slice(i, i + maxConcurrent)
       const batchPromises = batch.map(async (requestFn, index) => {
@@ -354,6 +515,11 @@ class ApiClient {
           })
         }
       })
+      
+      // Add small delay between batches to avoid overwhelming
+      if (i + maxConcurrent < requests.length) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
     }
     
     return results
@@ -429,6 +595,13 @@ class ApiClient {
       pending: apiRateLimiter.getPendingCount(),
       lastRequestTime: apiRateLimiter.getLastRequestTime()
     }
+  }
+
+  // FIXED: Add method to abort all pending requests (useful for cleanup)
+  abortAllRequests(): void {
+    // This would need to be implemented with request tracking
+    console.log('🛑 Aborting all pending requests')
+    this.clearCache()
   }
 }
 
