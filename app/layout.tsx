@@ -2,6 +2,8 @@
 import type { Metadata } from 'next'
 import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from "@/contexts/AuthContext"
+import { QueryClientProviderWrapper } from "@/providers/query-client-provider"
+import { Toaster } from "sonner"
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -20,16 +22,29 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning className="min-h-screen bg-background font-sans antialiased">
-        <AuthProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="light"
-            enableSystem
-            disableTransitionOnChange
-          >
-            {children}
-          </ThemeProvider>
-        </AuthProvider>
+        <QueryClientProviderWrapper>
+          <AuthProvider>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="light"
+              enableSystem
+              disableTransitionOnChange
+            >
+              {children}
+              <Toaster 
+                position="top-right"
+                toastOptions={{
+                  duration: 4000,
+                  style: {
+                    background: 'white',
+                    border: '1px solid #e5e7eb',
+                    color: '#374151',
+                  },
+                }}
+              />
+            </ThemeProvider>
+          </AuthProvider>
+        </QueryClientProviderWrapper>
       </body>
     </html>
   )

@@ -1,6 +1,4 @@
-// lib/api.ts (FIXED - Better error handling and DELETE method fix)
-
-import { apiRateLimiter } from './api-rate-limiter'
+// lib/api.ts - Simplified API Client without rate limiting
 
 interface ApiResponse<T = any> {
   success: boolean
@@ -13,7 +11,7 @@ interface ApiResponse<T = any> {
 class ApiClient {
   private baseURL: string
   private defaultHeaders: Record<string, string>
-  private defaultTimeout: number = 60000 // 60 seconds for file uploads
+  private defaultTimeout: number = 60000 // 60 seconds default
 
   constructor() {
     this.baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
@@ -39,7 +37,6 @@ class ApiClient {
     return headers
   }
 
-  // FIXED: Better response handling with detailed error processing
   private async handleResponse<T>(response: Response, url: string): Promise<ApiResponse<T>> {
     try {
       const contentType = response.headers.get("content-type")
@@ -50,12 +47,11 @@ class ApiClient {
           return {
             success: true,
             message: "Request successful",
-            data: response as any, // For blob responses
+            data: response as any,
             status: response.status
           }
         } else {
           const text = await response.text()
-          console.error('🌐 Non-JSON error response:', text)
           return {
             success: false,
             message: `Request failed with status ${response.status}`,
@@ -66,22 +62,12 @@ class ApiClient {
 
       const data = await response.json()
       
-      // ENHANCED: Detailed error logging for debugging
       if (!response.ok) {
-        console.error('🌐 API Error Response:', {
-          url,
-          status: response.status,
-          statusText: response.statusText,
-          data
-        })
-        
         // Handle specific error cases
         if (response.status === 401) {
-          // Token expired or invalid
           if (typeof window !== 'undefined') {
             localStorage.removeItem('auth_token')
             localStorage.removeItem('user')
-            // Don't redirect immediately, let the app handle it
           }
           
           return {
@@ -128,7 +114,6 @@ class ApiClient {
           }
         }
         
-        // Generic error fallback
         return {
           success: false,
           message: data?.message || `Request failed with status ${response.status}`,
@@ -153,11 +138,6 @@ class ApiClient {
         status: response.status
       }
     } catch (error) {
-      console.error("🌐 Response parsing error:", {
-        url,
-        error,
-        status: response.status
-      })
       return {
         success: false,
         message: "Invalid response format",
@@ -167,189 +147,99 @@ class ApiClient {
     }
   }
 
-  // FIXED: Better request handling with improved error handling and timeout management
   private async makeRequest<T>(
     endpoint: string, 
     method: string, 
     data?: any, 
     options?: RequestInit,
-    timeout?: number,
-    useRateLimit: boolean = true
+    timeout?: number
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseURL}${endpoint}`
     const requestTimeout = timeout || this.defaultTimeout
     
-    // Generate rate limiting key
-    const rateLimitKey = apiRateLimiter.generateKey(method, endpoint, data)
-    
-    const makeActualRequest = async (): Promise<ApiResponse<T>> => {
-      // Create abort controller for timeout
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => {
-        console.warn(`🌐 Request timeout after ${requestTimeout}ms:`, url)
-        controller.abort()
-      }, requestTimeout)
+    // Create abort controller for timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+    }, requestTimeout)
 
-      try {
-        const headers = this.getAuthHeaders()
-        
-        // Handle FormData (for file uploads)
-        let body: string | FormData | undefined
-        if (data instanceof FormData) {
-          body = data
-          // Remove Content-Type header for FormData to let browser set boundary
-          delete headers['Content-Type']
-          console.log("🌐 FormData detected, removed Content-Type header")
-        } else if (data !== undefined) {
-          body = JSON.stringify(data)
-        }
+    try {
+      const headers = this.getAuthHeaders()
+      
+      // Handle FormData (for file uploads)
+      let body: string | FormData | undefined
+      if (data instanceof FormData) {
+        body = data
+        // Remove Content-Type header for FormData to let browser set boundary
+        delete headers['Content-Type']
+      } else if (data !== undefined) {
+        body = JSON.stringify(data)
+      }
 
-        console.log(`🌐 ${method} ${url}`)
-        console.log("🌐 Headers:", headers)
-        if (data instanceof FormData) {
-          console.log("🌐 FormData keys:", Array.from(data.keys()))
-          // Log FormData values for debugging (excluding files)
-          const formDataEntries: Record<string, any> = {}
-          for (const [key, value] of data.entries()) {
-            if (value instanceof File) {
-              formDataEntries[key] = `File: ${value.name} (${value.size} bytes)`
-            } else {
-              formDataEntries[key] = value
-            }
-          }
-          console.log("🌐 FormData entries:", formDataEntries)
-        } else if (data !== undefined) {
-          console.log("🌐 Body:", data)
-        }
-
-        const response = await fetch(url, {
-          method,
-          headers,
-          body,
-          signal: controller.signal,
-          ...options,
-        })
-        
-        clearTimeout(timeoutId)
-        
-        console.log(`🌐 Response status: ${response.status}`)
-        console.log("🌐 Response headers:", Object.fromEntries(response.headers.entries()))
-        
-        const result = await this.handleResponse<T>(response, url)
-        console.log("🌐 Parsed response:", result)
-        
-        return result
-      } catch (error: any) {
-        clearTimeout(timeoutId)
-        
-        if (error.name === 'AbortError') {
-          console.error("🌐 Request timeout:", url)
-          return {
-            success: false,
-            message: `Request timeout after ${requestTimeout / 1000} seconds. Please try again.`,
-            errors: error,
-            status: 408
-          }
-        }
-        
-        // FIXED: Better network error handling
-        if (error.name === 'TypeError' && error.message.includes('fetch')) {
-          console.error("🌐 Network fetch error:", error)
-          return {
-            success: false,
-            message: "Network connection failed. Please check your connection and try again.",
-            errors: error,
-            status: 0
-          }
-        }
-        
-        console.error("🌐 Unexpected error:", error)
+      const response = await fetch(url, {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+        ...options,
+      })
+      
+      clearTimeout(timeoutId)
+      
+      return await this.handleResponse<T>(response, url)
+    } catch (error: any) {
+      clearTimeout(timeoutId)
+      
+      if (error.name === 'AbortError') {
         return {
           success: false,
-          message: "An unexpected error occurred. Please try again.",
+          message: `Request timeout after ${requestTimeout / 1000} seconds. Please try again.`,
+          errors: error,
+          status: 408
+        }
+      }
+      
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        return {
+          success: false,
+          message: "Network connection failed. Please check your connection and try again.",
           errors: error,
           status: 0
         }
       }
+      
+      return {
+        success: false,
+        message: "An unexpected error occurred. Please try again.",
+        errors: error,
+        status: 0
+      }
     }
-
-    // Use rate limiting for GET requests and read operations
-    if (useRateLimit && (method === 'GET' || endpoint.includes('/health'))) {
-      return apiRateLimiter.deduplicateRequest(rateLimitKey, makeActualRequest, 2000)
-    }
-
-    return makeActualRequest()
   }
 
   async get<T = any>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
-    return this.makeRequest<T>(endpoint, "GET", undefined, options, 30000, true) // 30s for GET with rate limiting
+    return this.makeRequest<T>(endpoint, "GET", undefined, options, 30000)
   }
 
   async post<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
     // Use longer timeout for POST requests with files
-    const timeout = data instanceof FormData ? 120000 : 30000 // 2 min for files, 30s for others
-    // Don't rate limit POST requests as they modify data
-    return this.makeRequest<T>(endpoint, "POST", data, options, timeout, false)
+    const timeout = data instanceof FormData ? 120000 : 40000
+    return this.makeRequest<T>(endpoint, "POST", data, options, timeout)
   }
 
   async put<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 30000
-    return this.makeRequest<T>(endpoint, "PUT", data, options, timeout, false)
+    const timeout = data instanceof FormData ? 120000 : 40000
+    return this.makeRequest<T>(endpoint, "PUT", data, options, timeout)
   }
 
   async patch<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 30000
-    return this.makeRequest<T>(endpoint, "PATCH", data, options, timeout, false)
+    const timeout = data instanceof FormData ? 120000 : 40000
+    return this.makeRequest<T>(endpoint, "PATCH", data, options, timeout)
   }
 
-  // FIXED: Delete method - completely rewritten to avoid body parsing issues
   async delete<T = any>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
-    // For ticket deletion, we'll use POST to the delete endpoint instead
-    if (endpoint.includes('/tickets/') && endpoint.includes('/delete')) {
-      console.log('🌐 Using POST for ticket deletion endpoint:', endpoint)
-      return this.post<T>(endpoint, data)
-    }
-    
-    // For traditional DELETE requests without body
-    if (!data) {
-      return this.makeRequest<T>(endpoint, "DELETE", undefined, undefined, 30000, false)
-    }
-    
-    // For DELETE requests with body, use POST to a delete endpoint
-    console.warn('🌐 DELETE with body not supported, consider using POST to a delete endpoint')
-    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 30000, false)
-  }
-
-  // FIXED: Special method for ticket deletion to avoid confusion
-  async deleteTicket<T = any>(ticketId: number, reason: string, notifyUser: boolean = false): Promise<ApiResponse<T>> {
-    const endpoint = `/tickets/${ticketId}/delete`
-    const data = {
-      reason,
-      notify_user: notifyUser
-    }
-    
-    console.log('🌐 Deleting ticket via POST:', endpoint, data)
-    
-    try {
-      // Use shorter timeout for deletion
-      const result = await this.makeRequest<T>(endpoint, "POST", data, undefined, 15000, false)
-      
-      // FIXED: Add extra logging for delete operations
-      if (result.success) {
-        console.log('✅ Ticket deletion successful')
-      } else {
-        console.error('❌ Ticket deletion failed:', result)
-      }
-      
-      return result
-    } catch (error) {
-      console.error('❌ Ticket deletion error:', error)
-      return {
-        success: false,
-        message: 'Failed to delete ticket. Please try again.',
-        errors: error
-      }
-    }
+    // Standard DELETE request
+    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 40000)
   }
 
   // Helper method for file downloads
@@ -381,7 +271,7 @@ class ApiClient {
     }
   }
 
-  // FIXED: Better retry logic with exponential backoff
+  // Retry logic with exponential backoff
   async retryRequest<T>(
     requestFn: () => Promise<ApiResponse<T>>, 
     maxRetries: number = 3,
@@ -391,11 +281,9 @@ class ApiClient {
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`🌐 Attempt ${attempt}/${maxRetries}`)
         const result = await requestFn()
         
         if (result.success) {
-          console.log(`✅ Request succeeded on attempt ${attempt}`)
           return result
         }
         
@@ -403,17 +291,14 @@ class ApiClient {
         
         // Don't retry on client errors (4xx)
         if (result.status && result.status >= 400 && result.status < 500) {
-          console.log(`🚫 Not retrying client error: ${result.status}`)
           break
         }
         
         if (attempt < maxRetries) {
-          const backoffDelay = delayMs * Math.pow(2, attempt - 1) // Exponential backoff
-          console.log(`🌐 Retrying in ${backoffDelay}ms...`)
+          const backoffDelay = delayMs * Math.pow(2, attempt - 1)
           await new Promise(resolve => setTimeout(resolve, backoffDelay))
         }
       } catch (error) {
-        console.error(`❌ Attempt ${attempt} failed with error:`, error)
         lastError = {
           success: false,
           message: "Network error occurred",
@@ -427,17 +312,10 @@ class ApiClient {
       }
     }
     
-    console.error(`💥 All ${maxRetries} attempts failed`)
     return lastError || {
       success: false,
       message: "Max retries exceeded"
     }
-  }
-
-  // Helper method to clear rate limiter cache (useful for logout)
-  clearCache(): void {
-    apiRateLimiter.clearPending()
-    console.log("🧹 API cache cleared")
   }
 
   // Helper method to check if we're online
@@ -445,21 +323,19 @@ class ApiClient {
     return typeof navigator !== 'undefined' ? navigator.onLine : true
   }
 
-  // FIXED: Better batch request handling
+  // Batch request handling
   async batchRequest<T>(
     requests: Array<() => Promise<ApiResponse<T>>>,
-    maxConcurrent: number = 3 // Reduced from 5 to avoid overwhelming
+    maxConcurrent: number = 3
   ): Promise<Array<ApiResponse<T>>> {
     const results: Array<ApiResponse<T>> = []
     
-    // Process requests in smaller batches to avoid overwhelming the browser
     for (let i = 0; i < requests.length; i += maxConcurrent) {
       const batch = requests.slice(i, i + maxConcurrent)
       const batchPromises = batch.map(async (requestFn, index) => {
         try {
           return await requestFn()
         } catch (error) {
-          console.error(`Batch request ${i + index} failed:`, error)
           return {
             success: false,
             message: "Batch request failed",
@@ -482,7 +358,7 @@ class ApiClient {
         }
       })
       
-      // Add small delay between batches to avoid overwhelming
+      // Small delay between batches
       if (i + maxConcurrent < requests.length) {
         await new Promise(resolve => setTimeout(resolve, 100))
       }
@@ -491,7 +367,7 @@ class ApiClient {
     return results
   }
 
-  // Helper method for uploading files with progress tracking
+  // Upload with progress tracking
   async uploadWithProgress<T>(
     endpoint: string,
     formData: FormData,
@@ -545,7 +421,7 @@ class ApiClient {
       
       // Set headers
       Object.entries(headers).forEach(([key, value]) => {
-        if (key !== 'Content-Type') { // Skip Content-Type for FormData
+        if (key !== 'Content-Type') {
           xhr.setRequestHeader(key, value)
         }
       })
@@ -553,21 +429,6 @@ class ApiClient {
       xhr.timeout = 300000 // 5 minutes for large file uploads
       xhr.send(formData)
     })
-  }
-
-  // Helper method to get current request stats
-  getRequestStats(): { pending: number; lastRequestTime: number } {
-    return {
-      pending: apiRateLimiter.getPendingCount(),
-      lastRequestTime: apiRateLimiter.getLastRequestTime()
-    }
-  }
-
-  // FIXED: Add method to abort all pending requests (useful for cleanup)
-  abortAllRequests(): void {
-    // This would need to be implemented with request tracking
-    console.log('🛑 Aborting all pending requests')
-    this.clearCache()
   }
 }
 

@@ -1,4 +1,4 @@
-// services/ticket.service.ts (Enhanced and Simplified)
+// services/ticket.service.ts - Simplified without special delete routes
 
 import { apiClient, ApiResponse } from '@/lib/api'
 
@@ -57,8 +57,7 @@ export interface StaffMember {
 }
 
 /**
- * Clean, simplified ticket service that works with Zustand store
- * Handles all API communication and data transformation
+ * Clean, simplified ticket service
  */
 class TicketService {
   private readonly apiClient = apiClient
@@ -296,16 +295,14 @@ class TicketService {
   }
 
   /**
-   * Delete ticket
+   * Delete ticket - Standard DELETE request
    */
-  async deleteTicket(ticketId: number, reason: string, notifyUser: boolean = false): Promise<ApiResponse<void>> {
+  async deleteTicket(ticketId: number, reason?: string, notifyUser: boolean = false): Promise<ApiResponse<void>> {
     console.log('🎫 TicketService: Deleting ticket:', { ticketId, reason, notifyUser })
 
     try {
-      const response = await this.apiClient.delete(`/tickets/${ticketId}`, {
-        body: JSON.stringify({ reason, notify_user: notifyUser }),
-        headers: { 'Content-Type': 'application/json' }
-      })
+      const data = reason ? { reason, notify_user: notifyUser } : undefined
+      const response = await this.apiClient.delete(`/tickets/${ticketId}`, data)
       console.log('✅ TicketService: Ticket deleted successfully')
       return response
     } catch (error) {
