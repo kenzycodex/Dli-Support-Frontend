@@ -802,68 +802,6 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
         </TabsContent>
       </Tabs>
       
-      {/* Content Suggestion CTA for Counselors */}
-      {canSuggestContent && (
-        <Card className="border-2 border-dashed border-blue-300 bg-blue-50">
-          <CardContent className="p-6 text-center">
-            <div className="max-w-md mx-auto">
-              <Users className="h-12 w-12 text-blue-600 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-blue-900 mb-2">
-                Help Improve Our Content
-              </h3>
-              <p className="text-blue-700 mb-4">
-                As a {user?.role}, you can suggest new FAQ content based on common student questions. 
-                Your suggestions help make our help center more comprehensive.
-              </p>
-              <Button 
-                className="bg-blue-600 hover:bg-blue-700"
-                onClick={handleSuggestContent}
-                disabled={contentSuggestion.isPending}
-              >
-                {contentSuggestion.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4 mr-2" />
-                )}
-                Suggest FAQ Content
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Admin Quick Actions */}
-      {canManageContent && (
-        <Card className="border-2 border-dashed border-purple-300 bg-purple-50">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="p-3 bg-purple-100 rounded-lg">
-                  <Settings className="h-6 w-6 text-purple-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-medium text-purple-900">Admin Controls</h3>
-                  <p className="text-purple-700">Manage FAQs, categories, and view analytics</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <Button variant="outline" size="sm" className="border-purple-300 text-purple-700">
-                  <BarChart3 className="h-4 w-4 mr-2" />
-                  Analytics
-                </Button>
-                <Button 
-                  onClick={handleAdminNavigate}
-                  className="bg-purple-600 hover:bg-purple-700"
-                >
-                  <Settings className="h-4 w-4 mr-2" />
-                  Manage Content
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Content Suggestion Dialog */}
       <Dialog open={showSuggestionDialog} onOpenChange={setShowSuggestionDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
