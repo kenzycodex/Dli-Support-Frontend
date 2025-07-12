@@ -546,34 +546,38 @@ export const useTicketStore = create<TicketState>()(
 
         // FIXED: Delete ticket with better timeout handling and user feedback
         deleteTicket: async (id: number, reason = 'Deleted by admin', notifyUser = false) => {
-          console.log('🎫 TicketStore: Starting ticket deletion:', id)
-          
+          console.log('🎫 TicketStore: Starting ticket deletion:', id);
+
           set((state) => ({
             loading: { ...state.loading, delete: true },
             errors: { ...state.errors, delete: null },
           }));
-        
+
           try {
-            console.log('🎫 TicketStore: Calling deleteTicket API method:', { id, reason, notifyUser });
-        
-            // FIXED: Use the specialized deleteTicket method from API client
-            const response = await apiClient.deleteTicket(id, reason, notifyUser);
-        
+            console.log('🎫 TicketStore: Calling delete API:', { id, reason, notifyUser });
+
+            // FIXED: Use the existing API client delete method with proper data structure
+            const response = await apiClient.delete(`/tickets/${id}`, {
+              reason: reason.trim(),
+              notify_user: notifyUser,
+            });
+
             if (response.success) {
               console.log('✅ TicketStore: Delete API call successful, updating state immediately');
-              
+
               // FIXED: Immediate and atomic state cleanup to prevent UI freeze
               set((state) => {
                 // Create new Set without the deleted ticket
                 const newSelectedTickets = new Set(state.selectedTickets);
                 newSelectedTickets.delete(id);
-                
+
                 // Filter out the deleted ticket
                 const newTickets = state.tickets.filter((t) => t.id !== id);
-                
+
                 // Update current ticket if it was the deleted one
-                const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
-                
+                const newCurrentTicket =
+                  state.currentTicket?.id === id ? null : state.currentTicket;
+
                 return {
                   tickets: newTickets,
                   currentTicket: newCurrentTicket,
@@ -582,24 +586,25 @@ export const useTicketStore = create<TicketState>()(
                   errors: { ...state.errors, delete: null },
                 };
               });
-        
+
               console.log('✅ TicketStore: State updated successfully, ticket deleted');
-              
             } else {
-              // FIXED: Handle timeout and network errors gracefully
+              // FIXED: Handle API errors gracefully
               let errorMessage = response.message || 'Failed to delete ticket';
-              
+
               // For timeout errors, suggest the user refresh to check
               if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
-                errorMessage = 'Delete operation timed out. Please refresh the page to check if the ticket was deleted.';
-                
+                errorMessage =
+                  'Delete operation timed out. Please refresh the page to check if the ticket was deleted.';
+
                 // FIXED: For timeouts, still remove from local state as it might have succeeded
                 set((state) => {
                   const newSelectedTickets = new Set(state.selectedTickets);
                   newSelectedTickets.delete(id);
                   const newTickets = state.tickets.filter((t) => t.id !== id);
-                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
-                  
+                  const newCurrentTicket =
+                    state.currentTicket?.id === id ? null : state.currentTicket;
+
                   return {
                     tickets: newTickets,
                     currentTicket: newCurrentTicket,
@@ -608,29 +613,31 @@ export const useTicketStore = create<TicketState>()(
                     errors: { ...state.errors, delete: errorMessage },
                   };
                 });
-                
+
                 return; // Exit early for timeout case
               }
-              
+
               throw new Error(errorMessage);
             }
           } catch (error: any) {
             console.error('❌ TicketStore: Failed to delete ticket:', error);
-            
+
             let errorMessage = 'Failed to delete ticket';
-            
+
             // FIXED: Better error message handling
             if (error.message) {
               if (error.message.includes('timeout')) {
-                errorMessage = 'Delete operation timed out. Please refresh the page to check if the ticket was deleted.';
-                
+                errorMessage =
+                  'Delete operation timed out. Please refresh the page to check if the ticket was deleted.';
+
                 // For timeout errors, optimistically remove from state
                 set((state) => {
                   const newSelectedTickets = new Set(state.selectedTickets);
                   newSelectedTickets.delete(id);
                   const newTickets = state.tickets.filter((t) => t.id !== id);
-                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
-                  
+                  const newCurrentTicket =
+                    state.currentTicket?.id === id ? null : state.currentTicket;
+
                   return {
                     tickets: newTickets,
                     currentTicket: newCurrentTicket,
@@ -646,14 +653,15 @@ export const useTicketStore = create<TicketState>()(
                 errorMessage = 'You do not have permission to delete this ticket';
               } else if (error.message.includes('not found')) {
                 errorMessage = 'Ticket not found or already deleted';
-                
+
                 // If ticket not found, remove it from local state
                 set((state) => {
                   const newSelectedTickets = new Set(state.selectedTickets);
                   newSelectedTickets.delete(id);
                   const newTickets = state.tickets.filter((t) => t.id !== id);
-                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
-                  
+                  const newCurrentTicket =
+                    state.currentTicket?.id === id ? null : state.currentTicket;
+
                   return {
                     tickets: newTickets,
                     currentTicket: newCurrentTicket,
@@ -667,83 +675,14 @@ export const useTicketStore = create<TicketState>()(
                 errorMessage = error.message;
               }
             }
-            
+
             set((state) => ({
               loading: { ...state.loading, delete: false },
               errors: { ...state.errors, delete: errorMessage },
             }));
-          }
-        },
 
-        // FIXED: Add response with comprehensive validation and state updates
-        addResponse: async (ticketId: number, data: AddResponseRequest) => {
-          set((state) => ({
-            loading: { ...state.loading, response: true },
-            errors: { ...state.errors, response: null },
-          }));
-
-          try {
-            console.log('🎫 TicketStore: Adding response to ticket:', ticketId);
-
-            const formData = new FormData();
-            formData.append('message', data.message.trim());
-
-            if (data.is_internal !== undefined) {
-              formData.append('is_internal', data.is_internal.toString());
-            }
-
-            if (data.visibility) {
-              formData.append('visibility', data.visibility);
-            }
-
-            if (data.is_urgent !== undefined) {
-              formData.append('is_urgent', data.is_urgent.toString());
-            }
-
-            if (data.attachments && data.attachments.length > 0) {
-              data.attachments.forEach((file) => {
-                formData.append('attachments[]', file, file.name);
-              });
-            }
-
-            const response = await apiClient.post(`/tickets/${ticketId}/responses`, formData);
-
-            if (response.success) {
-              // FIXED: Update both tickets list and current ticket with new response
-              const updatedTicket = response.data.ticket;
-              if (updatedTicket) {
-                const ticketWithSlug = {
-                  ...updatedTicket,
-                  slug: generateTicketSlug(updatedTicket),
-                };
-
-                set((state) => ({
-                  tickets: state.tickets.map((t) => (t.id === ticketId ? ticketWithSlug : t)),
-                  currentTicket:
-                    state.currentTicket?.id === ticketId ? ticketWithSlug : state.currentTicket,
-                  loading: { ...state.loading, response: false },
-                }));
-              } else {
-                // Fallback: refresh the ticket to get updated responses
-                setTimeout(() => {
-                  get().actions.fetchTicket(ticketId);
-                }, 100);
-
-                set((state) => ({
-                  loading: { ...state.loading, response: false },
-                }));
-              }
-
-              console.log('✅ TicketStore: Response added successfully');
-            } else {
-              throw new Error(response.message || 'Failed to add response');
-            }
-          } catch (error: any) {
-            console.error('❌ TicketStore: Failed to add response:', error);
-            set((state) => ({
-              loading: { ...state.loading, response: false },
-              errors: { ...state.errors, response: error.message || 'Failed to add response' },
-            }));
+            // Re-throw error so the UI can handle it properly
+            throw new Error(errorMessage);
           }
         },
 
@@ -1359,7 +1298,7 @@ export const initializeTicketStore = () => {
   console.log('🎫 TicketStore: Initialized for user:', currentUser?.role);
 };
 
-export const setupTicketAutoRefresh = (intervalMs: number = 30000) => {
+export const setupTicketAutoRefresh = (intervalMs: number = 60000) => {
   let intervalId: NodeJS.Timeout;
 
   const startAutoRefresh = () => {

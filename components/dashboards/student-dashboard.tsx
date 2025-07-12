@@ -86,7 +86,7 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
     const initializeDashboard = async () => {
       // FIXED: Check if we already have recent data
       const hasRecentData = store.tickets.length > 0 && 
-        Date.now() - store.lastFetch < 60000 // 1 minute cache
+        Date.now() - store.lastFetch < 300000 // 5 minute cache
 
       if (hasRecentData) {
         console.log("🎫 StudentDashboard: Using cached data")
