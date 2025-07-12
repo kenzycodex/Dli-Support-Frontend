@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  BookOpen,
 } from "lucide-react"
 import { ChatBot } from "@/components/features/chat-bot"
 import { NotificationCenter } from "@/components/features/notification-center"
@@ -65,6 +66,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         badge: unreadCount > 0 ? unreadCount : undefined
       },
       { icon: HelpCircle, label: "Help & FAQs", page: "help" },
+      { icon: BookOpen, label: "Resources", page: "resources" },
     ]
 
     if (user.role === "admin") {

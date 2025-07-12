@@ -1,336 +1,688 @@
-// services/help.service.ts
+// services/help.service.ts (UPDATED - Enhanced with smart caching and role validation)
 import { apiClient, ApiResponse } from '@/lib/api'
 
-// Extend existing interfaces
+// Enhanced interfaces with caching metadata
 export interface HelpCategory {
-	id: number
-	name: string
-	slug: string
-	description?: string
-	icon: string
-	color: string
-	sort_order: number
-	is_active: boolean
-	faqs_count?: number
-	created_at: string
-	updated_at: string
+  id: number
+  name: string
+  slug: string
+  description?: string
+  icon: string
+  color: string
+  sort_order: number
+  is_active: boolean
+  faqs_count?: number
+  created_at: string
+  updated_at: string
+  _cached_at?: number // For cache management
 }
 
 export interface FAQ {
-	id: number
-	category_id: number
-	question: string
-	answer: string
-	slug: string
-	tags: string[]
-	sort_order: number
-	is_published: boolean
-	is_featured: boolean
-	helpful_count: number
-	not_helpful_count: number
-	view_count: number
-	created_by?: number
-	updated_by?: number
-	published_at?: string
-	created_at: string
-	updated_at: string
-	category?: HelpCategory
-	creator?: {
-		id: number
-		name: string
-		email: string
-	}
-	helpfulness_rate?: number
-	time_ago?: string
+  id: number
+  category_id: number
+  question: string
+  answer: string
+  slug: string
+  tags: string[]
+  sort_order: number
+  is_published: boolean
+  is_featured: boolean
+  helpful_count: number
+  not_helpful_count: number
+  view_count: number
+  created_by?: number
+  updated_by?: number
+  published_at?: string
+  created_at: string
+  updated_at: string
+  category?: HelpCategory
+  creator?: {
+    id: number
+    name: string
+    email: string
+  }
+  helpfulness_rate?: number
+  time_ago?: string
+  _cached_at?: number // For cache management
 }
 
 export interface FAQFeedback {
-	id: number
-	faq_id: number
-	user_id: number
-	is_helpful: boolean
-	comment?: string
-	ip_address?: string
-	created_at: string
-	updated_at: string
+  id: number
+  faq_id: number
+  user_id: number
+  is_helpful: boolean
+  comment?: string
+  ip_address?: string
+  created_at: string
+  updated_at: string
 }
 
 export interface FAQFilters {
-	category?: string
-	search?: string
-	featured?: boolean
-	sort_by?: 'featured' | 'helpful' | 'views' | 'newest'
-	per_page?: number
-	page?: number
-	include_drafts?: boolean
-	include_inactive?: boolean
+  category?: string
+  search?: string
+  featured?: boolean
+  sort_by?: 'featured' | 'helpful' | 'views' | 'newest'
+  per_page?: number
+  page?: number
+  include_drafts?: boolean
+  include_inactive?: boolean
 }
 
 export interface FAQsResponse {
-	faqs: FAQ[]
-	featured_faqs: FAQ[]
-	pagination: {
-		current_page: number
-		last_page: number
-		per_page: number
-		total: number
-	}
+  faqs: FAQ[]
+  featured_faqs: FAQ[]
+  pagination: {
+    current_page: number
+    last_page: number
+    per_page: number
+    total: number
+  }
 }
 
 export interface HelpStats {
-	total_faqs: number
-	total_categories: number
-	most_helpful_faq?: Pick<FAQ, 'id' | 'question' | 'helpful_count'>
-	most_viewed_faq?: Pick<FAQ, 'id' | 'question' | 'view_count'>
-	recent_faqs: Pick<FAQ, 'id' | 'question' | 'published_at' | 'is_published' | 'view_count'>[]
-	categories_with_counts: Pick<HelpCategory, 'id' | 'name' | 'slug' | 'color' | 'faqs_count'>[]
+  total_faqs: number
+  total_categories: number
+  most_helpful_faq?: Pick<FAQ, 'id' | 'question' | 'helpful_count'>
+  most_viewed_faq?: Pick<FAQ, 'id' | 'question' | 'view_count'>
+  recent_faqs: Pick<FAQ, 'id' | 'question' | 'published_at' | 'is_published' | 'view_count'>[]
+  categories_with_counts: Pick<HelpCategory, 'id' | 'name' | 'slug' | 'color' | 'faqs_count'>[]
+  _cached_at?: number
 }
 
 export interface ContentSuggestion {
-	id?: number
-	category_id: number
-	question: string
-	answer: string
-	tags?: string[]
-	status?: 'pending' | 'approved' | 'rejected' | 'needs_revision'
-	admin_feedback?: string
-	submitted_at?: string
-	counselor?: {
-		id: number
-		name: string
-		email: string
-	}
-}
-
-export interface HelpAnalytics {
-	overview: {
-		total_views: number
-		total_searches: number
-		avg_session_duration: string
-		bounce_rate: number
-		satisfaction_rate: number
-		trends: {
-			views: number
-			searches: number
-			satisfaction: number
-		}
-	}
-	top_faqs: Array<{
-		id: number
-		question: string
-		views: number
-		helpful_rate: number
-		category: string
-	}>
-	search_analytics: {
-		top_searches: Array<{
-			query: string
-			count: number
-			results: number
-		}>
-		failed_searches: Array<{
-			query: string
-			count: number
-			results: number
-		}>
-	}
-	user_behavior: {
-		device_breakdown: Record<string, number>
-		time_distribution: Record<string, number>
-		category_preferences: Array<{
-			category: string
-			percentage: number
-		}>
-	}
-	performance_metrics: {
-		avg_response_time: number
-		uptime_percentage: number
-		error_rate: number
-		cache_hit_rate: number
-	}
-}
-
-export interface AdminNotification {
-  id: number
-  type: 'suggestion' | 'feedback' | 'system'
-  title: string
-  message: string
-  priority: 'low' | 'medium' | 'high'
-  read: boolean
-  created_at: string
-  action_url?: string
-}
-
-export interface SystemHealth {
-  status: 'healthy' | 'warning' | 'critical'
-  checks: {
-    database: boolean
-    cache: boolean
-    search: boolean
-    storage: boolean
+  id?: number
+  category_id: number
+  question: string
+  answer: string
+  tags?: string[]
+  status?: 'pending' | 'approved' | 'rejected' | 'needs_revision'
+  admin_feedback?: string
+  submitted_at?: string
+  counselor?: {
+    id: number
+    name: string
+    email: string
   }
-  metrics: {
-    response_time: number
-    error_rate: number
-    uptime: number
-  }
-  last_check: string
 }
 
-export interface CounselorInsights {
-  common_questions: Array<{
-    question: string
-    frequency: number
-    trend: 'up' | 'down' | 'stable'
-  }>
-  gap_analysis: Array<{
-    topic: string
-    suggested_by: number
-    priority: 'high' | 'medium' | 'low'
-  }>
-  seasonal_trends: Array<{
-    period: string
-    top_topics: string[]
-  }>
-  recommendations: Array<{
-    type: string
-    title: string
-    description: string
-    priority: string
-    action: string
-  }>
+// Smart cache implementation for help data
+class HelpCache {
+  private cache = new Map<string, { data: any; timestamp: number; ttl: number }>()
+  private readonly DEFAULT_TTL = 5 * 60 * 1000 // 5 minutes
+  private readonly STATS_TTL = 10 * 60 * 1000 // 10 minutes for stats
+  private readonly FAQ_TTL = 3 * 60 * 1000 // 3 minutes for FAQs
+
+  set(key: string, data: any, ttl?: number): void {
+    const timestamp = Date.now()
+    const cacheEntry = {
+      data: { ...data, _cached_at: timestamp },
+      timestamp,
+      ttl: ttl || this.DEFAULT_TTL
+    }
+    this.cache.set(key, cacheEntry)
+  }
+
+  get<T>(key: string): { data: T; isStale: boolean } | null {
+    const entry = this.cache.get(key)
+    if (!entry) return null
+
+    const now = Date.now()
+    const isStale = now - entry.timestamp > entry.ttl
+
+    return {
+      data: entry.data as T,
+      isStale
+    }
+  }
+
+  invalidate(pattern?: string): void {
+    if (pattern) {
+      const keys = Array.from(this.cache.keys()).filter(key => 
+        key.includes(pattern) || new RegExp(pattern).test(key)
+      )
+      keys.forEach(key => this.cache.delete(key))
+    } else {
+      this.cache.clear()
+    }
+  }
+
+  cleanup(): void {
+    const now = Date.now()
+    for (const [key, entry] of this.cache.entries()) {
+      if (now - entry.timestamp > entry.ttl * 2) { // Remove entries older than 2x TTL
+        this.cache.delete(key)
+      }
+    }
+  }
+
+  getStats() {
+    return {
+      cacheSize: this.cache.size,
+      entries: Array.from(this.cache.keys()),
+      totalMemory: JSON.stringify(Array.from(this.cache.values())).length
+    }
+  }
 }
+
+// Global cache instance
+const helpCache = new HelpCache()
 
 class HelpService {
-  // =============================================================================
-  // BASIC CRUD OPERATIONS
-  // =============================================================================
-
-  // Get help categories
-  async getCategories(options: { include_inactive?: boolean } = {}): Promise<ApiResponse<{ categories: HelpCategory[] }>> {
-    const params = new URLSearchParams()
-    if (options.include_inactive) {
-      params.append('include_inactive', 'true')
-    }
-    
-    const endpoint = `/help/categories${params.toString() ? `?${params.toString()}` : ''}`
-    return apiClient.get<{ categories: HelpCategory[] }>(endpoint)
+  // Role validation helper
+  private validateRole(requiredRoles: string[], userRole?: string): boolean {
+    if (!userRole) return false
+    return requiredRoles.includes(userRole)
   }
 
-  // Get FAQs with filtering
-  async getFAQs(filters: FAQFilters = {}): Promise<ApiResponse<FAQsResponse>> {
-    const params = new URLSearchParams()
-    
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        params.append(key, value.toString())
+  // Enhanced cache key generation
+  private getCacheKey(endpoint: string, params?: any): string {
+    const paramString = params ? JSON.stringify(params) : ''
+    return `help:${endpoint}:${paramString}`
+  }
+
+  // =============================================================================
+  // CACHED BASIC OPERATIONS
+  // =============================================================================
+
+  // Get help categories with smart caching
+  async getCategories(options: { 
+    include_inactive?: boolean 
+    userRole?: string
+    useCache?: boolean 
+  } = {}): Promise<ApiResponse<{ categories: HelpCategory[] }>> {
+    const { useCache = true, userRole } = options
+    const cacheKey = this.getCacheKey('categories', options)
+
+    // Try cache first
+    if (useCache) {
+      const cached = helpCache.get<{ categories: HelpCategory[] }>(cacheKey)
+      if (cached && !cached.isStale) {
+        return {
+          success: true,
+          message: 'Categories retrieved from cache',
+          data: cached.data
+        }
       }
-    })
+    }
 
-    const endpoint = `/help/faqs${params.toString() ? `?${params.toString()}` : ''}`
-    return apiClient.get<FAQsResponse>(endpoint)
+    try {
+      const params = new URLSearchParams()
+      if (options.include_inactive && this.validateRole(['admin'], userRole)) {
+        params.append('include_inactive', 'true')
+      }
+      
+      const endpoint = `/help/categories${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await apiClient.get<{ categories: HelpCategory[] }>(endpoint)
+
+      // Cache successful response
+      if (response.success && response.data && useCache) {
+        helpCache.set(cacheKey, response.data, helpCache['DEFAULT_TTL'])
+      }
+
+      return response
+    } catch (error: any) {
+      // Return stale cache if available on error
+      const cached = helpCache.get<{ categories: HelpCategory[] }>(cacheKey)
+      if (cached) {
+        return {
+          success: true,
+          message: 'Categories retrieved from stale cache due to error',
+          data: cached.data
+        }
+      }
+      throw error
+    }
   }
 
-  // Get single FAQ
-  async getFAQ(id: number): Promise<ApiResponse<{ faq: FAQ; user_feedback?: FAQFeedback }>> {
-    return apiClient.get<{ faq: FAQ; user_feedback?: FAQFeedback }>(`/help/faqs/${id}`)
+  // Get FAQs with smart caching and role filtering
+  async getFAQs(filters: FAQFilters & { 
+    userRole?: string
+    useCache?: boolean 
+  } = {}): Promise<ApiResponse<FAQsResponse>> {
+    const { useCache = true, userRole, ...apiFilters } = filters
+    const cacheKey = this.getCacheKey('faqs', apiFilters)
+
+    // Try cache first
+    if (useCache) {
+      const cached = helpCache.get<FAQsResponse>(cacheKey)
+      if (cached && !cached.isStale) {
+        return {
+          success: true,
+          message: 'FAQs retrieved from cache',
+          data: cached.data
+        }
+      }
+    }
+
+    try {
+      const params = new URLSearchParams()
+      
+      Object.entries(apiFilters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          // Role-based filtering
+          if (key === 'include_drafts' && !this.validateRole(['admin'], userRole)) {
+            return // Skip if not admin
+          }
+          params.append(key, value.toString())
+        }
+      })
+
+      const endpoint = `/help/faqs${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await apiClient.get<FAQsResponse>(endpoint)
+
+      // Cache successful response
+      if (response.success && response.data && useCache) {
+        helpCache.set(cacheKey, response.data, helpCache['FAQ_TTL'])
+      }
+
+      return response
+    } catch (error: any) {
+      // Return stale cache if available on error
+      const cached = helpCache.get<FAQsResponse>(cacheKey)
+      if (cached) {
+        return {
+          success: true,
+          message: 'FAQs retrieved from stale cache due to error',
+          data: cached.data
+        }
+      }
+      throw error
+    }
   }
 
-  // Provide feedback on FAQ
+  // Get single FAQ with caching
+  async getFAQ(id: number, options: { 
+    userRole?: string
+    useCache?: boolean 
+  } = {}): Promise<ApiResponse<{ faq: FAQ; user_feedback?: FAQFeedback }>> {
+    const { useCache = true } = options
+    const cacheKey = this.getCacheKey('faq', { id })
+
+    // Try cache first
+    if (useCache) {
+      const cached = helpCache.get<{ faq: FAQ; user_feedback?: FAQFeedback }>(cacheKey)
+      if (cached && !cached.isStale) {
+        return {
+          success: true,
+          message: 'FAQ retrieved from cache',
+          data: cached.data
+        }
+      }
+    }
+
+    try {
+      const response = await apiClient.get<{ faq: FAQ; user_feedback?: FAQFeedback }>(`/help/faqs/${id}`)
+
+      // Cache successful response
+      if (response.success && response.data && useCache) {
+        helpCache.set(cacheKey, response.data, helpCache['FAQ_TTL'])
+      }
+
+      return response
+    } catch (error: any) {
+      // Return stale cache if available on error
+      const cached = helpCache.get<{ faq: FAQ; user_feedback?: FAQFeedback }>(cacheKey)
+      if (cached) {
+        return {
+          success: true,
+          message: 'FAQ retrieved from stale cache due to error',
+          data: cached.data
+        }
+      }
+      throw error
+    }
+  }
+
+  // Get help statistics with enhanced caching
+  async getStats(options: { 
+    userRole?: string
+    useCache?: boolean 
+  } = {}): Promise<ApiResponse<{ stats: HelpStats }>> {
+    const { useCache = true } = options
+    const cacheKey = this.getCacheKey('stats', {})
+
+    // Try cache first
+    if (useCache) {
+      const cached = helpCache.get<{ stats: HelpStats }>(cacheKey)
+      if (cached && !cached.isStale) {
+        return {
+          success: true,
+          message: 'Stats retrieved from cache',
+          data: cached.data
+        }
+      }
+    }
+
+    try {
+      const response = await apiClient.get<{ stats: HelpStats }>('/help/stats')
+
+      // Cache successful response with longer TTL
+      if (response.success && response.data && useCache) {
+        helpCache.set(cacheKey, response.data, helpCache['STATS_TTL'])
+      }
+
+      return response
+    } catch (error: any) {
+      // Return stale cache if available on error
+      const cached = helpCache.get<{ stats: HelpStats }>(cacheKey)
+      if (cached) {
+        return {
+          success: true,
+          message: 'Stats retrieved from stale cache due to error',
+          data: cached.data
+        }
+      }
+      throw error
+    }
+  }
+
+  // Provide feedback with cache invalidation
   async provideFeedback(
     faqId: number, 
-    feedback: { is_helpful: boolean; comment?: string }
+    feedback: { is_helpful: boolean; comment?: string },
+    options: { userRole?: string } = {}
   ): Promise<ApiResponse<{ feedback: FAQFeedback }>> {
-    return apiClient.post<{ feedback: FAQFeedback }>(`/help/faqs/${faqId}/feedback`, feedback)
+    try {
+      const response = await apiClient.post<{ feedback: FAQFeedback }>(`/help/faqs/${faqId}/feedback`, feedback)
+
+      if (response.success) {
+        // Invalidate related caches
+        helpCache.invalidate(`faq.*${faqId}`)
+        helpCache.invalidate('faqs')
+        helpCache.invalidate('stats')
+        helpCache.invalidate('popular')
+        helpCache.invalidate('featured')
+      }
+
+      return response
+    } catch (error: any) {
+      throw error
+    }
   }
 
-  // Suggest content (for counselors)
-  async suggestContent(suggestion: ContentSuggestion): Promise<ApiResponse<{ faq: FAQ }>> {
-    return apiClient.post<{ faq: FAQ }>('/help/suggest-content', suggestion)
-  }
+  // Suggest content with role validation
+  async suggestContent(
+    suggestion: ContentSuggestion,
+    options: { userRole?: string } = {}
+  ): Promise<ApiResponse<{ faq: FAQ }>> {
+    const { userRole } = options
 
-  // Get help statistics
-  async getStats(): Promise<ApiResponse<{ stats: HelpStats }>> {
-    return apiClient.get<{ stats: HelpStats }>('/help/stats')
-  }
+    // Validate role
+    if (!this.validateRole(['counselor', 'admin'], userRole)) {
+      return {
+        success: false,
+        message: 'Only counselors and administrators can suggest content.',
+        status: 403
+      }
+    }
 
-  // Search FAQs (with debounced endpoint)
-  async searchFAQs(query: string, filters: Omit<FAQFilters, 'search'> = {}): Promise<ApiResponse<FAQsResponse>> {
-    return this.getFAQs({ ...filters, search: query })
+    try {
+      const response = await apiClient.post<{ faq: FAQ }>('/help/suggest-content', suggestion)
+
+      if (response.success) {
+        // Invalidate caches to refresh data
+        helpCache.invalidate('faqs')
+        helpCache.invalidate('stats')
+      }
+
+      return response
+    } catch (error: any) {
+      throw error
+    }
   }
 
   // =============================================================================
-  // SPECIALIZED GETTERS
+  // SPECIALIZED GETTERS WITH CACHING
   // =============================================================================
 
-  // Get popular FAQs
-  async getPopularFAQs(limit: number = 5): Promise<ApiResponse<FAQ[]>> {
-    const response = await this.getFAQs({ 
-      sort_by: 'helpful', 
-      per_page: limit 
-    })
-    
-    if (response.success && response.data) {
-      return {
-        success: true,
-        message: response.message,
-        data: response.data.faqs
+  // Get popular FAQs with caching
+  async getPopularFAQs(limit: number = 5, options: {
+    userRole?: string
+    useCache?: boolean
+  } = {}): Promise<ApiResponse<FAQ[]>> {
+    const { useCache = true } = options
+    const cacheKey = this.getCacheKey('popular', { limit })
+
+    if (useCache) {
+      const cached = helpCache.get<FAQ[]>(cacheKey)
+      if (cached && !cached.isStale) {
+        return {
+          success: true,
+          message: 'Popular FAQs retrieved from cache',
+          data: cached.data
+        }
       }
     }
-    
-    return {
-      success: false,
-      message: response.message || 'Failed to fetch popular FAQs',
-      errors: response.errors
+
+    try {
+      const response = await this.getFAQs({ 
+        sort_by: 'helpful', 
+        per_page: limit,
+        useCache: false // Avoid double caching
+      })
+      
+      if (response.success && response.data) {
+        const popularFAQs = response.data.faqs
+        
+        if (useCache) {
+          helpCache.set(cacheKey, popularFAQs, helpCache['FAQ_TTL'])
+        }
+
+        return {
+          success: true,
+          message: response.message,
+          data: popularFAQs
+        }
+      }
+      
+      return {
+        success: false,
+        message: response.message || 'Failed to fetch popular FAQs',
+        errors: response.errors
+      }
+    } catch (error: any) {
+      // Return stale cache if available
+      const cached = helpCache.get<FAQ[]>(cacheKey)
+      if (cached) {
+        return {
+          success: true,
+          message: 'Popular FAQs retrieved from stale cache due to error',
+          data: cached.data
+        }
+      }
+      throw error
     }
   }
 
-  // Get featured FAQs
-  async getFeaturedFAQs(limit: number = 3): Promise<ApiResponse<FAQ[]>> {
-    const response = await this.getFAQs({ 
-      featured: true, 
-      per_page: limit 
-    })
-    
-    if (response.success && response.data) {
-      return {
-        success: true,
-        message: response.message,
-        data: response.data.featured_faqs
+  // Get featured FAQs with caching
+  async getFeaturedFAQs(limit: number = 3, options: {
+    userRole?: string
+    useCache?: boolean
+  } = {}): Promise<ApiResponse<FAQ[]>> {
+    const { useCache = true } = options
+    const cacheKey = this.getCacheKey('featured', { limit })
+
+    if (useCache) {
+      const cached = helpCache.get<FAQ[]>(cacheKey)
+      if (cached && !cached.isStale) {
+        return {
+          success: true,
+          message: 'Featured FAQs retrieved from cache',
+          data: cached.data
+        }
       }
     }
-    
-    return {
-      success: false,
-      message: response.message || 'Failed to fetch featured FAQs',
-      errors: response.errors
+
+    try {
+      const response = await this.getFAQs({ 
+        featured: true, 
+        per_page: limit,
+        useCache: false
+      })
+      
+      if (response.success && response.data) {
+        const featuredFAQs = response.data.featured_faqs.length > 0 
+          ? response.data.featured_faqs 
+          : response.data.faqs.filter(faq => faq.is_featured)
+        
+        if (useCache) {
+          helpCache.set(cacheKey, featuredFAQs, helpCache['FAQ_TTL'])
+        }
+
+        return {
+          success: true,
+          message: response.message,
+          data: featuredFAQs
+        }
+      }
+      
+      return {
+        success: false,
+        message: response.message || 'Failed to fetch featured FAQs',
+        errors: response.errors
+      }
+    } catch (error: any) {
+      const cached = helpCache.get<FAQ[]>(cacheKey)
+      if (cached) {
+        return {
+          success: true,
+          message: 'Featured FAQs retrieved from stale cache due to error',
+          data: cached.data
+        }
+      }
+      throw error
     }
   }
 
-  // Get FAQs by category
-  async getFAQsByCategory(categorySlug: string, filters: Omit<FAQFilters, 'category'> = {}): Promise<ApiResponse<FAQsResponse>> {
-    return this.getFAQs({ ...filters, category: categorySlug })
-  }
+  // =============================================================================
+  // ADMIN-ONLY METHODS WITH ROLE VALIDATION
+  // =============================================================================
 
-  // Get recent FAQs
-  async getRecentFAQs(limit: number = 5): Promise<ApiResponse<FAQ[]>> {
-    const response = await this.getFAQs({ 
-      sort_by: 'newest', 
-      per_page: limit 
-    })
-    
-    if (response.success && response.data) {
+  // Create FAQ (Admin only)
+  async createFAQ(faqData: Partial<FAQ>, userRole?: string): Promise<ApiResponse<{ faq: FAQ }>> {
+    if (!this.validateRole(['admin'], userRole)) {
       return {
-        success: true,
-        message: response.message,
-        data: response.data.faqs
+        success: false,
+        message: 'Only administrators can create FAQs.',
+        status: 403
       }
     }
-    
-    return {
-      success: false,
-      message: response.message || 'Failed to fetch recent FAQs',
-      errors: response.errors
+
+    try {
+      const response = await apiClient.post<{ faq: FAQ }>('/admin/help/faqs', faqData)
+
+      if (response.success) {
+        // Invalidate all FAQ-related caches
+        helpCache.invalidate('faqs')
+        helpCache.invalidate('categories')
+        helpCache.invalidate('stats')
+        helpCache.invalidate('featured')
+        helpCache.invalidate('popular')
+      }
+
+      return response
+    } catch (error: any) {
+      throw error
+    }
+  }
+
+  // Update FAQ (Admin only)
+  async updateFAQ(id: number, faqData: Partial<FAQ>, userRole?: string): Promise<ApiResponse<{ faq: FAQ }>> {
+    if (!this.validateRole(['admin'], userRole)) {
+      return {
+        success: false,
+        message: 'Only administrators can update FAQs.',
+        status: 403
+      }
+    }
+
+    try {
+      const response = await apiClient.put<{ faq: FAQ }>(`/admin/help/faqs/${id}`, faqData)
+
+      if (response.success) {
+        // Invalidate specific FAQ and related caches
+        helpCache.invalidate(`faq.*${id}`)
+        helpCache.invalidate('faqs')
+        helpCache.invalidate('stats')
+        helpCache.invalidate('featured')
+        helpCache.invalidate('popular')
+      }
+
+      return response
+    } catch (error: any) {
+      throw error
+    }
+  }
+
+  // Delete FAQ (Admin only)
+  async deleteFAQ(id: number, userRole?: string): Promise<ApiResponse<{ message: string }>> {
+    if (!this.validateRole(['admin'], userRole)) {
+      return {
+        success: false,
+        message: 'Only administrators can delete FAQs.',
+        status: 403
+      }
+    }
+
+    try {
+      const response = await apiClient.delete<{ message: string }>(`/admin/help/faqs/${id}`)
+
+      if (response.success) {
+        // Invalidate all related caches
+        helpCache.invalidate(`faq.*${id}`)
+        helpCache.invalidate('faqs')
+        helpCache.invalidate('categories')
+        helpCache.invalidate('stats')
+        helpCache.invalidate('featured')
+        helpCache.invalidate('popular')
+      }
+
+      return response
+    } catch (error: any) {
+      throw error
+    }
+  }
+
+  // =============================================================================
+  // CACHE MANAGEMENT
+  // =============================================================================
+
+  // Clear cache manually
+  clearCache(pattern?: string): void {
+    helpCache.invalidate(pattern)
+  }
+
+  // Get cache statistics
+  getCacheStats() {
+    return helpCache.getStats()
+  }
+
+  // Preload essential data
+  async preloadEssentialData(userRole?: string): Promise<void> {
+    try {
+      // Preload in parallel
+      await Promise.allSettled([
+        this.getCategories({ userRole, useCache: true }),
+        this.getFeaturedFAQs(3, { userRole, useCache: true }),
+        this.getPopularFAQs(5, { userRole, useCache: true }),
+        this.getStats({ userRole, useCache: true })
+      ])
+    } catch (error) {
+      console.warn('Failed to preload some help data:', error)
+    }
+  }
+
+  // Background refresh
+  async backgroundRefresh(userRole?: string): Promise<void> {
+    try {
+      // Refresh data in background without waiting
+      Promise.allSettled([
+        this.getCategories({ userRole, useCache: false }),
+        this.getFAQs({ userRole, useCache: false }),
+        this.getStats({ userRole, useCache: false })
+      ])
+    } catch (error) {
+      console.warn('Background refresh failed:', error)
     }
   }
 
@@ -340,7 +692,12 @@ class HelpService {
 
   // Check if user can suggest content
   canSuggestContent(userRole: string): boolean {
-    return ['counselor', 'admin'].includes(userRole)
+    return this.validateRole(['counselor', 'admin'], userRole)
+  }
+
+  // Check if user can manage content
+  canManageContent(userRole: string): boolean {
+    return this.validateRole(['admin'], userRole)
   }
 
   // Calculate helpfulness rate
@@ -375,438 +732,10 @@ class HelpService {
       return date.toLocaleDateString()
     }
   }
-
-  // =============================================================================
-  // ADMIN-ONLY METHODS
-  // =============================================================================
-
-  // Create FAQ (Admin)
-  async createFAQ(faqData: Partial<FAQ>): Promise<ApiResponse<{ faq: FAQ }>> {
-    return apiClient.post<{ faq: FAQ }>('/admin/help/faqs', faqData)
-  }
-
-  // Update FAQ (Admin)
-  async updateFAQ(id: number, faqData: Partial<FAQ>): Promise<ApiResponse<{ faq: FAQ }>> {
-    return apiClient.put<{ faq: FAQ }>(`/admin/help/faqs/${id}`, faqData)
-  }
-
-  // Delete FAQ (Admin)
-  async deleteFAQ(id: number): Promise<ApiResponse<{ message: string }>> {
-    return apiClient.delete<{ message: string }>(`/admin/help/faqs/${id}`)
-  }
-
-  // Bulk actions on FAQs (Admin)
-  async bulkActionFAQs(faqIds: number[], action: string): Promise<ApiResponse<{ message: string; affected_count: number }>> {
-    return apiClient.post<{ message: string; affected_count: number }>('/admin/help/faqs/bulk-action', {
-      faq_ids: faqIds,
-      action
-    })
-  }
-
-  // Create Category (Admin)
-  async createCategory(categoryData: Partial<HelpCategory>): Promise<ApiResponse<{ category: HelpCategory }>> {
-    return apiClient.post<{ category: HelpCategory }>('/admin/help/categories', categoryData)
-  }
-
-  // Update Category (Admin)
-  async updateCategory(id: number, categoryData: Partial<HelpCategory>): Promise<ApiResponse<{ category: HelpCategory }>> {
-    return apiClient.put<{ category: HelpCategory }>(`/admin/help/categories/${id}`, categoryData)
-  }
-
-  // Delete Category (Admin)
-  async deleteCategory(id: number): Promise<ApiResponse<{ message: string }>> {
-    return apiClient.delete<{ message: string }>(`/admin/help/categories/${id}`)
-  }
-
-  // Reorder Categories (Admin)
-  async reorderCategories(categoryOrders: Array<{ id: number; sort_order: number }>): Promise<ApiResponse<{ message: string }>> {
-    return apiClient.post<{ message: string }>('/admin/help/categories/reorder', {
-      category_orders: categoryOrders
-    })
-  }
-
-  // Get Help Analytics (Admin)
-  async getHelpAnalytics(options: { timeRange?: string } = {}): Promise<ApiResponse<HelpAnalytics>> {
-    const params = new URLSearchParams()
-    if (options.timeRange) {
-      params.append('time_range', options.timeRange)
-    }
-    
-    const endpoint = `/admin/help/analytics${params.toString() ? `?${params.toString()}` : ''}`
-    return apiClient.get<HelpAnalytics>(endpoint)
-  }
-
-  // Get Content Suggestions (Admin)
-  async getContentSuggestions(): Promise<ApiResponse<{ suggestions: ContentSuggestion[] }>> {
-    return apiClient.get<{ suggestions: ContentSuggestion[] }>('/admin/help/content-suggestions')
-  }
-
-  // Approve Content Suggestion (Admin)
-  async approveSuggestion(suggestionId: number): Promise<ApiResponse<{ faq: FAQ; message: string }>> {
-    return apiClient.post<{ faq: FAQ; message: string }>(`/admin/help/content-suggestions/${suggestionId}/approve`)
-  }
-
-  // Reject Content Suggestion (Admin)
-  async rejectSuggestion(suggestionId: number, feedback?: string): Promise<ApiResponse<{ message: string }>> {
-    return apiClient.post<{ message: string }>(`/admin/help/content-suggestions/${suggestionId}/reject`, {
-      feedback
-    })
-  }
-
-  // Request Revision for Content Suggestion (Admin)
-  async requestSuggestionRevision(suggestionId: number, feedback: string): Promise<ApiResponse<{ message: string }>> {
-    return apiClient.post<{ message: string }>(`/admin/help/content-suggestions/${suggestionId}/request-revision`, {
-      feedback
-    })
-  }
-
-  // Get Admin Notifications
-  async getAdminNotifications(): Promise<ApiResponse<{ notifications: AdminNotification[] }>> {
-    return apiClient.get<{ notifications: AdminNotification[] }>('/admin/help/notifications')
-  }
-
-  // Get System Health
-  async getSystemHealth(): Promise<ApiResponse<SystemHealth>> {
-    return apiClient.get<SystemHealth>('/admin/help/system-health')
-  }
-
-  // Export Help Data (Admin)
-  async exportHelpData(format: 'csv' | 'json' | 'xlsx' = 'csv'): Promise<ApiResponse<any>> {
-    return apiClient.get<any>(`/admin/help/export?format=${format}`)
-  }
-
-  // =============================================================================
-  // COUNSELOR-SPECIFIC METHODS
-  // =============================================================================
-
-  // Get Counselor's Own Suggestions
-  async getCounselorSuggestions(): Promise<ApiResponse<{ suggestions: ContentSuggestion[] }>> {
-    return apiClient.get<{ suggestions: ContentSuggestion[] }>('/counselor/help/my-suggestions')
-  }
-
-  // Update Counselor's Suggestion
-  async updateCounselorSuggestion(suggestionId: number, suggestionData: Partial<ContentSuggestion>): Promise<ApiResponse<{ suggestion: ContentSuggestion }>> {
-    return apiClient.put<{ suggestion: ContentSuggestion }>(`/counselor/help/my-suggestions/${suggestionId}`, suggestionData)
-  }
-
-  // Get Counselor Insights
-  async getCounselorInsights(): Promise<ApiResponse<CounselorInsights>> {
-    return apiClient.get<CounselorInsights>('/counselor/help/insights')
-  }
-
-  // =============================================================================
-  // ENHANCED SEARCH AND FILTERING
-  // =============================================================================
-
-  // Advanced Search with Suggestions
-  async advancedSearch(options: {
-    query: string
-    filters?: FAQFilters
-    include_suggestions?: boolean
-    limit?: number
-  }): Promise<ApiResponse<{
-    faqs: FAQ[]
-    suggestions: string[]
-    total: number
-    search_time: number
-  }>> {
-    return apiClient.post<{
-      faqs: FAQ[]
-      suggestions: string[]
-      total: number
-      search_time: number
-    }>('/help/search/advanced', options)
-  }
-
-  // Get Search Suggestions
-  async getSearchSuggestions(query: string): Promise<ApiResponse<{ suggestions: string[] }>> {
-    const params = new URLSearchParams()
-    params.append('query', query)
-    
-    return apiClient.get<{ suggestions: string[] }>(`/help/search/suggestions?${params.toString()}`)
-  }
-
-  // Track Search Analytics
-  async trackSearch(query: string, resultsCount: number): Promise<ApiResponse<{ tracked: boolean }>> {
-    return apiClient.post<{ tracked: boolean }>('/help/search/track', {
-      query,
-      results_count: resultsCount
-    })
-  }
-
-  // =============================================================================
-  // USER INTERACTION TRACKING
-  // =============================================================================
-
-  // Track FAQ View
-  async trackFAQView(faqId: number): Promise<ApiResponse<{ tracked: boolean }>> {
-    return apiClient.post<{ tracked: boolean }>(`/help/faqs/${faqId}/track-view`)
-  }
-
-  // Track Category Click
-  async trackCategoryClick(categorySlug: string): Promise<ApiResponse<{ tracked: boolean }>> {
-    return apiClient.post<{ tracked: boolean }>('/help/categories/track-click', {
-      category_slug: categorySlug
-    })
-  }
-
-  // =============================================================================
-  // CACHING AND PERFORMANCE
-  // =============================================================================
-
-  // Clear Help Cache (Admin)
-  async clearHelpCache(): Promise<ApiResponse<{ message: string }>> {
-    return apiClient.post<{ message: string }>('/admin/help/cache/clear')
-  }
-
-  // Warm Cache (Admin)
-  async warmCache(): Promise<ApiResponse<{ message: string }>> {
-    return apiClient.post<{ message: string }>('/admin/help/cache/warm')
-  }
-
-  // Get Cache Stats (Admin)
-  async getCacheStats(): Promise<ApiResponse<{
-    hit_rate: number
-    miss_rate: number
-    size: number
-    entries: number
-  }>> {
-    return apiClient.get<{
-      hit_rate: number
-      miss_rate: number
-      size: number
-      entries: number
-    }>('/admin/help/cache/stats')
-  }
-
-  // =============================================================================
-  // CONTENT MANAGEMENT UTILITIES
-  // =============================================================================
-
-  // Duplicate FAQ (Admin)
-  async duplicateFAQ(faqId: number, newTitle?: string): Promise<ApiResponse<{ faq: FAQ }>> {
-    return apiClient.post<{ faq: FAQ }>(`/admin/help/faqs/${faqId}/duplicate`, {
-      new_title: newTitle
-    })
-  }
-
-  // Move FAQ to Category (Admin)
-  async moveFAQToCategory(faqId: number, categoryId: number): Promise<ApiResponse<{ faq: FAQ }>> {
-    return apiClient.patch<{ faq: FAQ }>(`/admin/help/faqs/${faqId}/move`, {
-      category_id: categoryId
-    })
-  }
-
-  // Merge FAQs (Admin)
-  async mergeFAQs(primaryFaqId: number, secondaryFaqIds: number[]): Promise<ApiResponse<{ faq: FAQ; message: string }>> {
-    return apiClient.post<{ faq: FAQ; message: string }>(`/admin/help/faqs/${primaryFaqId}/merge`, {
-      secondary_faq_ids: secondaryFaqIds
-    })
-  }
-
-  // Get FAQ History (Admin)
-  async getFAQHistory(faqId: number): Promise<ApiResponse<{ history: any[] }>> {
-    return apiClient.get<{ history: any[] }>(`/admin/help/faqs/${faqId}/history`)
-  }
-
-  // Restore FAQ Version (Admin)
-  async restoreFAQVersion(faqId: number, versionId: number): Promise<ApiResponse<{ faq: FAQ }>> {
-    return apiClient.post<{ faq: FAQ }>(`/admin/help/faqs/${faqId}/restore/${versionId}`)
-  }
-
-  // =============================================================================
-  // BULK OPERATIONS
-  // =============================================================================
-
-  // Bulk Import FAQs (Admin)
-  async bulkImportFAQs(file: File, options: {
-    category_id?: number
-    auto_publish?: boolean
-    overwrite_existing?: boolean
-  }): Promise<ApiResponse<{ 
-    imported: number
-    failed: number
-    errors: string[]
-  }>> {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('options', JSON.stringify(options))
-    
-    return apiClient.post<{
-      imported: number
-      failed: number
-      errors: string[]
-    }>('/admin/help/faqs/bulk-import', formData)
-  }
-
-  // Bulk Export FAQs (Admin)
-  async bulkExportFAQs(options: {
-    category_ids?: number[]
-    format?: 'csv' | 'json' | 'xlsx'
-    include_drafts?: boolean
-  }): Promise<Blob> {
-    const params = new URLSearchParams()
-    
-    if (options.category_ids) {
-      params.append('category_ids', options.category_ids.join(','))
-    }
-    if (options.format) {
-      params.append('format', options.format)
-    }
-    if (options.include_drafts) {
-      params.append('include_drafts', 'true')
-    }
-    
-    return apiClient.downloadFile(`/admin/help/faqs/bulk-export?${params.toString()}`)
-  }
-
-  // =============================================================================
-  // CONTENT VALIDATION
-  // =============================================================================
-
-  // Validate FAQ Content (Admin)
-  async validateFAQContent(faqData: Partial<FAQ>): Promise<ApiResponse<{
-    valid: boolean
-    errors: string[]
-    suggestions: string[]
-  }>> {
-    return apiClient.post<{
-      valid: boolean
-      errors: string[]
-      suggestions: string[]
-    }>('/admin/help/faqs/validate', faqData)
-  }
-
-  // Check for Duplicate Content (Admin)
-  async checkDuplicateContent(question: string): Promise<ApiResponse<{
-    has_duplicates: boolean
-    similar_faqs: FAQ[]
-    similarity_score: number
-  }>> {
-    return apiClient.post<{
-      has_duplicates: boolean
-      similar_faqs: FAQ[]
-      similarity_score: number
-    }>('/admin/help/faqs/check-duplicates', { question })
-  }
-
-  // Generate FAQ Suggestions (AI-powered)
-  async generateFAQSuggestions(topic: string): Promise<ApiResponse<{
-    suggestions: Array<{
-      question: string
-      answer: string
-      confidence: number
-    }>
-  }>> {
-    return apiClient.post<{
-      suggestions: Array<{
-        question: string
-        answer: string
-        confidence: number
-      }>
-    }>('/admin/help/faqs/ai-suggestions', { topic })
-  }
-
-  // Get Live User Activity
-  async getLiveActivity(): Promise<ApiResponse<{
-    active_users: number
-    current_searches: string[]
-    popular_faqs_now: FAQ[]
-  }>> {
-    return apiClient.get<{
-      active_users: number
-      current_searches: string[]
-      popular_faqs_now: FAQ[]
-    }>('/admin/help/live-activity')
-  }
-
-  // =============================================================================
-  // INTEGRATION HELPERS
-  // =============================================================================
-
-  // Sync with External Knowledge Base
-  async syncExternalKB(kbUrl: string, apiKey: string): Promise<ApiResponse<{
-    synced: number
-    failed: number
-    message: string
-  }>> {
-    return apiClient.post<{
-      synced: number
-      failed: number
-      message: string
-    }>('/admin/help/sync-external', {
-      kb_url: kbUrl,
-      api_key: apiKey
-    })
-  }
-
-  // Generate Sitemap for SEO
-  async generateSitemap(): Promise<ApiResponse<{ sitemap_url: string }>> {
-    return apiClient.post<{ sitemap_url: string }>('/admin/help/generate-sitemap')
-  }
-
-  // =============================================================================
-  // MOBILE APP SPECIFIC
-  // =============================================================================
-
-  // Get Offline Content Package
-  async getOfflineContent(): Promise<ApiResponse<{
-    version: string
-    content: {
-      faqs: FAQ[]
-      categories: HelpCategory[]
-    }
-    last_updated: string
-  }>> {
-    return apiClient.get<{
-      version: string
-      content: {
-        faqs: FAQ[]
-        categories: HelpCategory[]
-      }
-      last_updated: string
-    }>('/help/offline-package')
-  }
-
-  // Check for Content Updates
-  async checkContentUpdates(currentVersion: string): Promise<ApiResponse<{
-    has_updates: boolean
-    new_version?: string
-    update_size?: number
-  }>> {
-    return apiClient.get<{
-      has_updates: boolean
-      new_version?: string
-      update_size?: number
-    }>(`/help/check-updates?version=${currentVersion}`)
-  }
-
-  // =============================================================================
-  // ACCESSIBILITY FEATURES
-  // =============================================================================
-
-  // Get FAQ in Different Formats
-  async getFAQFormat(faqId: number, format: 'audio' | 'simplified' | 'translation'): Promise<ApiResponse<{
-    content: string
-    format: string
-    metadata: any
-  }>> {
-    return apiClient.get<{
-      content: string
-      format: string
-      metadata: any
-    }>(`/help/faqs/${faqId}/format/${format}`)
-  }
-
-  // Report Accessibility Issue
-  async reportAccessibilityIssue(faqId: number, issue: {
-    type: string
-    description: string
-    user_agent: string
-  }): Promise<ApiResponse<{ reported: boolean }>> {
-    return apiClient.post<{ reported: boolean }>(`/help/faqs/${faqId}/accessibility-issue`, issue)
-  }
 }
 
 // Create and export a singleton instance
 export const helpService = new HelpService()
+
+// Export cache for external access if needed
+export { helpCache }

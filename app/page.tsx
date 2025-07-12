@@ -19,6 +19,7 @@ import { AdminReportsPage } from "@/components/pages/admin-reports-page"
 import { AdminSettingsPage } from "@/components/pages/admin-settings-page"
 import { AppLayout } from "@/components/layout/app-layout"
 import { NotificationsPage } from "@/components/pages/notifications-page"
+import { AdminHelpPage } from "@/components/pages/admin-help-page"
 import { Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -86,8 +87,11 @@ function AppContent() {
         return <CounselingPage />
       
       case "help":
-        return <HelpPage />
-      
+        return <HelpPage onNavigate={navigate} />
+
+      case "admin-help":
+        return <AdminHelpPage onNavigate={navigate} />
+
       case "resources":
         return <ResourcesPage />
       

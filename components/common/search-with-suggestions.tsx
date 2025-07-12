@@ -1,42 +1,47 @@
-// components/common/search-with-suggestions.tsx
-import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { 
-  Search, 
-  X, 
-  Clock, 
-  TrendingUp,
-  ArrowRight,
-  Loader2
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { useDebounce } from '@/hooks/use-debounce'
+// components/common/search-with-suggestions.tsx (NEW - Search with Suggestions Component)
+"use client"
 
-interface SearchSuggestion {
-  text: string
-  type: 'recent' | 'popular' | 'suggestion'
-  count?: number
-}
+import { useState, useCallback, useRef, useEffect } from "react"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent } from "@/components/ui/card"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Search,
+  Clock,
+  TrendingUp,
+  X,
+  Loader2,
+  ChevronRight
+} from "lucide-react"
+import { cn } from "@/lib/utils"
 
 interface SearchWithSuggestionsProps {
   value: string
   onChange: (value: string) => void
   onSearch: (query: string) => void
   placeholder?: string
-  className?: string
   recentSearches?: string[]
   popularSearches?: string[]
-  suggestions?: string[]
-  isLoading?: boolean
-  showRecentSearches?: boolean
-  showPopularSearches?: boolean
-  showSuggestions?: boolean
-  maxSuggestions?: number
   onRecentSearchRemove?: (search: string) => void
   onClearRecentSearches?: () => void
+  isLoading?: boolean
+  className?: string
+  showSuggestions?: boolean
+  maxSuggestions?: number
 }
 
 export function SearchWithSuggestions({
@@ -44,300 +49,412 @@ export function SearchWithSuggestions({
   onChange,
   onSearch,
   placeholder = "Search...",
-  className,
   recentSearches = [],
   popularSearches = [],
-  suggestions = [],
-  isLoading = false,
-  showRecentSearches = true,
-  showPopularSearches = true,
-  showSuggestions = true,
-  maxSuggestions = 8,
   onRecentSearchRemove,
-  onClearRecentSearches
+  onClearRecentSearches,
+  isLoading = false,
+  className,
+  showSuggestions = true,
+  maxSuggestions = 5
 }: SearchWithSuggestionsProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  
-  const debouncedValue = useDebounce(value, 300)
+  const [debouncedValue, setDebouncedValue] = useState(value)
 
-  // Build combined suggestions list
-  const allSuggestions: SearchSuggestion[] = React.useMemo(() => {
-    const items: SearchSuggestion[] = []
-    
-    // Add recent searches first (filtered by current input)
-    if (showRecentSearches && recentSearches.length > 0) {
-      const filteredRecent = value.trim() 
-        ? recentSearches.filter(search => 
-            search.toLowerCase().includes(value.toLowerCase()) && 
-            search.toLowerCase() !== value.toLowerCase()
-          )
-        : recentSearches
-      
-      filteredRecent.slice(0, 5).forEach(search => {
-        items.push({ text: search, type: 'recent' })
-      })
-    }
-    
-    // Add popular searches (filtered by current input)
-    if (showPopularSearches && popularSearches.length > 0) {
-      const filteredPopular = value.trim()
-        ? popularSearches.filter(search => 
-            search.toLowerCase().includes(value.toLowerCase()) && 
-            search.toLowerCase() !== value.toLowerCase() &&
-            !items.some(item => item.text.toLowerCase() === search.toLowerCase())
-          )
-        : popularSearches.filter(search => 
-            !items.some(item => item.text.toLowerCase() === search.toLowerCase())
-          )
-      
-      filteredPopular.slice(0, 3).forEach(search => {
-        items.push({ text: search, type: 'popular' })
-      })
-    }
-    
-    // Add dynamic suggestions (filtered by current input)
-    if (showSuggestions && suggestions.length > 0 && value.trim()) {
-      const filteredSuggestions = suggestions.filter(suggestion => 
-        suggestion.toLowerCase().includes(value.toLowerCase()) && 
-        suggestion.toLowerCase() !== value.toLowerCase() &&
-        !items.some(item => item.text.toLowerCase() === suggestion.toLowerCase())
-      )
-      
-      filteredSuggestions.slice(0, 5).forEach(suggestion => {
-        items.push({ text: suggestion, type: 'suggestion' })
-      })
-    }
-    
-    return items.slice(0, maxSuggestions)
-  }, [value, recentSearches, popularSearches, suggestions, showRecentSearches, showPopularSearches, showSuggestions, maxSuggestions])
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value)
+    }, 300)
 
-  // Handle search submission
-  const handleSearch = useCallback((query: string = value) => {
+    return () => clearTimeout(timer)
+  }, [value])
+
+  // Trigger search when debounced value changes
+  useEffect(() => {
+    if (debouncedValue && debouncedValue.length >= 2) {
+      onSearch(debouncedValue)
+    }
+  }, [debouncedValue, onSearch])
+
+  const handleInputChange = useCallback((newValue: string) => {
+    onChange(newValue)
+    if (newValue.length >= 1 && showSuggestions) {
+      setIsOpen(true)
+    } else {
+      setIsOpen(false)
+    }
+  }, [onChange, showSuggestions])
+
+  const handleSearchSubmit = useCallback((searchQuery?: string) => {
+    const query = searchQuery || value
     if (query.trim()) {
       onSearch(query.trim())
       setIsOpen(false)
-      setHighlightedIndex(-1)
       inputRef.current?.blur()
     }
   }, [value, onSearch])
 
-  // Handle suggestion click
-  const handleSuggestionClick = useCallback((suggestion: SearchSuggestion) => {
-    onChange(suggestion.text)
-    handleSearch(suggestion.text)
-  }, [onChange, handleSearch])
+  const handleSuggestionSelect = useCallback((suggestion: string) => {
+    onChange(suggestion)
+    handleSearchSubmit(suggestion)
+  }, [onChange, handleSearchSubmit])
 
-  // Handle keyboard navigation
+  const handleRecentSearchRemove = useCallback((e: React.MouseEvent, search: string) => {
+    e.stopPropagation()
+    onRecentSearchRemove?.(search)
+  }, [onRecentSearchRemove])
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!isOpen) {
-      if (e.key === 'ArrowDown') {
-        setIsOpen(true)
-        setHighlightedIndex(0)
-        e.preventDefault()
-      }
-      return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSearchSubmit()
+    } else if (e.key === 'Escape') {
+      setIsOpen(false)
+      inputRef.current?.blur()
     }
+  }, [handleSearchSubmit])
 
-    switch (e.key) {
-      case 'ArrowDown':
-        setHighlightedIndex(prev => 
-          prev < allSuggestions.length - 1 ? prev + 1 : prev
-        )
-        e.preventDefault()
-        break
-        
-      case 'ArrowUp':
-        setHighlightedIndex(prev => prev > 0 ? prev - 1 : -1)
-        e.preventDefault()
-        break
-        
-      case 'Enter':
-        e.preventDefault()
-        if (highlightedIndex >= 0 && allSuggestions[highlightedIndex]) {
-          handleSuggestionClick(allSuggestions[highlightedIndex])
-        } else {
-          handleSearch()
-        }
-        break
-        
-      case 'Escape':
-        setIsOpen(false)
-        setHighlightedIndex(-1)
-        inputRef.current?.blur()
-        break
+  const handleFocus = useCallback(() => {
+    setIsFocused(true)
+    if (value.length >= 1 && showSuggestions) {
+      setIsOpen(true)
     }
-  }, [isOpen, highlightedIndex, allSuggestions, handleSuggestionClick, handleSearch])
+  }, [value, showSuggestions])
 
-  // Handle click outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-        setHighlightedIndex(-1)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+  const handleBlur = useCallback(() => {
+    setIsFocused(false)
+    // Delay closing to allow for suggestion clicks
+    setTimeout(() => setIsOpen(false), 200)
   }, [])
 
-  // Auto-focus on mount
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus()
-    }
-  }, [])
+  const clearSearch = useCallback(() => {
+    onChange('')
+    setIsOpen(false)
+    inputRef.current?.focus()
+  }, [onChange])
 
-  const getSuggestionIcon = (type: SearchSuggestion['type']) => {
-    switch (type) {
-      case 'recent':
-        return <Clock className="h-4 w-4 text-gray-400" />
-      case 'popular':
-        return <TrendingUp className="h-4 w-4 text-orange-500" />
-      case 'suggestion':
-        return <Search className="h-4 w-4 text-blue-500" />
-      default:
-        return <Search className="h-4 w-4 text-gray-400" />
-    }
-  }
+  // Filter and limit suggestions
+  const filteredRecentSearches = recentSearches
+    .filter(search => 
+      search.toLowerCase().includes(value.toLowerCase()) ||
+      value.length === 0
+    )
+    .slice(0, maxSuggestions)
 
-  const getSuggestionBadge = (type: SearchSuggestion['type']) => {
-    switch (type) {
-      case 'recent':
-        return <Badge variant="secondary" className="text-xs">Recent</Badge>
-      case 'popular':
-        return <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800">Popular</Badge>
-      case 'suggestion':
-        return <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">Suggested</Badge>
-      default:
-        return null
-    }
-  }
+  const filteredPopularSearches = popularSearches
+    .filter(search => 
+      search.toLowerCase().includes(value.toLowerCase()) &&
+      !recentSearches.includes(search)
+    )
+    .slice(0, maxSuggestions)
+
+  const hasAnySuggestions = filteredRecentSearches.length > 0 || filteredPopularSearches.length > 0
 
   return (
-    <div ref={containerRef} className={cn("relative w-full", className)}>
-      {/* Search Input */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-        <Input
-          ref={inputRef}
-          type="text"
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onFocus={() => setIsOpen(true)}
-          onKeyDown={handleKeyDown}
-          className={cn(
-            "pl-10 pr-12 h-12 text-lg border-2 transition-colors",
-            isOpen ? "border-blue-500" : "border-gray-200 focus:border-blue-500"
-          )}
-        />
-        
-        {/* Loading/Clear Button */}
-        <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center space-x-1">
-          {isLoading && (
-            <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-          )}
-          {value && !isLoading && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                onChange('')
-                inputRef.current?.focus()
-              }}
-              className="h-8 w-8 p-0"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleSearch()}
-            className="h-8 w-8 p-0"
-          >
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+    <div className={cn("relative w-full", className)}>
+      <Popover open={isOpen && showSuggestions} onOpenChange={setIsOpen}>
+        <PopoverTrigger asChild>
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+            </div>
+            
+            <Input
+              ref={inputRef}
+              type="text"
+              placeholder={placeholder}
+              value={value}
+              onChange={(e) => handleInputChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              className={cn(
+                "pl-10 pr-20 h-12 text-base",
+                isFocused && "ring-2 ring-blue-500 border-blue-500",
+                className
+              )}
+            />
+            
+            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-1">
+              {value && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearSearch}
+                  className="h-8 w-8 p-0 hover:bg-gray-100"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+              
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleSearchSubmit()}
+                disabled={!value.trim() || isLoading}
+                className="h-8"
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </PopoverTrigger>
 
-      {/* Suggestions Dropdown */}
-      {isOpen && (
-        <Card className="absolute top-full left-0 right-0 mt-2 z-50 border-2 border-gray-200 shadow-lg">
-          <CardContent className="p-0">
-            {allSuggestions.length > 0 ? (
-              <div className="max-h-80 overflow-y-auto">
-                {allSuggestions.map((suggestion, index) => (
-                  <div
-                    key={`${suggestion.type}-${suggestion.text}`}
-                    className={cn(
-                      "flex items-center justify-between p-3 cursor-pointer transition-colors border-b border-gray-100 last:border-b-0",
-                      index === highlightedIndex 
-                        ? "bg-blue-50 text-blue-900" 
-                        : "hover:bg-gray-50"
-                    )}
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    onMouseEnter={() => setHighlightedIndex(index)}
-                  >
-                    <div className="flex items-center space-x-3 flex-1 min-w-0">
-                      {getSuggestionIcon(suggestion.type)}
-                      <span className="font-medium truncate">{suggestion.text}</span>
-                      {getSuggestionBadge(suggestion.type)}
-                    </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      {suggestion.type === 'recent' && onRecentSearchRemove && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onRecentSearchRemove(suggestion.text)
-                          }}
-                          className="h-6 w-6 p-0 text-gray-400 hover:text-red-600"
+        <PopoverContent 
+          className="w-[--radix-popover-trigger-width] p-0 border-0 shadow-lg"
+          align="start"
+          sideOffset={5}
+        >
+          <Card className="border shadow-lg">
+            <CardContent className="p-0">
+              <Command className="rounded-lg border-0">
+                <CommandList className="max-h-80">
+                  {/* Recent Searches */}
+                  {filteredRecentSearches.length > 0 && (
+                    <CommandGroup>
+                      <div className="flex items-center justify-between px-2 py-1.5">
+                        <div className="flex items-center space-x-2 text-xs font-medium text-gray-500">
+                          <Clock className="h-3 w-3" />
+                          <span>Recent searches</span>
+                        </div>
+                        {recentSearches.length > 0 && onClearRecentSearches && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={onClearRecentSearches}
+                            className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700"
+                          >
+                            Clear all
+                          </Button>
+                        )}
+                      </div>
+                      
+                      {filteredRecentSearches.map((search, index) => (
+                        <CommandItem
+                          key={`recent-${index}`}
+                          onSelect={() => handleSuggestionSelect(search)}
+                          className="flex items-center justify-between group cursor-pointer"
                         >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      )}
-                      <ArrowRight className="h-4 w-4 text-gray-400" />
+                          <div className="flex items-center space-x-2 flex-1">
+                            <Clock className="h-4 w-4 text-gray-400" />
+                            <span className="flex-1">{search}</span>
+                          </div>
+                          
+                          <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {onRecentSearchRemove && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => handleRecentSearchRemove(e, search)}
+                                className="h-6 w-6 p-0 text-gray-400 hover:text-gray-600"
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            )}
+                            <ChevronRight className="h-4 w-4 text-gray-400" />
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+
+                  {/* Popular Searches */}
+                  {filteredPopularSearches.length > 0 && (
+                    <CommandGroup>
+                      <div className="flex items-center space-x-2 px-2 py-1.5 text-xs font-medium text-gray-500">
+                        <TrendingUp className="h-3 w-3" />
+                        <span>Popular searches</span>
+                      </div>
+                      
+                      {filteredPopularSearches.map((search, index) => (
+                        <CommandItem
+                          key={`popular-${index}`}
+                          onSelect={() => handleSuggestionSelect(search)}
+                          className="flex items-center justify-between group cursor-pointer"
+                        >
+                          <div className="flex items-center space-x-2 flex-1">
+                            <TrendingUp className="h-4 w-4 text-gray-400" />
+                            <span className="flex-1">{search}</span>
+                          </div>
+                          
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ChevronRight className="h-4 w-4 text-gray-400" />
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+
+                  {/* No suggestions message */}
+                  {!hasAnySuggestions && value.length > 0 && (
+                    <CommandEmpty className="py-6 text-center text-sm">
+                      <div className="space-y-2">
+                        <Search className="h-8 w-8 mx-auto text-gray-300" />
+                        <div>
+                          <div className="font-medium text-gray-700">No suggestions found</div>
+                          <div className="text-gray-500">Try a different search term</div>
+                        </div>
+                      </div>
+                    </CommandEmpty>
+                  )}
+
+                  {/* Search prompt when no input */}
+                  {!hasAnySuggestions && value.length === 0 && (recentSearches.length > 0 || popularSearches.length > 0) && (
+                    <div className="py-6 text-center text-sm text-gray-500">
+                      <div className="space-y-2">
+                        <Search className="h-8 w-8 mx-auto text-gray-300" />
+                        <div>Start typing to see suggestions</div>
+                      </div>
                     </div>
+                  )}
+
+                  {/* Quick search tips */}
+                  {value.length === 0 && recentSearches.length === 0 && popularSearches.length === 0 && (
+                    <div className="py-6 text-center text-sm text-gray-500">
+                      <div className="space-y-3">
+                        <Search className="h-8 w-8 mx-auto text-gray-300" />
+                        <div>
+                          <div className="font-medium text-gray-700">Search Tips</div>
+                          <div className="space-y-1 mt-2">
+                            <div>• Try specific keywords</div>
+                            <div>• Use common terms</div>
+                            <div>• Check spelling</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Current search action */}
+                  {value.trim() && (
+                    <CommandGroup>
+                      <div className="border-t border-gray-100">
+                        <CommandItem
+                          onSelect={() => handleSearchSubmit()}
+                          className="flex items-center space-x-2 font-medium text-blue-600 cursor-pointer"
+                        >
+                          <Search className="h-4 w-4" />
+                          <span>Search for "{value.trim()}"</span>
+                          <Badge variant="secondary" className="ml-auto bg-blue-100 text-blue-700">
+                            Enter
+                          </Badge>
+                        </CommandItem>
+                      </div>
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </Command>
+            </CardContent>
+          </Card>
+        </PopoverContent>
+      </Popover>
+
+      {/* Search shortcuts/hints */}
+      {isFocused && !isOpen && value.length === 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-10">
+          <Card className="border shadow-sm">
+            <CardContent className="p-3">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-1">
+                    <kbd className="px-1.5 py-0.5 text-xs bg-gray-100 border rounded">⌘</kbd>
+                    <span>+</span>
+                    <kbd className="px-1.5 py-0.5 text-xs bg-gray-100 border rounded">K</kbd>
+                    <span>to focus search</span>
                   </div>
-                ))}
-                
-                {/* Clear Recent Searches */}
-                {showRecentSearches && recentSearches.length > 0 && onClearRecentSearches && (
-                  <div className="p-3 border-t border-gray-200 bg-gray-50">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={onClearRecentSearches}
-                      className="w-full text-gray-600 hover:text-red-600"
-                    >
-                      <X className="h-4 w-4 mr-2" />
-                      Clear recent searches
-                    </Button>
+                  <div className="flex items-center space-x-1">
+                    <kbd className="px-1.5 py-0.5 text-xs bg-gray-100 border rounded">↵</kbd>
+                    <span>to search</span>
                   </div>
-                )}
+                </div>
+                <div className="flex items-center space-x-1">
+                  <kbd className="px-1.5 py-0.5 text-xs bg-gray-100 border rounded">Esc</kbd>
+                  <span>to close</span>
+                </div>
               </div>
-            ) : value.trim() ? (
-              <div className="p-6 text-center text-gray-500">
-                <Search className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                <p>No suggestions found</p>
-                <p className="text-sm">Press Enter to search for "{value}"</p>
-              </div>
-            ) : (
-              <div className="p-6 text-center text-gray-500">
-                <Search className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                <p>Start typing to see suggestions</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   )
+}
+
+// Keyboard shortcut hook for global search
+export function useSearchShortcut(onFocus: () => void) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        onFocus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onFocus])
+}
+
+// Search history management utilities
+export class SearchHistory {
+  private static readonly STORAGE_KEY = 'search_history'
+  private static readonly MAX_HISTORY = 10
+
+  static addSearch(query: string, userId?: string): void {
+    if (!query.trim()) return
+
+    const key = userId ? `${this.STORAGE_KEY}_${userId}` : this.STORAGE_KEY
+    
+    try {
+      const history = this.getHistory(userId)
+      const filtered = history.filter(item => item.toLowerCase() !== query.toLowerCase())
+      const newHistory = [query, ...filtered].slice(0, this.MAX_HISTORY)
+      
+      localStorage.setItem(key, JSON.stringify(newHistory))
+    } catch (error) {
+      console.warn('Failed to save search history:', error)
+    }
+  }
+
+  static getHistory(userId?: string): string[] {
+    const key = userId ? `${this.STORAGE_KEY}_${userId}` : this.STORAGE_KEY
+    
+    try {
+      const stored = localStorage.getItem(key)
+      return stored ? JSON.parse(stored) : []
+    } catch (error) {
+      console.warn('Failed to load search history:', error)
+      return []
+    }
+  }
+
+  static removeSearch(query: string, userId?: string): void {
+    const key = userId ? `${this.STORAGE_KEY}_${userId}` : this.STORAGE_KEY
+    
+    try {
+      const history = this.getHistory(userId)
+      const filtered = history.filter(item => item !== query)
+      localStorage.setItem(key, JSON.stringify(filtered))
+    } catch (error) {
+      console.warn('Failed to remove search history:', error)
+    }
+  }
+
+  static clearHistory(userId?: string): void {
+    const key = userId ? `${this.STORAGE_KEY}_${userId}` : this.STORAGE_KEY
+    
+    try {
+      localStorage.removeItem(key)
+    } catch (error) {
+      console.warn('Failed to clear search history:', error)
+    }
+  }
 }
