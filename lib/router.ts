@@ -125,9 +125,15 @@ class AppRouter {
       
       case 'help':
         return { page: 'help', params: {} }
+
+      case 'admin-help':
+        return { page: 'admin-help', params: {} }
       
       case 'resources':
         return { page: 'resources', params: {} }
+
+      case 'admin-resources':
+        return { page: 'admin-resources', params: {} }
       
       case 'notifications':
         return { page: 'notifications', params: {} }
@@ -244,9 +250,15 @@ class AppRouter {
       
       case 'help':
         return '/help'
+
+      case 'admin-help':
+        return '/admin-help'
       
       case 'resources':
         return '/resources'
+
+      case 'admin-resources':
+        return '/admin-resources'
       
       case 'notifications':
         return '/notifications'

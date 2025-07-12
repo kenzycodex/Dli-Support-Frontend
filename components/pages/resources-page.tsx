@@ -1,12 +1,20 @@
-// components/pages/resources-page.tsx (UPDATED - FIXED TypeScript Issues)
+// components/pages/resources-page.tsx (ENHANCED - Role-based access with smart caching)
 "use client"
 
-import React, { useState, useCallback } from "react" // ADDED React import
+import React, { useState, useCallback, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   BookOpen,
   Video,
@@ -25,10 +33,15 @@ import {
   TrendingUp,
   Award,
   Grid3X3,
-  List
+  List,
+  Settings,
+  Plus,
+  BarChart3,
+  RefreshCw,
+  Eye
 } from "lucide-react"
 
-// Import new hooks and components
+// Import hooks and components
 import { 
   useResourcesDashboard,
   useResources,
@@ -47,14 +60,18 @@ import { cn } from "@/lib/utils"
 import type { Resource } from "@/services/resources.service"
 import { toast } from 'sonner'
 
-export function ResourcesPage() {
+interface ResourcesPageProps {
+  onNavigate?: (page: string, params?: any) => void
+}
+
+export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
   const { user } = useAuth()
   const [selectedTab, setSelectedTab] = useState("browse")
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
   
   // Resource filtering and search
-  const { filters, updateFilter, clearFilters } = useResourceFilters()
+  const { filters, updateFilter, clearFilters, hasActiveFilters } = useResourceFilters()
   const { 
     recentSearches, 
     addRecentSearch, 
@@ -72,10 +89,12 @@ export function ResourcesPage() {
     getTypeLabel,
     getDifficultyColor,
     formatDuration,
-    formatCount
+    formatCount,
+    formatRating,
+    formatRatingDisplay
   } = useResourceUtils()
   
-  // Data fetching
+  // Data fetching with stable caching
   const {
     categories,
     featured,
@@ -83,23 +102,51 @@ export function ResourcesPage() {
     topRated,
     stats,
     isLoading: dashboardLoading,
-    error: dashboardError
+    error: dashboardError,
+    refetch: refetchDashboard
   } = useResourcesDashboard()
   
   const {
     data: resourcesData,
     isLoading: resourcesLoading,
-    error: resourcesError
+    error: resourcesError,
+    refetch: refetchResources
   } = useResources(filters)
 
   // Mutations
   const accessMutation = useResourceAccess()
   const bookmarkMutation = useResourceBookmark()
 
+  // Role-based permissions
+  const canManageResources = useMemo(() => user?.role === 'admin', [user?.role])
+  const canSuggestContent = useMemo(() => 
+    user?.role === 'counselor' || user?.role === 'admin', [user?.role]
+  )
+
+  // Enhanced refresh - only when explicitly requested
+  const handleRefresh = useCallback(async () => {
+    try {
+      await Promise.all([refetchDashboard(), refetchResources()])
+      toast.success('Resources refreshed successfully')
+    } catch (error) {
+      toast.error('Failed to refresh resources')
+    }
+  }, [refetchDashboard, refetchResources])
+
+  // Navigation to admin panel
+  const handleAdminNavigate = useCallback(() => {
+    if (onNavigate && canManageResources) {
+      onNavigate('admin-resources')
+    }
+  }, [onNavigate, canManageResources])
+
   const handleSearch = useCallback((query: string) => {
     updateFilter('search', query)
-    addRecentSearch(query)
-    trackResourceSearch(query, resourcesData?.resources?.length || 0)
+    
+    if (query.trim()) {
+      addRecentSearch(query)
+      trackResourceSearch(query, resourcesData?.resources?.length || 0)
+    }
   }, [updateFilter, addRecentSearch, trackResourceSearch, resourcesData])
 
   const handleCategorySelect = useCallback((categorySlug: string) => {
@@ -116,7 +163,6 @@ export function ResourcesPage() {
       
       const result = await accessMutation.mutateAsync(resource.id)
       
-      // FIXED: Check if result exists before accessing properties
       if (result && result.url) {
         trackResourceAccess(resource.id, resource.title, resource.type, result.action)
         window.open(result.url, '_blank')
@@ -169,7 +215,7 @@ export function ResourcesPage() {
             </div>
             <div className="flex items-center space-x-1">
               <Star className="h-4 w-4 text-yellow-500 fill-current" />
-              <span className="text-sm font-medium">{resource.rating}</span>
+              <span className="text-sm font-medium">{formatRatingDisplay(resource.rating)}</span>
             </div>
           </div>
 
@@ -314,37 +360,123 @@ export function ResourcesPage() {
     </Card>
   )
 
+  // Loading skeleton for initial load only
+  if (dashboardLoading && !stats) {
+    return (
+      <div className="space-y-8">
+        {/* Header Skeleton */}
+        <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 rounded-2xl p-8">
+          <div className="animate-pulse">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="bg-white/20 p-3 rounded-xl">
+                <div className="h-8 w-8 bg-white/30 rounded"></div>
+              </div>
+              <div>
+                <div className="h-8 w-48 bg-white/30 rounded mb-2"></div>
+                <div className="h-5 w-64 bg-white/20 rounded"></div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-6 mt-6">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="bg-white/10 rounded-lg p-4">
+                  <div className="h-8 w-16 bg-white/30 rounded mb-2"></div>
+                  <div className="h-4 w-20 bg-white/20 rounded"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Content Skeleton */}
+        <div className="space-y-6">
+          <div className="h-16 bg-gray-200 rounded-lg animate-pulse"></div>
+          <div className="grid grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-24 bg-gray-200 rounded-lg animate-pulse"></div>
+            ))}
+          </div>
+          <div className="h-96 bg-gray-200 rounded-lg animate-pulse"></div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-8">
-      {/* Header */}
+      {/* Header with Role-Based Actions */}
       <div className="relative bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 rounded-2xl p-8 text-white overflow-hidden">
         <div className="absolute inset-0 bg-black/10"></div>
         <div className="relative z-10">
-          <div className="flex items-center space-x-3 mb-4">
-            <div className="bg-white/20 p-3 rounded-xl">
-              <BookOpen className="h-8 w-8" />
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm">
+                <BookOpen className="h-8 w-8" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold">Resource Library</h1>
+                <p className="text-indigo-100 text-lg">
+                  Comprehensive collection of mental health and wellness resources
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-bold">Resource Library</h1>
-              <p className="text-indigo-100 text-lg">
-                Comprehensive collection of mental health and wellness resources
-              </p>
+            
+            {/* Role-Based Actions */}
+            <div className="flex items-center space-x-3">
+              {canSuggestContent && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => toast.info('Content suggestion feature coming soon')}
+                  className="bg-white/20 hover:bg-white/30 border-white/30"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Suggest Resource
+                </Button>
+              )}
+              
+              {canManageResources && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleAdminNavigate}
+                  className="bg-white/20 hover:bg-white/30 border-white/30"
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Manage
+                </Button>
+              )}
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={dashboardLoading}
+                className="text-white hover:bg-white/20"
+              >
+                {dashboardLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
             </div>
           </div>
+          
+          {/* Stats Grid - STABLE */}
           <div className="grid grid-cols-3 gap-6 mt-6">
-            <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm">
+            <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {dashboardLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : stats?.total_resources || 0}+
+                {stats?.total_resources || 0}+
               </div>
               <div className="text-sm text-indigo-100">Total Resources</div>
             </div>
-            <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm">
+            <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {dashboardLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : categories.length}
+                {categories.length}
               </div>
               <div className="text-sm text-indigo-100">Categories</div>
             </div>
-            <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm">
+            <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">Free</div>
               <div className="text-sm text-indigo-100">All Resources</div>
             </div>
@@ -352,15 +484,27 @@ export function ResourcesPage() {
         </div>
       </div>
 
-      {/* Featured Resources */}
+      {/* Featured Resources - STABLE */}
       {featured.length > 0 && (
         <Card className="border-0 shadow-lg">
           <CardHeader className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-t-lg">
-            <CardTitle className="flex items-center space-x-2">
-              <Star className="h-6 w-6 text-yellow-600" />
-              <span>Featured Resources</span>
-            </CardTitle>
-            <CardDescription>Hand-picked resources recommended by our counselors</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center space-x-2">
+                  <Star className="h-6 w-6 text-yellow-600" />
+                  <span>Featured Resources</span>
+                </CardTitle>
+                <CardDescription>Hand-picked resources recommended by our counselors</CardDescription>
+              </div>
+              
+              {/* Role-based badge for admins */}
+              {canManageResources && (
+                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                  <BarChart3 className="h-3 w-3 mr-1" />
+                  Admin View
+                </Badge>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -372,7 +516,7 @@ export function ResourcesPage() {
         </Card>
       )}
 
-      {/* Search */}
+      {/* Search - OPTIMIZED */}
       <Card className="border-0 shadow-lg">
         <CardContent className="p-6">
           <SearchWithSuggestions
@@ -486,7 +630,7 @@ export function ResourcesPage() {
                     </Button>
                   </div>
                   
-                  {(filters.search || filters.category || filters.type !== 'all' || filters.difficulty !== 'all') && (
+                  {hasActiveFilters && (
                     <Button variant="outline" onClick={clearFilters}>
                       Clear Filters
                     </Button>
@@ -521,7 +665,11 @@ export function ResourcesPage() {
                   <div className="text-center py-12">
                     <BookOpen className="h-16 w-16 mx-auto mb-4 text-gray-300" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">Failed to load resources</h3>
-                    <p className="text-gray-600">Please try again later</p>
+                    <p className="text-gray-600 mb-4">Please try again later</p>
+                    <Button onClick={() => refetchResources()}>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Retry
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -601,11 +749,11 @@ export function ResourcesPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Resource Detail Modal/Drawer */}
+      {/* Resource Detail Modal */}
       {selectedResource && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <CardHeader>
+        <Dialog open={!!selectedResource} onOpenChange={() => setSelectedResource(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-3">
                   <div className="p-2 bg-gray-100 rounded-lg">
@@ -615,7 +763,7 @@ export function ResourcesPage() {
                     )}
                   </div>
                   <div>
-                    <CardTitle className="text-xl">{selectedResource.title}</CardTitle>
+                    <DialogTitle className="text-xl">{selectedResource.title}</DialogTitle>
                     <div className="flex items-center space-x-2 mt-2">
                       <Badge variant="outline" className="capitalize">
                         {getTypeLabel(selectedResource.type)}
@@ -629,18 +777,64 @@ export function ResourcesPage() {
                     </div>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedResource(null)}
-                >
-                  ×
-                </Button>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <p className="text-gray-700 leading-relaxed">{selectedResource.description}</p>
+            </DialogHeader>
+            
+            <div className="space-y-6">
+              <DialogDescription className="text-gray-700 leading-relaxed">
+                {selectedResource.description}
+              </DialogDescription>
               
+              {/* Resource Metadata */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div className="text-center">
+                  <div className="text-sm text-gray-500">Duration</div>
+                  <div className="font-medium">{formatDuration(selectedResource.duration)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm text-gray-500">Views</div>
+                  <div className="font-medium">{formatCount(selectedResource.view_count)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm text-gray-500">Downloads</div>
+                  <div className="font-medium">{formatCount(selectedResource.download_count)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm text-gray-500">Rating</div>
+                  <div className="font-medium flex items-center justify-center space-x-1">
+                    <Star className="h-4 w-4 text-yellow-500 fill-current" />
+                    <span>{selectedResource.rating}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tags */}
+              {selectedResource.tags && selectedResource.tags.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">Tags</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedResource.tags.map((tag, index) => (
+                      <Badge key={index} variant="outline" className="text-xs">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Author Info */}
+              {selectedResource.author_name && (
+                <div className="p-4 bg-blue-50 rounded-lg">
+                  <h4 className="font-medium mb-1">About the Author</h4>
+                  <p className="text-sm text-gray-700">
+                    <strong>{selectedResource.author_name}</strong>
+                    {selectedResource.author_bio && (
+                      <span> - {selectedResource.author_bio}</span>
+                    )}
+                  </p>
+                </div>
+              )}
+
               {/* Resource Actions */}
               <div className="flex space-x-2">
                 <Button 
@@ -673,9 +867,9 @@ export function ResourcesPage() {
                 showStats={true}
                 compact={false}
               />
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

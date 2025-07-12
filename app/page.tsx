@@ -14,6 +14,7 @@ import { TicketDetailsPage } from "@/components/pages/ticket-details-page"
 import { CounselingPage } from "@/components/pages/counseling-page"
 import { HelpPage } from "@/components/pages/help-page"
 import { ResourcesPage } from "@/components/pages/resources-page"
+import { AdminResourcesPage } from "@/components/pages/admin-resources-page"
 import { AdminUsersPage } from "@/components/pages/admin-users-page"
 import { AdminReportsPage } from "@/components/pages/admin-reports-page"
 import { AdminSettingsPage } from "@/components/pages/admin-settings-page"
@@ -60,7 +61,7 @@ function AppContent() {
         }
       
       case "appointments":
-        return <AppointmentsPage />
+        return <AppointmentsPage onNavigate={navigate} />
       
       case "tickets":
         return <TicketsPage onNavigate={navigate} />
@@ -84,7 +85,7 @@ function AppContent() {
         )
       
       case "counseling":
-        return <CounselingPage />
+        return <CounselingPage onNavigate={navigate} />
       
       case "help":
         return <HelpPage onNavigate={navigate} />
@@ -93,10 +94,13 @@ function AppContent() {
         return <AdminHelpPage onNavigate={navigate} />
 
       case "resources":
-        return <ResourcesPage />
+        return <ResourcesPage onNavigate={navigate} />
+
+      case "admin-resources":
+        return <AdminResourcesPage onNavigate={navigate} />
       
       case "notifications":
-        return <NotificationsPage />
+        return <NotificationsPage onNavigate={navigate} />
       
       case "admin-users":
         return <AdminUsersPage onNavigate={navigate} />

@@ -1,358 +1,354 @@
-// components/resources/resource-rating.tsx
-import React, { useState, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { 
-  Star, 
-  MessageSquare, 
-  Check, 
-  X,
-  TrendingUp,
+// components/resources/resource-rating.tsx (NEW - Resource rating component)
+"use client"
+
+import React, { useState, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Star,
   ThumbsUp,
-  Heart,
-  Award
-} from 'lucide-react'
-import { useResourceFeedback, useResourceAnalytics, useResourceUtils } from '@/hooks/use-resources'
-import { cn } from '@/lib/utils'
-import type { Resource, ResourceFeedback } from '@/services/resources.service'
+  ThumbsDown,
+  MessageSquare,
+  TrendingUp,
+  Users,
+  Loader2
+} from "lucide-react"
+
+import { useResourceFeedback, useResourceUtils } from "@/hooks/use-resources"
+import { useAuth } from "@/contexts/AuthContext"
+import { cn } from "@/lib/utils"
+import type { Resource } from "@/services/resources.service"
+import { toast } from "sonner"
 
 interface ResourceRatingProps {
   resource: Resource
-  userFeedback?: ResourceFeedback
-  className?: string
   showStats?: boolean
   compact?: boolean
-  onRatingChange?: (rating: number) => void
+  userFeedback?: {
+    id: number
+    rating: number
+    comment?: string
+    is_recommended: boolean
+  }
 }
 
 export function ResourceRatingComponent({ 
   resource, 
-  userFeedback, 
-  className,
-  showStats = true,
+  showStats = true, 
   compact = false,
-  onRatingChange
+  userFeedback 
 }: ResourceRatingProps) {
-  const [rating, setRating] = useState(userFeedback?.rating || 0)
-  const [hoverRating, setHoverRating] = useState(0)
-  const [comment, setComment] = useState(userFeedback?.comment || '')
+  const { user } = useAuth()
+  const [showRatingDialog, setShowRatingDialog] = useState(false)
+  const [selectedRating, setSelectedRating] = useState(userFeedback?.rating || 0)
+  const [comment, setComment] = useState(userFeedback?.comment || "")
   const [isRecommended, setIsRecommended] = useState(userFeedback?.is_recommended ?? true)
-  const [showForm, setShowForm] = useState(false)
 
   const feedbackMutation = useResourceFeedback()
-  const { trackResourceRating } = useResourceAnalytics()
   const { calculateRatingPercentage, formatCount } = useResourceUtils()
 
-  const hasUserFeedback = !!userFeedback
-  const isSubmitting = feedbackMutation.isPending
-  const displayRating = hoverRating || rating
-  const ratingPercentage = calculateRatingPercentage(resource.rating)
-
-  const handleStarClick = useCallback((starRating: number) => {
-    if (hasUserFeedback && !showForm) return
-
-    setRating(starRating)
-    onRatingChange?.(starRating)
-    
-    if (!showForm) {
-      setShowForm(true)
+  const handleSubmitRating = useCallback(async () => {
+    if (!selectedRating) {
+      toast.error('Please select a rating')
+      return
     }
-  }, [hasUserFeedback, showForm, onRatingChange])
-
-  const handleSubmit = useCallback(async () => {
-    if (!rating || isSubmitting) return
 
     try {
       await feedbackMutation.mutateAsync({
         resourceId: resource.id,
         feedback: {
-          rating,
+          rating: selectedRating,
           comment: comment.trim() || undefined,
           is_recommended: isRecommended
         }
       })
-
-      // Track analytics
-      trackResourceRating(resource.id, resource.title, rating)
-
-      setShowForm(false)
+      
+      setShowRatingDialog(false)
+      toast.success('Thank you for your feedback!')
     } catch (error) {
-      // Error handling is done in the mutation
+      // Error handled by mutation
     }
-  }, [rating, comment, isRecommended, resource, feedbackMutation, trackResourceRating, isSubmitting])
+  }, [selectedRating, comment, isRecommended, resource.id, feedbackMutation])
 
-  const handleCancel = useCallback(() => {
-    if (!hasUserFeedback) {
-      setRating(0)
-      setComment('')
-      setIsRecommended(true)
-    } else {
-      setRating(userFeedback.rating)
-      setComment(userFeedback.comment || '')
-      setIsRecommended(userFeedback.is_recommended)
-    }
-    setShowForm(false)
-  }, [hasUserFeedback, userFeedback])
-
-  const StarIcon = ({ index }: { index: number }) => (
-    <button
-      type="button"
-      className={cn(
-        "transition-colors duration-150",
-        hasUserFeedback && !showForm ? "cursor-default" : "cursor-pointer hover:scale-110"
-      )}
-      onClick={() => handleStarClick(index)}
-      onMouseEnter={() => !hasUserFeedback && setHoverRating(index)}
-      onMouseLeave={() => !hasUserFeedback && setHoverRating(0)}
-      disabled={hasUserFeedback && !showForm}
-    >
-      <Star
-        className={cn(
-          "h-5 w-5 transition-colors",
-          index <= displayRating
-            ? "text-yellow-400 fill-yellow-400"
-            : "text-gray-300"
-        )}
-      />
-    </button>
-  )
+  const renderStars = (rating: number, interactive: boolean = false, size: 'sm' | 'md' | 'lg' = 'md') => {
+    const starSize = size === 'sm' ? 'h-3 w-3' : size === 'lg' ? 'h-6 w-6' : 'h-4 w-4'
+    const safeRating = Math.max(0, Math.min(5, Number(rating) || 0))
+    
+    return (
+      <div className="flex items-center space-x-1">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            onClick={() => interactive && setSelectedRating(star)}
+            disabled={!interactive}
+            className={cn(
+              "transition-colors",
+              interactive && "hover:scale-110 cursor-pointer",
+              !interactive && "cursor-default"
+            )}
+          >
+            <Star
+              className={cn(
+                starSize,
+                star <= safeRating
+                  ? "text-yellow-500 fill-current"
+                  : "text-gray-300"
+              )}
+            />
+          </button>
+        ))}
+      </div>
+    )
+  }
 
   if (compact) {
     return (
-      <div className={cn("flex items-center space-x-3", className)}>
-        <div className="flex items-center space-x-1">
-          <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
-          <span className="text-sm font-medium">{resource.rating.toFixed(1)}</span>
-          <span className="text-xs text-gray-500">
-            ({formatCount(resource.view_count)} views)
-          </span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          {renderStars(Number(resource.rating) || 0, false, 'sm')}
+          <span className="text-sm font-medium">{(Number(resource.rating) || 0).toFixed(1)}</span>
+          {showStats && (
+            <span className="text-xs text-gray-500">
+              ({formatCount(resource.view_count || 0)} reviews)
+            </span>
+          )}
         </div>
         
-        {hasUserFeedback && (
-          <Badge variant="secondary" className="text-xs">
-            You rated: {userFeedback.rating} stars
-          </Badge>
+        {user && !userFeedback && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowRatingDialog(true)}
+            className="text-blue-600 hover:text-blue-700"
+          >
+            Rate
+          </Button>
         )}
       </div>
     )
   }
 
   return (
-    <Card className={cn("border-0 bg-gray-50", className)}>
-      <CardHeader className="pb-4">
-        <CardTitle className="text-lg flex items-center space-x-2">
-          <Award className="h-5 w-5 text-purple-600" />
-          <span>Rate this resource</span>
-        </CardTitle>
-      </CardHeader>
-      
-      <CardContent className="space-y-4">
-        {/* Overall Resource Rating */}
-        {showStats && (
-          <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
-            <div className="flex items-center space-x-3">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-gray-900">
-                  {resource.rating.toFixed(1)}
-                </div>
-                <div className="flex items-center justify-center space-x-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      className={cn(
-                        "h-3 w-3",
-                        star <= Math.round(resource.rating)
-                          ? "text-yellow-400 fill-yellow-400"
-                          : "text-gray-300"
-                      )}
-                    />
-                  ))}
+    <div className="space-y-4">
+      {/* Rating Overview */}
+      <Card className="border-0 bg-gray-50">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center space-x-3">
+                {renderStars(Number(resource.rating) || 0, false, 'lg')}
+                <div>
+                  <div className="text-2xl font-bold">{(Number(resource.rating) || 0).toFixed(1)}</div>
+                  <div className="text-sm text-gray-600">out of 5 stars</div>
                 </div>
               </div>
               
-              <div className="border-l pl-3">
-                <div className="text-sm font-medium text-gray-900">
-                  {ratingPercentage}% positive
-                </div>
-                <div className="text-xs text-gray-500">
-                  Based on community feedback
-                </div>
-              </div>
-            </div>
-            
-            <div className="text-right">
-              <div className="flex items-center space-x-2 text-sm text-gray-600">
-                <TrendingUp className="h-4 w-4" />
-                <span>{formatCount(resource.view_count)} views</span>
-              </div>
-              <div className="flex items-center space-x-2 text-sm text-gray-600">
-                <ThumbsUp className="h-4 w-4" />
-                <span>{formatCount(resource.download_count)} downloads</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* User Rating Section */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-900">
-              {hasUserFeedback ? 'Your rating:' : 'Rate this resource:'}
-            </span>
-            
-            {hasUserFeedback && !showForm && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowForm(true)}
-                className="text-sm"
-              >
-                Edit rating
-              </Button>
-            )}
-          </div>
-
-          {/* Star Rating */}
-          <div className="flex items-center space-x-1">
-            {[1, 2, 3, 4, 5].map((index) => (
-              <StarIcon key={index} index={index} />
-            ))}
-            
-            {rating > 0 && (
-              <span className="ml-2 text-sm text-gray-600">
-                {rating} star{rating !== 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-
-          {/* Previous Feedback Display */}
-          {hasUserFeedback && !showForm && (
-            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <div className="flex items-start space-x-2">
-                <div className="flex items-center space-x-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      className={cn(
-                        "h-4 w-4",
-                        star <= userFeedback.rating
-                          ? "text-yellow-400 fill-yellow-400"
-                          : "text-gray-300"
-                      )}
-                    />
-                  ))}
-                </div>
-                
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm font-medium text-blue-900">
-                      You rated this {userFeedback.rating} star{userFeedback.rating !== 1 ? 's' : ''}
-                    </span>
-                    
-                    {userFeedback.is_recommended && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">
-                        <Heart className="h-3 w-3 mr-1" />
-                        Recommended
-                      </Badge>
-                    )}
+              {showStats && (
+                <div className="flex items-center space-x-4 text-sm text-gray-600">
+                  <div className="flex items-center space-x-1">
+                    <TrendingUp className="h-4 w-4" />
+                    <span>{calculateRatingPercentage(Number(resource.rating) || 0)}% satisfaction</span>
                   </div>
-                  
-                  {userFeedback.comment && (
-                    <p className="text-sm text-blue-800 mt-2">{userFeedback.comment}</p>
-                  )}
+                  <div className="flex items-center space-x-1">
+                    <Users className="h-4 w-4" />
+                    <span>{formatCount(resource.view_count || 0)} reviews</span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-          )}
-
-          {/* Rating Form */}
-          {showForm && rating > 0 && (
-            <div className="space-y-4 p-4 bg-white rounded-lg border">
-              {/* Recommendation Toggle */}
-              <div className="flex items-center space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setIsRecommended(!isRecommended)}
-                  className={cn(
-                    "flex items-center space-x-2 px-3 py-2 rounded-lg border-2 transition-colors",
-                    isRecommended
-                      ? "border-green-500 bg-green-50 text-green-700"
-                      : "border-gray-300 bg-gray-50 text-gray-600 hover:border-gray-400"
-                  )}
-                >
-                  <Heart className={cn("h-4 w-4", isRecommended && "fill-current")} />
-                  <span className="text-sm font-medium">
-                    {isRecommended ? 'I recommend this resource' : 'Click to recommend'}
-                  </span>
-                </button>
-              </div>
-
-              {/* Comment Field */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Share your thoughts (optional)
-                </label>
-                <Textarea
-                  placeholder="What did you think of this resource? Your feedback helps others..."
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  className="min-h-[100px] resize-none"
-                  maxLength={1000}
-                />
-                <div className="text-xs text-gray-500 text-right">
-                  {comment.length}/1000 characters
-                </div>
-              </div>
-
-              {/* Form Actions */}
-              <div className="flex items-center justify-end space-x-2 pt-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancel}
-                  disabled={isSubmitting}
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Cancel
-                </Button>
-                
-                <Button
-                  size="sm"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting || !rating}
-                  className="min-w-[100px]"
-                >
-                  {isSubmitting ? (
-                    <div className="flex items-center space-x-1">
-                      <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Submitting...</span>
+            
+            {user && (
+              <div className="text-right space-y-2">
+                {userFeedback ? (
+                  <div className="space-y-1">
+                    <Badge variant="outline" className="bg-green-50 text-green-700">
+                      You rated this resource
+                    </Badge>
+                    <div className="flex items-center space-x-2">
+                      {renderStars(userFeedback.rating, false, 'sm')}
+                      <span className="text-sm font-medium">{userFeedback.rating}/5</span>
                     </div>
-                  ) : (
-                    <>
-                      <Check className="h-4 w-4 mr-1" />
-                      {hasUserFeedback ? 'Update' : 'Submit'} Rating
-                    </>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedRating(userFeedback.rating)
+                        setComment(userFeedback.comment || "")
+                        setIsRecommended(userFeedback.is_recommended)
+                        setShowRatingDialog(true)
+                      }}
+                      className="text-blue-600 hover:text-blue-700"
+                    >
+                      Update Rating
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => setShowRatingDialog(true)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Star className="h-4 w-4 mr-2" />
+                    Rate Resource
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* User's Previous Feedback */}
+      {userFeedback?.comment && (
+        <Card className="border-l-4 border-l-blue-500">
+          <CardContent className="p-4">
+            <div className="flex items-start space-x-3">
+              <MessageSquare className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="flex-1">
+                <div className="flex items-center space-x-2 mb-2">
+                  <span className="font-medium">Your Review</span>
+                  <Badge variant="outline" className={cn(
+                    userFeedback.is_recommended 
+                      ? "bg-green-50 text-green-700" 
+                      : "bg-red-50 text-red-700"
+                  )}>
+                    {userFeedback.is_recommended ? (
+                      <>
+                        <ThumbsUp className="h-3 w-3 mr-1" />
+                        Recommended
+                      </>
+                    ) : (
+                      <>
+                        <ThumbsDown className="h-3 w-3 mr-1" />
+                        Not Recommended
+                      </>
+                    )}
+                  </Badge>
+                </div>
+                <p className="text-gray-700 text-sm">{userFeedback.comment}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Rating Dialog */}
+      <Dialog open={showRatingDialog} onOpenChange={setShowRatingDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {userFeedback ? 'Update Your Rating' : 'Rate This Resource'}
+            </DialogTitle>
+            <DialogDescription>
+              Share your experience with "{resource.title}" to help other users.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Star Rating */}
+            <div className="text-center space-y-2">
+              <label className="text-sm font-medium">Your Rating *</label>
+              <div className="flex justify-center">
+                {renderStars(selectedRating, true, 'lg')}
+              </div>
+              {selectedRating > 0 && (
+                <p className="text-sm text-gray-600">
+                  {selectedRating === 1 && "Poor - Not helpful"}
+                  {selectedRating === 2 && "Fair - Somewhat helpful"}
+                  {selectedRating === 3 && "Good - Helpful"}
+                  {selectedRating === 4 && "Very Good - Very helpful"}
+                  {selectedRating === 5 && "Excellent - Extremely helpful"}
+                </p>
+              )}
+            </div>
+
+            {/* Recommendation */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium">Would you recommend this resource?</label>
+              <div className="flex space-x-3">
+                <Button
+                  variant={isRecommended ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setIsRecommended(true)}
+                  className={cn(
+                    "flex-1",
+                    isRecommended && "bg-green-600 hover:bg-green-700"
                   )}
+                >
+                  <ThumbsUp className="h-4 w-4 mr-2" />
+                  Yes
+                </Button>
+                <Button
+                  variant={!isRecommended ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setIsRecommended(false)}
+                  className={cn(
+                    "flex-1",
+                    !isRecommended && "bg-red-600 hover:bg-red-700"
+                  )}
+                >
+                  <ThumbsDown className="h-4 w-4 mr-2" />
+                  No
                 </Button>
               </div>
             </div>
-          )}
 
-          {/* Success Message */}
-          {hasUserFeedback && !showForm && (
-            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-              <div className="flex items-center space-x-2">
-                <Check className="h-4 w-4 text-green-600" />
-                <span className="text-sm font-medium text-green-800">
-                  Thank you for rating this resource! Your feedback helps others discover quality content.
-                </span>
+            {/* Comment */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Comments (optional)
+              </label>
+              <Textarea
+                placeholder="Share your thoughts about this resource..."
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                maxLength={500}
+                rows={3}
+                className="resize-none"
+              />
+              <div className="text-xs text-gray-500 text-right">
+                {comment.length}/500 characters
               </div>
             </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowRatingDialog(false)}
+              disabled={feedbackMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitRating}
+              disabled={!selectedRating || feedbackMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {feedbackMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <Star className="h-4 w-4 mr-2" />
+                  {userFeedback ? 'Update Rating' : 'Submit Rating'}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
