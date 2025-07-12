@@ -1,4 +1,4 @@
-// components/common/search-with-suggestions.tsx (NEW - Search with Suggestions Component)
+// components/common/search-with-suggestions.tsx (FIXED - No focus loss, proper typing)
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
@@ -62,6 +62,7 @@ export function SearchWithSuggestions({
   const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const [debouncedValue, setDebouncedValue] = useState(value)
+  const popoverRef = useRef<HTMLDivElement>(null)
 
   // Debounce search input
   useEffect(() => {
@@ -83,7 +84,7 @@ export function SearchWithSuggestions({
     onChange(newValue)
     if (newValue.length >= 1 && showSuggestions) {
       setIsOpen(true)
-    } else {
+    } else if (newValue.length === 0) {
       setIsOpen(false)
     }
   }, [onChange, showSuggestions])
@@ -93,7 +94,6 @@ export function SearchWithSuggestions({
     if (query.trim()) {
       onSearch(query.trim())
       setIsOpen(false)
-      inputRef.current?.blur()
     }
   }, [value, onSearch])
 
@@ -104,6 +104,7 @@ export function SearchWithSuggestions({
 
   const handleRecentSearchRemove = useCallback((e: React.MouseEvent, search: string) => {
     e.stopPropagation()
+    e.preventDefault()
     onRecentSearchRemove?.(search)
   }, [onRecentSearchRemove])
 
@@ -119,15 +120,24 @@ export function SearchWithSuggestions({
 
   const handleFocus = useCallback(() => {
     setIsFocused(true)
-    if (value.length >= 1 && showSuggestions) {
+    if ((value.length >= 1 || recentSearches.length > 0 || popularSearches.length > 0) && showSuggestions) {
       setIsOpen(true)
     }
-  }, [value, showSuggestions])
+  }, [value, showSuggestions, recentSearches.length, popularSearches.length])
 
-  const handleBlur = useCallback(() => {
+  const handleBlur = useCallback((e: React.FocusEvent) => {
+    // Don't close if focus is moving to the popover
+    if (popoverRef.current?.contains(e.relatedTarget as Node)) {
+      return
+    }
+    
     setIsFocused(false)
     // Delay closing to allow for suggestion clicks
-    setTimeout(() => setIsOpen(false), 200)
+    setTimeout(() => {
+      if (!popoverRef.current?.contains(document.activeElement)) {
+        setIsOpen(false)
+      }
+    }, 150)
   }, [])
 
   const clearSearch = useCallback(() => {
@@ -158,7 +168,7 @@ export function SearchWithSuggestions({
       <Popover open={isOpen && showSuggestions} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
           <div className="relative">
-            <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+            <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none">
               {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -176,10 +186,11 @@ export function SearchWithSuggestions({
               onFocus={handleFocus}
               onBlur={handleBlur}
               className={cn(
-                "pl-10 pr-20 h-12 text-base",
+                "pl-10 pr-20 h-12 text-base transition-all duration-200",
                 isFocused && "ring-2 ring-blue-500 border-blue-500",
                 className
               )}
+              autoComplete="off"
             />
             
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-1">
@@ -189,7 +200,8 @@ export function SearchWithSuggestions({
                   variant="ghost"
                   size="sm"
                   onClick={clearSearch}
-                  className="h-8 w-8 p-0 hover:bg-gray-100"
+                  className="h-8 w-8 p-0 hover:bg-gray-100 transition-colors"
+                  tabIndex={-1}
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -200,7 +212,8 @@ export function SearchWithSuggestions({
                 size="sm"
                 onClick={() => handleSearchSubmit()}
                 disabled={!value.trim() || isLoading}
-                className="h-8"
+                className="h-8 transition-colors"
+                tabIndex={-1}
               >
                 <Search className="h-4 w-4" />
               </Button>
@@ -212,11 +225,18 @@ export function SearchWithSuggestions({
           className="w-[--radix-popover-trigger-width] p-0 border-0 shadow-lg"
           align="start"
           sideOffset={5}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => {
+            // Don't close on input interaction
+            if (inputRef.current?.contains(e.target as Node)) {
+              e.preventDefault()
+            }
+          }}
         >
-          <Card className="border shadow-lg">
+          <Card className="border shadow-lg" ref={popoverRef}>
             <CardContent className="p-0">
               <Command className="rounded-lg border-0">
-                <CommandList className="max-h-80">
+                <CommandList className="max-h-80 overflow-y-auto">
                   {/* Recent Searches */}
                   {filteredRecentSearches.length > 0 && (
                     <CommandGroup>
@@ -229,8 +249,12 @@ export function SearchWithSuggestions({
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={onClearRecentSearches}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              onClearRecentSearches()
+                            }}
                             className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700"
+                            tabIndex={-1}
                           >
                             Clear all
                           </Button>
@@ -241,11 +265,11 @@ export function SearchWithSuggestions({
                         <CommandItem
                           key={`recent-${index}`}
                           onSelect={() => handleSuggestionSelect(search)}
-                          className="flex items-center justify-between group cursor-pointer"
+                          className="flex items-center justify-between group cursor-pointer px-2 py-2"
                         >
                           <div className="flex items-center space-x-2 flex-1">
-                            <Clock className="h-4 w-4 text-gray-400" />
-                            <span className="flex-1">{search}</span>
+                            <Clock className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                            <span className="flex-1 truncate">{search}</span>
                           </div>
                           
                           <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -254,7 +278,8 @@ export function SearchWithSuggestions({
                                 variant="ghost"
                                 size="sm"
                                 onClick={(e) => handleRecentSearchRemove(e, search)}
-                                className="h-6 w-6 p-0 text-gray-400 hover:text-gray-600"
+                                className="h-6 w-6 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                                tabIndex={-1}
                               >
                                 <X className="h-3 w-3" />
                               </Button>
@@ -278,11 +303,11 @@ export function SearchWithSuggestions({
                         <CommandItem
                           key={`popular-${index}`}
                           onSelect={() => handleSuggestionSelect(search)}
-                          className="flex items-center justify-between group cursor-pointer"
+                          className="flex items-center justify-between group cursor-pointer px-2 py-2"
                         >
                           <div className="flex items-center space-x-2 flex-1">
-                            <TrendingUp className="h-4 w-4 text-gray-400" />
-                            <span className="flex-1">{search}</span>
+                            <TrendingUp className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                            <span className="flex-1 truncate">{search}</span>
                           </div>
                           
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -339,11 +364,11 @@ export function SearchWithSuggestions({
                       <div className="border-t border-gray-100">
                         <CommandItem
                           onSelect={() => handleSearchSubmit()}
-                          className="flex items-center space-x-2 font-medium text-blue-600 cursor-pointer"
+                          className="flex items-center space-x-2 font-medium text-blue-600 cursor-pointer px-2 py-3"
                         >
                           <Search className="h-4 w-4" />
-                          <span>Search for "{value.trim()}"</span>
-                          <Badge variant="secondary" className="ml-auto bg-blue-100 text-blue-700">
+                          <span className="flex-1">Search for "{value.trim()}"</span>
+                          <Badge variant="secondary" className="bg-blue-100 text-blue-700">
                             Enter
                           </Badge>
                         </CommandItem>

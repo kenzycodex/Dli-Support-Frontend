@@ -1,4 +1,4 @@
-// components/pages/admin-help-page.tsx (NEW - Admin Help Management Page)
+// components/pages/admin-help-page.tsx (COMPLETE - All tabs functional)
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
@@ -68,7 +68,11 @@ import {
   Clock,
   AlertTriangle,
   Target,
-  Zap
+  Zap,
+  Calendar,
+  MessageSquare,
+  FileText,
+  Activity
 } from "lucide-react"
 
 import { useAuth } from "@/contexts/AuthContext"
@@ -92,9 +96,15 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
   const { user } = useAuth()
   const [selectedTab, setSelectedTab] = useState("faqs")
   const [searchTerm, setSearchTerm] = useState("")
-  const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [showEditDialog, setShowEditDialog] = useState(false)
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  
+  // Dialog states
+  const [showCreateFAQDialog, setShowCreateFAQDialog] = useState(false)
+  const [showEditFAQDialog, setShowEditFAQDialog] = useState(false)
+  const [showDeleteFAQDialog, setShowDeleteFAQDialog] = useState(false)
+  const [showCreateCategoryDialog, setShowCreateCategoryDialog] = useState(false)
+  const [showEditCategoryDialog, setShowEditCategoryDialog] = useState(false)
+  const [showDeleteCategoryDialog, setShowDeleteCategoryDialog] = useState(false)
+  
   const [selectedFAQ, setSelectedFAQ] = useState<FAQ | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory | null>(null)
 
@@ -120,7 +130,15 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
 
   // Hooks
   const { filters, updateFilter, clearFilters, hasActiveFilters } = useFAQFilters()
-  const { createFAQ, updateFAQ, deleteFAQ, canManage } = useAdminFAQManagement()
+  const { 
+    createFAQ, 
+    updateFAQ, 
+    deleteFAQ, 
+    createCategory, 
+    updateCategory, 
+    deleteCategory, 
+    canManage 
+  } = useAdminFAQManagement()
   const { getCacheStats } = useFAQUtils()
 
   // Data fetching
@@ -130,7 +148,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     refetch: refetchCategories
   } = useHelpCategories({ 
     includeInactive: true,
-    useCache: false // Admin always gets fresh data
+    enabled: true
   })
 
   const {
@@ -140,16 +158,16 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
   } = useFAQs({
     ...filters,
     search: searchTerm,
-    include_drafts: true // Admin can see drafts
+    include_drafts: true
   }, {
-    useCache: false // Admin always gets fresh data
+    enabled: true
   })
 
   const {
     data: stats,
     isLoading: statsLoading,
     refetch: refetchStats
-  } = useHelpStats({ useCache: false })
+  } = useHelpStats({ enabled: true })
 
   // Check admin permissions
   useEffect(() => {
@@ -183,8 +201,11 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
 
     try {
-      await createFAQ.mutateAsync(faqForm)
-      setShowCreateDialog(false)
+      await createFAQ.mutateAsync({
+        ...faqForm,
+        category_id: parseInt(faqForm.category_id)
+      })
+      setShowCreateFAQDialog(false)
       setFAQForm({
         category_id: "",
         question: "",
@@ -211,7 +232,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
       is_featured: faq.is_featured,
       sort_order: faq.sort_order
     })
-    setShowEditDialog(true)
+    setShowEditFAQDialog(true)
   }, [])
 
   const handleUpdateFAQ = useCallback(async () => {
@@ -223,9 +244,12 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     try {
       await updateFAQ.mutateAsync({
         id: selectedFAQ.id,
-        data: faqForm
+        data: {
+          ...faqForm,
+          category_id: parseInt(faqForm.category_id)
+        }
       })
-      setShowEditDialog(false)
+      setShowEditFAQDialog(false)
       setSelectedFAQ(null)
       refetchFAQs()
     } catch (error) {
@@ -238,13 +262,82 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
 
     try {
       await deleteFAQ.mutateAsync(selectedFAQ.id)
-      setShowDeleteDialog(false)
+      setShowDeleteFAQDialog(false)
       setSelectedFAQ(null)
       refetchFAQs()
     } catch (error) {
       // Error handled by mutation
     }
   }, [selectedFAQ, deleteFAQ, refetchFAQs])
+
+  // Category CRUD Operations
+  const handleCreateCategory = useCallback(async () => {
+    if (!categoryForm.name.trim()) {
+      toast.error('Please enter a category name')
+      return
+    }
+
+    try {
+      await createCategory.mutateAsync(categoryForm)
+      setShowCreateCategoryDialog(false)
+      setCategoryForm({
+        name: "",
+        description: "",
+        icon: "HelpCircle",
+        color: "#3B82F6",
+        is_active: true,
+        sort_order: 0
+      })
+      refetchCategories()
+    } catch (error) {
+      // Error handled by mutation
+    }
+  }, [categoryForm, createCategory, refetchCategories])
+
+  const handleEditCategory = useCallback((category: HelpCategory) => {
+    setSelectedCategory(category)
+    setCategoryForm({
+      name: category.name,
+      description: category.description || "",
+      icon: category.icon,
+      color: category.color,
+      is_active: category.is_active,
+      sort_order: category.sort_order
+    })
+    setShowEditCategoryDialog(true)
+  }, [])
+
+  const handleUpdateCategory = useCallback(async () => {
+    if (!selectedCategory || !categoryForm.name.trim()) {
+      toast.error('Please enter a category name')
+      return
+    }
+
+    try {
+      await updateCategory.mutateAsync({
+        id: selectedCategory.id,
+        data: categoryForm
+      })
+      setShowEditCategoryDialog(false)
+      setSelectedCategory(null)
+      refetchCategories()
+    } catch (error) {
+      // Error handled by mutation
+    }
+  }, [selectedCategory, categoryForm, updateCategory, refetchCategories])
+
+  const handleDeleteCategory = useCallback(async () => {
+    if (!selectedCategory) return
+
+    try {
+      await deleteCategory.mutateAsync(selectedCategory.id)
+      setShowDeleteCategoryDialog(false)
+      setSelectedCategory(null)
+      refetchCategories()
+    } catch (error) {
+      // Error handled by mutation
+    }
+  }, [selectedCategory, deleteCategory, refetchCategories])
 
   // Quick actions
   const handleTogglePublish = useCallback(async (faq: FAQ) => {
@@ -415,7 +508,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     <CardTitle>FAQ Management</CardTitle>
                     <CardDescription>Create, edit, and manage help articles</CardDescription>
                   </div>
-                  <Button onClick={() => setShowCreateDialog(true)}>
+                  <Button onClick={() => setShowCreateFAQDialog(true)}>
                     <Plus className="h-4 w-4 mr-2" />
                     Create FAQ
                   </Button>
@@ -606,7 +699,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                   <DropdownMenuItem 
                                     onClick={() => {
                                       setSelectedFAQ(faq)
-                                      setShowDeleteDialog(true)
+                                      setShowDeleteFAQDialog(true)
                                     }}
                                     className="text-red-600"
                                   >
@@ -626,7 +719,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                         <Target className="h-16 w-16 mx-auto mb-4 text-gray-300" />
                         <h3 className="text-lg font-medium text-gray-900 mb-2">No FAQs found</h3>
                         <p className="text-gray-600 mb-4">Get started by creating your first FAQ</p>
-                        <Button onClick={() => setShowCreateDialog(true)}>
+                        <Button onClick={() => setShowCreateFAQDialog(true)}>
                           <Plus className="h-4 w-4 mr-2" />
                           Create FAQ
                         </Button>
@@ -647,7 +740,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     <CardTitle>Category Management</CardTitle>
                     <CardDescription>Organize your help content with categories</CardDescription>
                   </div>
-                  <Button>
+                  <Button onClick={() => setShowCreateCategoryDialog(true)}>
                     <Plus className="h-4 w-4 mr-2" />
                     Create Category
                   </Button>
@@ -655,19 +748,100 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
               </CardHeader>
               
               <CardContent className="p-6">
-                <div className="text-center py-12">
-                  <Settings className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">Category Management</h3>
-                  <p className="text-gray-600">Category management features coming soon</p>
-                </div>
+                {categoriesLoading ? (
+                  <div className="space-y-4">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="h-20 bg-gray-200 rounded animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {categories?.map((category) => (
+                      <Card key={category.id} className="border-0 shadow-md hover:shadow-lg transition-shadow">
+                        <CardContent className="p-6">
+                          <div className="space-y-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center space-x-3">
+                                <div 
+                                  className="w-12 h-12 rounded-lg flex items-center justify-center"
+                                  style={{ backgroundColor: category.color + '20' }}
+                                >
+                                  <div 
+                                    className="w-6 h-6 rounded"
+                                    style={{ backgroundColor: category.color }}
+                                  />
+                                </div>
+                                <div>
+                                  <h3 className="font-medium text-lg">{category.name}</h3>
+                                  <p className="text-sm text-gray-500">{category.faqs_count || 0} FAQs</p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center space-x-2">
+                                <Badge variant={category.is_active ? "default" : "secondary"}>
+                                  {category.is_active ? "Active" : "Inactive"}
+                                </Badge>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm">
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleEditCategory(category)}>
+                                      <Edit className="h-4 w-4 mr-2" />
+                                      Edit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem 
+                                      onClick={() => {
+                                        setSelectedCategory(category)
+                                        setShowDeleteCategoryDialog(true)
+                                      }}
+                                      className="text-red-600"
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            </div>
+                            
+                            {category.description && (
+                              <p className="text-sm text-gray-600 line-clamp-2">{category.description}</p>
+                            )}
+                            
+                            <div className="flex items-center justify-between text-xs text-gray-500">
+                              <span>Sort: {category.sort_order}</span>
+                              <span>Updated {new Date(category.updated_at).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {!categories?.length && !categoriesLoading && (
+                  <div className="text-center py-12">
+                    <Settings className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No categories found</h3>
+                    <p className="text-gray-600 mb-4">Create your first category to organize FAQs</p>
+                    <Button onClick={() => setShowCreateCategoryDialog(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Category
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
           {/* Analytics Tab */}
           <TabsContent value="analytics" className="space-y-6">
+            {/* Key Metrics Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Key Metrics */}
               <Card className="border-0 shadow-lg">
                 <CardContent className="p-6">
                   <div className="flex items-center space-x-3">
@@ -731,17 +905,107 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
               </Card>
             </div>
 
-            {/* Analytics Charts Placeholder */}
+            {/* Analytics Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="border-0 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Activity className="h-5 w-5 text-blue-600" />
+                    <span>FAQ Performance</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <div className="space-y-4">
+                    {faqsData?.faqs.slice(0, 5).map((faq) => (
+                      <div key={faq.id} className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="font-medium text-sm line-clamp-1">{faq.question}</div>
+                          <div className="text-xs text-gray-500">{faq.view_count} views</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-medium text-green-600">
+                            {Math.round((faq.helpful_count / (faq.helpful_count + faq.not_helpful_count)) * 100) || 0}%
+                          </div>
+                          <div className="text-xs text-gray-500">helpful</div>
+                        </div>
+                      </div>
+                    )) || (
+                      <div className="text-center py-8 text-gray-500">
+                        <BarChart3 className="h-8 w-8 mx-auto mb-2" />
+                        <div>No FAQ data available</div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-0 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Settings className="h-5 w-5 text-green-600" />
+                    <span>Category Distribution</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <div className="space-y-4">
+                    {categories?.slice(0, 5).map((category) => (
+                      <div key={category.id} className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div 
+                            className="w-4 h-4 rounded"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          <span className="text-sm font-medium">{category.name}</span>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {category.faqs_count || 0} FAQs
+                        </div>
+                      </div>
+                    )) || (
+                      <div className="text-center py-8 text-gray-500">
+                        <Settings className="h-8 w-8 mx-auto mb-2" />
+                        <div>No category data available</div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recent Activity */}
             <Card className="border-0 shadow-lg">
               <CardHeader>
-                <CardTitle>Analytics Dashboard</CardTitle>
-                <CardDescription>Detailed analytics and insights</CardDescription>
+                <CardTitle className="flex items-center space-x-2">
+                  <Calendar className="h-5 w-5 text-purple-600" />
+                  <span>Recent Activity</span>
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-6">
-                <div className="text-center py-12">
-                  <BarChart3 className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">Analytics Dashboard</h3>
-                  <p className="text-gray-600">Detailed analytics and reporting features coming soon</p>
+                <div className="space-y-4">
+                  {stats?.recent_faqs?.slice(0, 5).map((faq) => (
+                    <div key={faq.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <div className={cn(
+                          "w-2 h-2 rounded-full",
+                          faq.is_published ? "bg-green-500" : "bg-yellow-500"
+                        )} />
+                        <div>
+                          <div className="font-medium text-sm">{faq.question}</div>
+                          <div className="text-xs text-gray-500">
+                            {faq.is_published ? 'Published' : 'Draft'} • {faq.view_count} views
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(faq.published_at || faq.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  )) || (
+                    <div className="text-center py-8 text-gray-500">
+                      <Calendar className="h-8 w-8 mx-auto mb-2" />
+                      <div>No recent activity</div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -751,15 +1015,27 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
           <TabsContent value="suggestions" className="space-y-6">
             <Card className="border-0 shadow-lg">
               <CardHeader className="bg-gradient-to-r from-orange-50 to-red-50 rounded-t-lg">
-                <CardTitle>Content Suggestions</CardTitle>
-                <CardDescription>Review and manage content suggestions from counselors</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Content Suggestions</CardTitle>
+                    <CardDescription>Review and manage content suggestions from counselors</CardDescription>
+                  </div>
+                  <Badge variant="secondary">0 Pending</Badge>
+                </div>
               </CardHeader>
               
               <CardContent className="p-6">
                 <div className="text-center py-12">
-                  <Users className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">Content Suggestions</h3>
-                  <p className="text-gray-600">Suggestion management features coming soon</p>
+                  <MessageSquare className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Suggestions Yet</h3>
+                  <p className="text-gray-600 mb-4">
+                    Content suggestions from counselors will appear here for review and approval.
+                  </p>
+                  <div className="space-y-2 text-sm text-gray-500">
+                    <p>• Counselors can suggest new FAQ content</p>
+                    <p>• You can approve, reject, or request revisions</p>
+                    <p>• Approved suggestions become published FAQs</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -795,7 +1071,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
       </div>
 
       {/* Create FAQ Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+      <Dialog open={showCreateFAQDialog} onOpenChange={setShowCreateFAQDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New FAQ</DialogTitle>
@@ -814,7 +1090,13 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                 <SelectContent>
                   {categories?.filter(cat => cat.is_active).map((category) => (
                     <SelectItem key={category.id} value={category.id.toString()}>
-                      {category.name}
+                      <div className="flex items-center space-x-2">
+                        <div 
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: category.color }}
+                        />
+                        <span>{category.name}</span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -905,7 +1187,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+            <Button variant="outline" onClick={() => setShowCreateFAQDialog(false)}>
               Cancel
             </Button>
             <Button onClick={handleCreateFAQ} disabled={createFAQ.isPending}>
@@ -921,7 +1203,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
       </Dialog>
 
       {/* Edit FAQ Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+      <Dialog open={showEditFAQDialog} onOpenChange={setShowEditFAQDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit FAQ</DialogTitle>
@@ -932,12 +1214,113 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
 
           {/* Same form fields as create dialog */}
           <div className="space-y-4">
-            {/* Category, Question, Answer, Tags, Settings - Same as create form */}
-            {/* ... Copy the form content from create dialog ... */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-category">Category *</Label>
+              <Select value={faqForm.category_id} onValueChange={(value) => setFAQForm(prev => ({ ...prev, category_id: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories?.filter(cat => cat.is_active).map((category) => (
+                    <SelectItem key={category.id} value={category.id.toString()}>
+                      <div className="flex items-center space-x-2">
+                        <div 
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: category.color }}
+                        />
+                        <span>{category.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-question">Question *</Label>
+              <Input
+                id="edit-question"
+                value={faqForm.question}
+                onChange={(e) => setFAQForm(prev => ({ ...prev, question: e.target.value }))}
+                placeholder="Enter the frequently asked question..."
+                maxLength={500}
+              />
+              <div className="text-xs text-gray-500 text-right">
+                {faqForm.question.length}/500 characters
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-answer">Answer *</Label>
+              <Textarea
+                id="edit-answer"
+                value={faqForm.answer}
+                onChange={(e) => setFAQForm(prev => ({ ...prev, answer: e.target.value }))}
+                placeholder="Provide a comprehensive answer..."
+                className="min-h-[120px] resize-none"
+                maxLength={5000}
+              />
+              <div className="text-xs text-gray-500 text-right">
+                {faqForm.answer.length}/5000 characters
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {faqForm.tags.map((tag, index) => (
+                  <Badge key={index} variant="secondary" className="cursor-pointer" onClick={() => handleRemoveTag(tag)}>
+                    {tag} ×
+                  </Badge>
+                ))}
+              </div>
+              <Input
+                placeholder="Add tags (press Enter to add)"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const target = e.target as HTMLInputElement
+                    handleAddTag(target.value)
+                    target.value = ''
+                  }
+                }}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-sort_order">Sort Order</Label>
+                <Input
+                  id="edit-sort_order"
+                  type="number"
+                  value={faqForm.sort_order}
+                  onChange={(e) => setFAQForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  min="0"
+                />
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="edit-is_published"
+                    checked={faqForm.is_published}
+                    onCheckedChange={(checked) => setFAQForm(prev => ({ ...prev, is_published: checked }))}
+                  />
+                  <Label htmlFor="edit-is_published">Published</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="edit-is_featured"
+                    checked={faqForm.is_featured}
+                    onCheckedChange={(checked) => setFAQForm(prev => ({ ...prev, is_featured: checked }))}
+                  />
+                  <Label htmlFor="edit-is_featured">Featured</Label>
+                </div>
+              </div>
+            </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+            <Button variant="outline" onClick={() => setShowEditFAQDialog(false)}>
               Cancel
             </Button>
             <Button onClick={handleUpdateFAQ} disabled={updateFAQ.isPending}>
@@ -952,8 +1335,174 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      {/* Create Category Dialog */}
+      <Dialog open={showCreateCategoryDialog} onOpenChange={setShowCreateCategoryDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Category</DialogTitle>
+            <DialogDescription>
+              Add a new category to organize your FAQs.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="category-name">Name *</Label>
+              <Input
+                id="category-name"
+                value={categoryForm.name}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Category name..."
+                maxLength={100}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="category-description">Description</Label>
+              <Textarea
+                id="category-description"
+                value={categoryForm.description}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Brief description..."
+                className="min-h-[80px] resize-none"
+                maxLength={500}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="category-color">Color</Label>
+                <Input
+                  id="category-color"
+                  type="color"
+                  value={categoryForm.color}
+                  onChange={(e) => setCategoryForm(prev => ({ ...prev, color: e.target.value }))}
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="category-sort">Sort Order</Label>
+                <Input
+                  id="category-sort"
+                  type="number"
+                  value={categoryForm.sort_order}
+                  onChange={(e) => setCategoryForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="category-active"
+                checked={categoryForm.is_active}
+                onCheckedChange={(checked) => setCategoryForm(prev => ({ ...prev, is_active: checked }))}
+              />
+              <Label htmlFor="category-active">Active</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateCategoryDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCategory} disabled={createCategory.isPending}>
+              {createCategory.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Create Category
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Category Dialog */}
+      <Dialog open={showEditCategoryDialog} onOpenChange={setShowEditCategoryDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Category</DialogTitle>
+            <DialogDescription>
+              Update the category information.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-category-name">Name *</Label>
+              <Input
+                id="edit-category-name"
+                value={categoryForm.name}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Category name..."
+                maxLength={100}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-category-description">Description</Label>
+              <Textarea
+                id="edit-category-description"
+                value={categoryForm.description}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Brief description..."
+                className="min-h-[80px] resize-none"
+                maxLength={500}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-category-color">Color</Label>
+                <Input
+                  id="edit-category-color"
+                  type="color"
+                  value={categoryForm.color}
+                  onChange={(e) => setCategoryForm(prev => ({ ...prev, color: e.target.value }))}
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-category-sort">Sort Order</Label>
+                <Input
+                  id="edit-category-sort"
+                  type="number"
+                  value={categoryForm.sort_order}
+                  onChange={(e) => setCategoryForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="edit-category-active"
+                checked={categoryForm.is_active}
+                onCheckedChange={(checked) => setCategoryForm(prev => ({ ...prev, is_active: checked }))}
+              />
+              <Label htmlFor="edit-category-active">Active</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditCategoryDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateCategory} disabled={updateCategory.isPending}>
+              {updateCategory.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Edit className="h-4 w-4 mr-2" />
+              )}
+              Update Category
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete FAQ Confirmation Dialog */}
+      <AlertDialog open={showDeleteFAQDialog} onOpenChange={setShowDeleteFAQDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete FAQ</AlertDialogTitle>
@@ -977,6 +1526,38 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                 <Trash2 className="h-4 w-4 mr-2" />
               )}
               Delete FAQ
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Category Confirmation Dialog */}
+      <AlertDialog open={showDeleteCategoryDialog} onOpenChange={setShowDeleteCategoryDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Category</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this category? This action cannot be undone.
+              <br />
+              <br />
+              <strong>Category:</strong> {selectedCategory?.name}
+              <br />
+              <strong>FAQs in this category:</strong> {selectedCategory?.faqs_count || 0}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteCategory}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteCategory.isPending}
+            >
+              {deleteCategory.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Delete Category
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

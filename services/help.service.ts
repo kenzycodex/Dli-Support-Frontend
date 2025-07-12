@@ -1,7 +1,7 @@
-// services/help.service.ts (UPDATED - Enhanced with smart caching and role validation)
+// services/help.service.ts (FIXED - Stable caching without constant reloading)
 import { apiClient, ApiResponse } from '@/lib/api'
 
-// Enhanced interfaces with caching metadata
+// Enhanced interfaces with stable caching
 export interface HelpCategory {
   id: number
   name: string
@@ -14,7 +14,6 @@ export interface HelpCategory {
   faqs_count?: number
   created_at: string
   updated_at: string
-  _cached_at?: number // For cache management
 }
 
 export interface FAQ {
@@ -43,7 +42,6 @@ export interface FAQ {
   }
   helpfulness_rate?: number
   time_ago?: string
-  _cached_at?: number // For cache management
 }
 
 export interface FAQFeedback {
@@ -86,7 +84,6 @@ export interface HelpStats {
   most_viewed_faq?: Pick<FAQ, 'id' | 'question' | 'view_count'>
   recent_faqs: Pick<FAQ, 'id' | 'question' | 'published_at' | 'is_published' | 'view_count'>[]
   categories_with_counts: Pick<HelpCategory, 'id' | 'name' | 'slug' | 'color' | 'faqs_count'>[]
-  _cached_at?: number
 }
 
 export interface ContentSuggestion {
@@ -105,17 +102,17 @@ export interface ContentSuggestion {
   }
 }
 
-// Smart cache implementation for help data
+// Stable cache implementation
 class HelpCache {
   private cache = new Map<string, { data: any; timestamp: number; ttl: number }>()
-  private readonly DEFAULT_TTL = 5 * 60 * 1000 // 5 minutes
-  private readonly STATS_TTL = 10 * 60 * 1000 // 10 minutes for stats
-  private readonly FAQ_TTL = 3 * 60 * 1000 // 3 minutes for FAQs
+  private readonly DEFAULT_TTL = 10 * 60 * 1000 // 10 minutes - longer for stability
+  private readonly STATS_TTL = 15 * 60 * 1000 // 15 minutes for stats
+  private readonly FAQ_TTL = 8 * 60 * 1000 // 8 minutes for FAQs
 
   set(key: string, data: any, ttl?: number): void {
     const timestamp = Date.now()
     const cacheEntry = {
-      data: { ...data, _cached_at: timestamp },
+      data,
       timestamp,
       ttl: ttl || this.DEFAULT_TTL
     }
@@ -127,8 +124,10 @@ class HelpCache {
     if (!entry) return null
 
     const now = Date.now()
-    const isStale = now - entry.timestamp > entry.ttl
+    const age = now - entry.timestamp
+    const isStale = age > entry.ttl
 
+    // Return data even if stale, but mark it as stale
     return {
       data: entry.data as T,
       isStale
@@ -149,7 +148,7 @@ class HelpCache {
   cleanup(): void {
     const now = Date.now()
     for (const [key, entry] of this.cache.entries()) {
-      if (now - entry.timestamp > entry.ttl * 2) { // Remove entries older than 2x TTL
+      if (now - entry.timestamp > entry.ttl * 3) { // Remove entries older than 3x TTL
         this.cache.delete(key)
       }
     }
@@ -181,25 +180,25 @@ class HelpService {
   }
 
   // =============================================================================
-  // CACHED BASIC OPERATIONS
+  // BASIC OPERATIONS WITH STABLE CACHING
   // =============================================================================
 
-  // Get help categories with smart caching
+  // Get help categories with stable caching
   async getCategories(options: { 
     include_inactive?: boolean 
     userRole?: string
-    useCache?: boolean 
+    forceRefresh?: boolean 
   } = {}): Promise<ApiResponse<{ categories: HelpCategory[] }>> {
-    const { useCache = true, userRole } = options
+    const { forceRefresh = false, userRole } = options
     const cacheKey = this.getCacheKey('categories', options)
 
-    // Try cache first
-    if (useCache) {
+    // Try cache first unless force refresh
+    if (!forceRefresh) {
       const cached = helpCache.get<{ categories: HelpCategory[] }>(cacheKey)
       if (cached && !cached.isStale) {
         return {
           success: true,
-          message: 'Categories retrieved from cache',
+          message: 'Categories retrieved successfully',
           data: cached.data
         }
       }
@@ -215,7 +214,7 @@ class HelpService {
       const response = await apiClient.get<{ categories: HelpCategory[] }>(endpoint)
 
       // Cache successful response
-      if (response.success && response.data && useCache) {
+      if (response.success && response.data) {
         helpCache.set(cacheKey, response.data, helpCache['DEFAULT_TTL'])
       }
 
@@ -226,7 +225,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
-          message: 'Categories retrieved from stale cache due to error',
+          message: 'Categories retrieved from cache',
           data: cached.data
         }
       }
@@ -234,21 +233,21 @@ class HelpService {
     }
   }
 
-  // Get FAQs with smart caching and role filtering
+  // Get FAQs with stable caching
   async getFAQs(filters: FAQFilters & { 
     userRole?: string
-    useCache?: boolean 
+    forceRefresh?: boolean 
   } = {}): Promise<ApiResponse<FAQsResponse>> {
-    const { useCache = true, userRole, ...apiFilters } = filters
+    const { forceRefresh = false, userRole, ...apiFilters } = filters
     const cacheKey = this.getCacheKey('faqs', apiFilters)
 
-    // Try cache first
-    if (useCache) {
+    // Try cache first unless force refresh
+    if (!forceRefresh) {
       const cached = helpCache.get<FAQsResponse>(cacheKey)
       if (cached && !cached.isStale) {
         return {
           success: true,
-          message: 'FAQs retrieved from cache',
+          message: 'FAQs retrieved successfully',
           data: cached.data
         }
       }
@@ -271,7 +270,7 @@ class HelpService {
       const response = await apiClient.get<FAQsResponse>(endpoint)
 
       // Cache successful response
-      if (response.success && response.data && useCache) {
+      if (response.success && response.data) {
         helpCache.set(cacheKey, response.data, helpCache['FAQ_TTL'])
       }
 
@@ -282,7 +281,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
-          message: 'FAQs retrieved from stale cache due to error',
+          message: 'FAQs retrieved from cache',
           data: cached.data
         }
       }
@@ -293,18 +292,18 @@ class HelpService {
   // Get single FAQ with caching
   async getFAQ(id: number, options: { 
     userRole?: string
-    useCache?: boolean 
+    forceRefresh?: boolean 
   } = {}): Promise<ApiResponse<{ faq: FAQ; user_feedback?: FAQFeedback }>> {
-    const { useCache = true } = options
+    const { forceRefresh = false } = options
     const cacheKey = this.getCacheKey('faq', { id })
 
-    // Try cache first
-    if (useCache) {
+    // Try cache first unless force refresh
+    if (!forceRefresh) {
       const cached = helpCache.get<{ faq: FAQ; user_feedback?: FAQFeedback }>(cacheKey)
       if (cached && !cached.isStale) {
         return {
           success: true,
-          message: 'FAQ retrieved from cache',
+          message: 'FAQ retrieved successfully',
           data: cached.data
         }
       }
@@ -314,7 +313,7 @@ class HelpService {
       const response = await apiClient.get<{ faq: FAQ; user_feedback?: FAQFeedback }>(`/help/faqs/${id}`)
 
       // Cache successful response
-      if (response.success && response.data && useCache) {
+      if (response.success && response.data) {
         helpCache.set(cacheKey, response.data, helpCache['FAQ_TTL'])
       }
 
@@ -325,7 +324,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
-          message: 'FAQ retrieved from stale cache due to error',
+          message: 'FAQ retrieved from cache',
           data: cached.data
         }
       }
@@ -333,21 +332,21 @@ class HelpService {
     }
   }
 
-  // Get help statistics with enhanced caching
+  // Get help statistics with stable caching
   async getStats(options: { 
     userRole?: string
-    useCache?: boolean 
+    forceRefresh?: boolean 
   } = {}): Promise<ApiResponse<{ stats: HelpStats }>> {
-    const { useCache = true } = options
+    const { forceRefresh = false } = options
     const cacheKey = this.getCacheKey('stats', {})
 
-    // Try cache first
-    if (useCache) {
+    // Try cache first unless force refresh
+    if (!forceRefresh) {
       const cached = helpCache.get<{ stats: HelpStats }>(cacheKey)
       if (cached && !cached.isStale) {
         return {
           success: true,
-          message: 'Stats retrieved from cache',
+          message: 'Stats retrieved successfully',
           data: cached.data
         }
       }
@@ -357,7 +356,7 @@ class HelpService {
       const response = await apiClient.get<{ stats: HelpStats }>('/help/stats')
 
       // Cache successful response with longer TTL
-      if (response.success && response.data && useCache) {
+      if (response.success && response.data) {
         helpCache.set(cacheKey, response.data, helpCache['STATS_TTL'])
       }
 
@@ -368,7 +367,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
-          message: 'Stats retrieved from stale cache due to error',
+          message: 'Stats retrieved from cache',
           data: cached.data
         }
       }
@@ -376,7 +375,7 @@ class HelpService {
     }
   }
 
-  // Provide feedback with cache invalidation
+  // Provide feedback with selective cache invalidation
   async provideFeedback(
     faqId: number, 
     feedback: { is_helpful: boolean; comment?: string },
@@ -386,12 +385,9 @@ class HelpService {
       const response = await apiClient.post<{ feedback: FAQFeedback }>(`/help/faqs/${faqId}/feedback`, feedback)
 
       if (response.success) {
-        // Invalidate related caches
+        // Only invalidate specific caches
         helpCache.invalidate(`faq.*${faqId}`)
-        helpCache.invalidate('faqs')
         helpCache.invalidate('stats')
-        helpCache.invalidate('popular')
-        helpCache.invalidate('featured')
       }
 
       return response
@@ -420,7 +416,7 @@ class HelpService {
       const response = await apiClient.post<{ faq: FAQ }>('/help/suggest-content', suggestion)
 
       if (response.success) {
-        // Invalidate caches to refresh data
+        // Invalidate relevant caches
         helpCache.invalidate('faqs')
         helpCache.invalidate('stats')
       }
@@ -432,23 +428,23 @@ class HelpService {
   }
 
   // =============================================================================
-  // SPECIALIZED GETTERS WITH CACHING
+  // SPECIALIZED GETTERS WITH STABLE CACHING
   // =============================================================================
 
-  // Get popular FAQs with caching
+  // Get popular FAQs with stable caching
   async getPopularFAQs(limit: number = 5, options: {
     userRole?: string
-    useCache?: boolean
+    forceRefresh?: boolean
   } = {}): Promise<ApiResponse<FAQ[]>> {
-    const { useCache = true } = options
+    const { forceRefresh = false } = options
     const cacheKey = this.getCacheKey('popular', { limit })
 
-    if (useCache) {
+    if (!forceRefresh) {
       const cached = helpCache.get<FAQ[]>(cacheKey)
       if (cached && !cached.isStale) {
         return {
           success: true,
-          message: 'Popular FAQs retrieved from cache',
+          message: 'Popular FAQs retrieved successfully',
           data: cached.data
         }
       }
@@ -458,13 +454,13 @@ class HelpService {
       const response = await this.getFAQs({ 
         sort_by: 'helpful', 
         per_page: limit,
-        useCache: false // Avoid double caching
+        forceRefresh: true // Get fresh data for processing
       })
       
       if (response.success && response.data) {
         const popularFAQs = response.data.faqs
         
-        if (useCache) {
+        if (!forceRefresh) {
           helpCache.set(cacheKey, popularFAQs, helpCache['FAQ_TTL'])
         }
 
@@ -486,7 +482,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
-          message: 'Popular FAQs retrieved from stale cache due to error',
+          message: 'Popular FAQs retrieved from cache',
           data: cached.data
         }
       }
@@ -494,20 +490,20 @@ class HelpService {
     }
   }
 
-  // Get featured FAQs with caching
+  // Get featured FAQs with stable caching
   async getFeaturedFAQs(limit: number = 3, options: {
     userRole?: string
-    useCache?: boolean
+    forceRefresh?: boolean
   } = {}): Promise<ApiResponse<FAQ[]>> {
-    const { useCache = true } = options
+    const { forceRefresh = false } = options
     const cacheKey = this.getCacheKey('featured', { limit })
 
-    if (useCache) {
+    if (!forceRefresh) {
       const cached = helpCache.get<FAQ[]>(cacheKey)
       if (cached && !cached.isStale) {
         return {
           success: true,
-          message: 'Featured FAQs retrieved from cache',
+          message: 'Featured FAQs retrieved successfully',
           data: cached.data
         }
       }
@@ -517,7 +513,7 @@ class HelpService {
       const response = await this.getFAQs({ 
         featured: true, 
         per_page: limit,
-        useCache: false
+        forceRefresh: true
       })
       
       if (response.success && response.data) {
@@ -525,7 +521,7 @@ class HelpService {
           ? response.data.featured_faqs 
           : response.data.faqs.filter(faq => faq.is_featured)
         
-        if (useCache) {
+        if (!forceRefresh) {
           helpCache.set(cacheKey, featuredFAQs, helpCache['FAQ_TTL'])
         }
 
@@ -546,7 +542,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
-          message: 'Featured FAQs retrieved from stale cache due to error',
+          message: 'Featured FAQs retrieved from cache',
           data: cached.data
         }
       }
@@ -643,46 +639,75 @@ class HelpService {
     }
   }
 
-  // =============================================================================
-  // CACHE MANAGEMENT
-  // =============================================================================
+  // Create Category (Admin only)
+  async createCategory(categoryData: Partial<HelpCategory>, userRole?: string): Promise<ApiResponse<{ category: HelpCategory }>> {
+    if (!this.validateRole(['admin'], userRole)) {
+      return {
+        success: false,
+        message: 'Only administrators can create categories.',
+        status: 403
+      }
+    }
 
-  // Clear cache manually
-  clearCache(pattern?: string): void {
-    helpCache.invalidate(pattern)
-  }
-
-  // Get cache statistics
-  getCacheStats() {
-    return helpCache.getStats()
-  }
-
-  // Preload essential data
-  async preloadEssentialData(userRole?: string): Promise<void> {
     try {
-      // Preload in parallel
-      await Promise.allSettled([
-        this.getCategories({ userRole, useCache: true }),
-        this.getFeaturedFAQs(3, { userRole, useCache: true }),
-        this.getPopularFAQs(5, { userRole, useCache: true }),
-        this.getStats({ userRole, useCache: true })
-      ])
-    } catch (error) {
-      console.warn('Failed to preload some help data:', error)
+      const response = await apiClient.post<{ category: HelpCategory }>('/admin/help/categories', categoryData)
+
+      if (response.success) {
+        helpCache.invalidate('categories')
+        helpCache.invalidate('stats')
+      }
+
+      return response
+    } catch (error: any) {
+      throw error
     }
   }
 
-  // Background refresh
-  async backgroundRefresh(userRole?: string): Promise<void> {
+  // Update Category (Admin only)
+  async updateCategory(id: number, categoryData: Partial<HelpCategory>, userRole?: string): Promise<ApiResponse<{ category: HelpCategory }>> {
+    if (!this.validateRole(['admin'], userRole)) {
+      return {
+        success: false,
+        message: 'Only administrators can update categories.',
+        status: 403
+      }
+    }
+
     try {
-      // Refresh data in background without waiting
-      Promise.allSettled([
-        this.getCategories({ userRole, useCache: false }),
-        this.getFAQs({ userRole, useCache: false }),
-        this.getStats({ userRole, useCache: false })
-      ])
-    } catch (error) {
-      console.warn('Background refresh failed:', error)
+      const response = await apiClient.put<{ category: HelpCategory }>(`/admin/help/categories/${id}`, categoryData)
+
+      if (response.success) {
+        helpCache.invalidate('categories')
+        helpCache.invalidate('stats')
+      }
+
+      return response
+    } catch (error: any) {
+      throw error
+    }
+  }
+
+  // Delete Category (Admin only)
+  async deleteCategory(id: number, userRole?: string): Promise<ApiResponse<{ message: string }>> {
+    if (!this.validateRole(['admin'], userRole)) {
+      return {
+        success: false,
+        message: 'Only administrators can delete categories.',
+        status: 403
+      }
+    }
+
+    try {
+      const response = await apiClient.delete<{ message: string }>(`/admin/help/categories/${id}`)
+
+      if (response.success) {
+        helpCache.invalidate('categories')
+        helpCache.invalidate('stats')
+      }
+
+      return response
+    } catch (error: any) {
+      throw error
     }
   }
 
@@ -730,6 +755,33 @@ class HelpService {
       return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`
     } else {
       return date.toLocaleDateString()
+    }
+  }
+
+  // =============================================================================
+  // CACHE MANAGEMENT
+  // =============================================================================
+
+  // Clear cache manually
+  clearCache(pattern?: string): void {
+    helpCache.invalidate(pattern)
+  }
+
+  // Get cache statistics
+  getCacheStats() {
+    return helpCache.getStats()
+  }
+
+  // Force refresh all data
+  async forceRefreshAll(userRole?: string): Promise<void> {
+    try {
+      await Promise.allSettled([
+        this.getCategories({ userRole, forceRefresh: true }),
+        this.getFAQs({ userRole, forceRefresh: true }),
+        this.getStats({ userRole, forceRefresh: true })
+      ])
+    } catch (error) {
+      console.warn('Failed to refresh some help data:', error)
     }
   }
 }

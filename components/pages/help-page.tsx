@@ -1,13 +1,24 @@
-// components/pages/help-page.tsx (UPDATED - Role-based access with smart caching)
+// components/pages/help-page.tsx (FIXED - No stale indicators, working content suggestion)
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   HelpCircle,
   BookOpen,
@@ -26,7 +37,6 @@ import {
   Settings,
   Plus,
   BarChart3,
-  Zap,
   RefreshCw
 } from "lucide-react"
 
@@ -39,9 +49,7 @@ import {
   useRecentFAQSearches,
   useFAQAnalytics,
   useContentSuggestion,
-  useFAQFeedback,
-  useAdminFAQManagement,
-  useFAQUtils
+  useHelpCategories
 } from "@/hooks/use-help"
 import { FAQFeedbackComponent } from "@/components/help/faq-feedback"
 import { SearchWithSuggestions } from "@/components/common/search-with-suggestions"
@@ -58,9 +66,17 @@ interface HelpPageProps {
 export function HelpPage({ onNavigate }: HelpPageProps) {
   const { user } = useAuth()
   const [selectedTab, setSelectedTab] = useState("faqs")
-  const [showCacheStats, setShowCacheStats] = useState(false)
+  const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
   
-  // FAQ filtering and search with smart caching
+  // Content suggestion form state
+  const [suggestionForm, setSuggestionForm] = useState({
+    category_id: "",
+    question: "",
+    answer: "",
+    tags: [] as string[]
+  })
+  
+  // FAQ filtering and search
   const { filters, updateFilter, clearFilters, hasActiveFilters } = useFAQFilters()
   const { 
     recentSearches, 
@@ -70,9 +86,8 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
   } = useRecentFAQSearches()
   const { bookmarkedFAQs, toggleBookmark, isBookmarked } = useFAQBookmarks()
   const { trackFAQSearch, trackCategoryClick, trackFAQView } = useFAQAnalytics()
-  const { getCacheStats } = useFAQUtils()
   
-  // Data fetching with smart caching
+  // Data fetching - stable without stale indicators
   const {
     categories,
     featured,
@@ -83,28 +98,23 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
     isLoading: dashboardLoading,
     error: dashboardError,
     hasData,
-    isStale,
-    refetch: refetchDashboard
-  } = useHelpDashboard({
-    useCache: true,
-    preloadData: true
-  })
+    forceRefresh
+  } = useHelpDashboard()
   
   const {
     data: faqsData,
     isLoading: faqsLoading,
     error: faqsError,
-    isStale: faqsIsStale,
     refetch: refetchFAQs
-  } = useFAQs(filters, {
-    useCache: true,
-    backgroundRefresh: true
-  })
+  } = useFAQs(filters)
 
-  // Content suggestion and feedback hooks
+  const {
+    data: allCategories,
+    isLoading: categoriesLoading
+  } = useHelpCategories({ includeInactive: false })
+
+  // Content suggestion hook
   const contentSuggestion = useContentSuggestion()
-  const faqFeedback = useFAQFeedback()
-  const adminFAQManagement = useAdminFAQManagement()
 
   // Handle search with analytics tracking
   const handleSearch = useCallback((query: string) => {
@@ -136,15 +146,15 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
     trackFAQView(faq.id, faq.question)
   }, [trackFAQView])
 
-  // Enhanced refresh that clears cache
+  // Enhanced refresh
   const handleRefresh = useCallback(async () => {
     try {
-      await Promise.all([refetchDashboard(), refetchFAQs()])
+      await Promise.all([forceRefresh(), refetchFAQs()])
       toast.success('Help content refreshed successfully')
     } catch (error) {
       toast.error('Failed to refresh content')
     }
-  }, [refetchDashboard, refetchFAQs])
+  }, [forceRefresh, refetchFAQs])
 
   // Navigation to admin panel
   const handleAdminNavigate = useCallback(() => {
@@ -153,18 +163,57 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
     }
   }, [onNavigate, canManageContent])
 
-  // Show cache stats for development/admin
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development' || user?.role === 'admin') {
-      const interval = setInterval(() => {
-        setShowCacheStats(true)
-      }, 10000) // Show for a moment every 10 seconds
-      
-      return () => clearInterval(interval)
+  // Handle suggestion form
+  const handleSuggestContent = useCallback(() => {
+    if (canSuggestContent) {
+      setShowSuggestionDialog(true)
+    } else {
+      toast.error('Only counselors and administrators can suggest content')
     }
-  }, [user?.role])
+  }, [canSuggestContent])
 
-  const cacheStats = getCacheStats()
+  const handleSubmitSuggestion = useCallback(async () => {
+    if (!suggestionForm.category_id || !suggestionForm.question.trim() || !suggestionForm.answer.trim()) {
+      toast.error('Please fill in all required fields')
+      return
+    }
+
+    try {
+      await contentSuggestion.mutateAsync({
+        category_id: parseInt(suggestionForm.category_id),
+        question: suggestionForm.question.trim(),
+        answer: suggestionForm.answer.trim(),
+        tags: suggestionForm.tags
+      })
+      
+      setShowSuggestionDialog(false)
+      setSuggestionForm({
+        category_id: "",
+        question: "",
+        answer: "",
+        tags: []
+      })
+    } catch (error) {
+      // Error handled by mutation
+    }
+  }, [suggestionForm, contentSuggestion])
+
+  // Handle tag management for suggestions
+  const handleAddTag = useCallback((tag: string) => {
+    if (tag.trim() && !suggestionForm.tags.includes(tag.trim())) {
+      setSuggestionForm(prev => ({
+        ...prev,
+        tags: [...prev.tags, tag.trim()]
+      }))
+    }
+  }, [suggestionForm.tags])
+
+  const handleRemoveTag = useCallback((tagToRemove: string) => {
+    setSuggestionForm(prev => ({
+      ...prev,
+      tags: prev.tags.filter(tag => tag !== tagToRemove)
+    }))
+  }, [])
 
   // Loading skeleton for initial load
   if (dashboardLoading && !hasData) {
@@ -209,29 +258,6 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
 
   return (
     <div className="space-y-8">
-      {/* Stale Data Indicator */}
-      {(isStale || faqsIsStale) && hasData && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Zap className="h-4 w-4 text-amber-600 animate-pulse" />
-              <span className="text-sm text-amber-700">
-                Showing cached data. Refreshing in background...
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleRefresh}
-              className="text-amber-600 hover:text-amber-800"
-            >
-              <RefreshCw className="h-4 w-4 mr-1" />
-              Refresh now
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Header with Role-Based Actions */}
       <div className="relative bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 rounded-2xl p-8 text-white overflow-hidden">
         <div className="absolute inset-0 bg-black/10 rounded-2xl"></div>
@@ -253,6 +279,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                 <Button
                   variant="secondary"
                   size="sm"
+                  onClick={handleSuggestContent}
                   className="bg-white/20 hover:bg-white/30 border-white/30"
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -288,7 +315,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
             </div>
           </div>
           
-          {/* Stats Grid - Continued */}
+          {/* Stats Grid */}
           <div className="grid grid-cols-3 gap-6 mt-6">
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
@@ -319,33 +346,6 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
           )}
         </div>
       </div>
-
-      {/* Error Alert */}
-      {(dashboardError || faqsError) && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-2">
-              <div className="text-red-600">
-                <HelpCircle className="h-5 w-5" />
-              </div>
-              <div>
-                <h4 className="text-red-800 font-medium">Failed to load help content</h4>
-                <p className="text-red-700 text-sm">
-                  {dashboardError?.message || faqsError?.message || 'Please try refreshing the page'}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRefresh}
-                className="ml-auto border-red-300 text-red-700 hover:bg-red-100"
-              >
-                Try Again
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Search */}
       <Card className="border-0 shadow-lg">
@@ -703,7 +703,6 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
         </TabsContent>
 
         <TabsContent value="guides" className="space-y-6">
-          {/* Guides content would go here - keeping existing implementation */}
           <Card className="border-0 shadow-lg">
             <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-t-lg">
               <CardTitle className="flex items-center space-x-2">
@@ -723,7 +722,6 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
         </TabsContent>
 
         <TabsContent value="contact" className="space-y-6">
-          {/* Contact content - keeping existing implementation */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card className="border-0 shadow-lg">
               <CardHeader className="bg-gradient-to-r from-green-50 to-teal-50 rounded-t-lg">
@@ -814,6 +812,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
               </p>
               <Button 
                 className="bg-blue-600 hover:bg-blue-700"
+                onClick={handleSuggestContent}
                 disabled={contentSuggestion.isPending}
               >
                 {contentSuggestion.isPending ? (
@@ -860,26 +859,121 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
         </Card>
       )}
 
-      {/* Cache Stats for Development/Admin */}
-      {showCacheStats && (process.env.NODE_ENV === 'development' || user?.role === 'admin') && (
-        <Card className="border-dashed border-gray-300 bg-gray-50">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Cache: {cacheStats.cacheSize} entries, {Math.round(cacheStats.totalMemory / 1024)}KB
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowCacheStats(false)}
-                className="text-gray-500"
+      {/* Content Suggestion Dialog */}
+      <Dialog open={showSuggestionDialog} onOpenChange={setShowSuggestionDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Suggest FAQ Content</DialogTitle>
+            <DialogDescription>
+              Help improve our help center by suggesting new FAQ content based on common student questions.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="suggestion-category">Category *</Label>
+              <Select 
+                value={suggestionForm.category_id}
+                onValueChange={(value) => setSuggestionForm(prev => ({ ...prev, category_id: value }))}
               >
-                ×
-              </Button>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allCategories?.filter(cat => cat.is_active).map((category) => (
+                    <SelectItem key={category.id} value={category.id.toString()}>
+                      <div className="flex items-center space-x-2">
+                        <div 
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: category.color }}
+                        />
+                        <span>{category.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          </CardContent>
-        </Card>
-      )}
+
+            <div className="space-y-2">
+              <Label htmlFor="suggestion-question">Question *</Label>
+              <Input
+                id="suggestion-question"
+                value={suggestionForm.question}
+                onChange={(e) => setSuggestionForm(prev => ({ ...prev, question: e.target.value }))}
+                placeholder="What question do students frequently ask?"
+                maxLength={500}
+              />
+              <div className="text-xs text-gray-500 text-right">
+                {suggestionForm.question.length}/500 characters
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="suggestion-answer">Answer *</Label>
+              <Textarea
+                id="suggestion-answer"
+                value={suggestionForm.answer}
+                onChange={(e) => setSuggestionForm(prev => ({ ...prev, answer: e.target.value }))}
+                placeholder="Provide a comprehensive answer to help students..."
+                className="min-h-[120px] resize-none"
+                maxLength={5000}
+              />
+              <div className="text-xs text-gray-500 text-right">
+                {suggestionForm.answer.length}/5000 characters
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tags (optional)</Label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {suggestionForm.tags.map((tag, index) => (
+                  <Badge 
+                    key={index} 
+                    variant="secondary" 
+                    className="cursor-pointer hover:bg-red-100 hover:text-red-800" 
+                    onClick={() => handleRemoveTag(tag)}
+                  >
+                    {tag} ×
+                  </Badge>
+                ))}
+              </div>
+              <Input
+                placeholder="Add tags (press Enter to add)"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const target = e.target as HTMLInputElement
+                    handleAddTag(target.value)
+                    target.value = ''
+                  }
+                }}
+              />
+              <div className="text-xs text-gray-500">
+                Press Enter to add tags. Click on tags to remove them.
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSuggestionDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSubmitSuggestion} 
+              disabled={contentSuggestion.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {contentSuggestion.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Submit Suggestion
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

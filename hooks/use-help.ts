@@ -1,30 +1,28 @@
-// hooks/use-help.ts (UPDATED - Enhanced with smart caching and role-based access)
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
+// hooks/use-help.ts (FIXED - Stable loading without constant reloading)
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
-import { helpService, helpCache, type FAQ, type HelpCategory, type FAQFilters, type ContentSuggestion } from '@/services/help.service'
-import { useCallback, useMemo, useState, useEffect } from 'react'
+import { helpService, type FAQ, type HelpCategory, type FAQFilters, type ContentSuggestion } from '@/services/help.service'
+import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-// Query keys for consistent caching
+// Stable query keys
 export const helpQueryKeys = {
   all: ['help'] as const,
   categories: (userRole?: string) => [...helpQueryKeys.all, 'categories', userRole] as const,
-  faqs: (filters?: FAQFilters, userRole?: string) => [...helpQueryKeys.all, 'faqs', filters, userRole] as const,
+  faqs: (filters?: FAQFilters, userRole?: string) => [...helpQueryKeys.all, 'faqs', JSON.stringify(filters), userRole] as const,
   faq: (id: number) => [...helpQueryKeys.all, 'faq', id] as const,
   stats: (userRole?: string) => [...helpQueryKeys.all, 'stats', userRole] as const,
   featured: (limit?: number) => [...helpQueryKeys.all, 'featured', limit] as const,
   popular: (limit?: number) => [...helpQueryKeys.all, 'popular', limit] as const,
-  search: (query: string, filters?: Omit<FAQFilters, 'search'>) => 
-    [...helpQueryKeys.all, 'search', query, filters] as const,
 }
 
-// Enhanced hook for help categories with smart caching
+// Enhanced hook for help categories with stable caching
 export function useHelpCategories(options: {
   includeInactive?: boolean
-  useCache?: boolean
+  enabled?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { includeInactive = false, useCache = true } = options
+  const { includeInactive = false, enabled = true } = options
 
   return useQuery({
     queryKey: helpQueryKeys.categories(user?.role),
@@ -32,77 +30,64 @@ export function useHelpCategories(options: {
       const response = await helpService.getCategories({
         include_inactive: includeInactive,
         userRole: user?.role,
-        useCache
+        forceRefresh: false
       })
       if (!response.success) {
         throw new Error(response.message || 'Failed to fetch help categories')
       }
       return response.data?.categories || []
     },
-    staleTime: useCache ? 5 * 60 * 1000 : 0, // 5 minutes if using cache
-    gcTime: 10 * 60 * 1000, // 10 minutes
-    enabled: !!user, // Only fetch when user is available
+    staleTime: 10 * 60 * 1000, // 10 minutes - much longer for stability
+    gcTime: 20 * 60 * 1000, // 20 minutes
+    enabled: enabled && !!user,
     refetchOnWindowFocus: false,
-    refetchOnReconnect: 'always',
+    refetchOnReconnect: false, // Disable automatic reconnect refetch
+    refetchInterval: false, // Disable interval refetch
   })
 }
 
-// Enhanced hook for FAQs with smart caching and role filtering
+// Enhanced hook for FAQs with stable caching
 export function useFAQs(filters: FAQFilters = {}, options: {
-  useCache?: boolean
-  backgroundRefresh?: boolean
+  enabled?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { useCache = true, backgroundRefresh = true } = options
+  const { enabled = true } = options
 
-  const query = useQuery({
+  return useQuery({
     queryKey: helpQueryKeys.faqs(filters, user?.role),
     queryFn: async () => {
       const response = await helpService.getFAQs({
         ...filters,
         userRole: user?.role,
-        useCache
+        forceRefresh: false
       })
       if (!response.success) {
         throw new Error(response.message || 'Failed to fetch FAQs')
       }
       return response.data
     },
-    staleTime: useCache ? 2 * 60 * 1000 : 0, // 2 minutes if using cache
-    gcTime: 5 * 60 * 1000, // 5 minutes
-    enabled: !!user,
+    staleTime: 8 * 60 * 1000, // 8 minutes
+    gcTime: 15 * 60 * 1000, // 15 minutes
+    enabled: enabled && !!user,
     refetchOnWindowFocus: false,
-    refetchOnReconnect: 'always',
+    refetchOnReconnect: false,
+    refetchInterval: false,
   })
-
-  // Background refresh effect
-  useEffect(() => {
-    if (backgroundRefresh && query.data && useCache) {
-      const refreshInterval = setInterval(() => {
-        helpService.backgroundRefresh(user?.role)
-      }, 5 * 60 * 1000) // Refresh every 5 minutes
-
-      return () => clearInterval(refreshInterval)
-    }
-  }, [backgroundRefresh, query.data, useCache, user?.role])
-
-  return query
 }
 
-// Enhanced hook for single FAQ with caching
+// Enhanced hook for single FAQ
 export function useFAQ(id: number, options: {
   enabled?: boolean
-  useCache?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { enabled = true, useCache = true } = options
+  const { enabled = true } = options
 
   return useQuery({
     queryKey: helpQueryKeys.faq(id),
     queryFn: async () => {
       const response = await helpService.getFAQ(id, {
         userRole: user?.role,
-        useCache
+        forceRefresh: false
       })
       if (!response.success) {
         throw new Error(response.message || 'Failed to fetch FAQ')
@@ -110,91 +95,99 @@ export function useFAQ(id: number, options: {
       return response.data
     },
     enabled: enabled && !!id && !!user,
-    staleTime: useCache ? 5 * 60 * 1000 : 0,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
   })
 }
 
-// Enhanced hook for help statistics with longer caching
+// Enhanced hook for help statistics
 export function useHelpStats(options: {
-  useCache?: boolean
+  enabled?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { useCache = true } = options
+  const { enabled = true } = options
 
   return useQuery({
     queryKey: helpQueryKeys.stats(user?.role),
     queryFn: async () => {
       const response = await helpService.getStats({
         userRole: user?.role,
-        useCache
+        forceRefresh: false
       })
       if (!response.success) {
         throw new Error(response.message || 'Failed to fetch help statistics')
       }
       return response.data?.stats
     },
-    staleTime: useCache ? 10 * 60 * 1000 : 0, // 10 minutes for stats
-    gcTime: 15 * 60 * 1000, // 15 minutes
-    enabled: !!user,
+    staleTime: 15 * 60 * 1000, // 15 minutes for stats
+    gcTime: 25 * 60 * 1000, // 25 minutes
+    enabled: enabled && !!user,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
   })
 }
 
-// Enhanced hook for featured FAQs with caching
+// Enhanced hook for featured FAQs
 export function useFeaturedFAQs(limit: number = 3, options: {
-  useCache?: boolean
+  enabled?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { useCache = true } = options
+  const { enabled = true } = options
 
   return useQuery({
     queryKey: helpQueryKeys.featured(limit),
     queryFn: async () => {
       const response = await helpService.getFeaturedFAQs(limit, {
         userRole: user?.role,
-        useCache
+        forceRefresh: false
       })
       if (!response.success) {
         throw new Error(response.message || 'Failed to fetch featured FAQs')
       }
       return response.data || []
     },
-    staleTime: useCache ? 5 * 60 * 1000 : 0,
-    gcTime: 10 * 60 * 1000,
-    enabled: !!user,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
+    enabled: enabled && !!user,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
   })
 }
 
-// Enhanced hook for popular FAQs with caching
+// Enhanced hook for popular FAQs
 export function usePopularFAQs(limit: number = 5, options: {
-  useCache?: boolean
+  enabled?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { useCache = true } = options
+  const { enabled = true } = options
 
   return useQuery({
     queryKey: helpQueryKeys.popular(limit),
     queryFn: async () => {
       const response = await helpService.getPopularFAQs(limit, {
         userRole: user?.role,
-        useCache
+        forceRefresh: false
       })
       if (!response.success) {
         throw new Error(response.message || 'Failed to fetch popular FAQs')
       }
       return response.data || []
     },
-    staleTime: useCache ? 5 * 60 * 1000 : 0,
-    gcTime: 10 * 60 * 1000,
-    enabled: !!user,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
+    enabled: enabled && !!user,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
   })
 }
 
-// Enhanced hook for FAQ feedback with cache invalidation
+// Enhanced hook for FAQ feedback
 export function useFAQFeedback() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
@@ -239,10 +232,6 @@ export function useFAQFeedback() {
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.popular() })
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
       
-      // Clear service cache
-      helpService.clearCache('faqs')
-      helpService.clearCache('stats')
-      
       toast.success('Thank you for your feedback!')
     },
     onError: (error: Error) => {
@@ -251,7 +240,7 @@ export function useFAQFeedback() {
   })
 }
 
-// Enhanced hook for content suggestion with role validation
+// Enhanced hook for content suggestion
 export function useContentSuggestion() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
@@ -270,10 +259,6 @@ export function useContentSuggestion() {
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.faqs() })
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
-      
-      // Clear service cache
-      helpService.clearCache('faqs')
-      helpService.clearCache('stats')
 
       toast.success(
         'Content suggestion submitted successfully! It will be reviewed by administrators.'
@@ -285,25 +270,17 @@ export function useContentSuggestion() {
   })
 }
 
-// Combined hook for help dashboard data with smart caching
+// Combined hook for help dashboard data with stable loading
 export function useHelpDashboard(options: {
-  useCache?: boolean
-  preloadData?: boolean
+  enabled?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { useCache = true, preloadData = true } = options
+  const { enabled = true } = options
 
-  const categoriesQuery = useHelpCategories({ useCache })
-  const featuredQuery = useFeaturedFAQs(3, { useCache })
-  const popularQuery = usePopularFAQs(5, { useCache })
-  const statsQuery = useHelpStats({ useCache })
-
-  // Preload essential data on first mount
-  useEffect(() => {
-    if (preloadData && user?.role) {
-      helpService.preloadEssentialData(user.role)
-    }
-  }, [preloadData, user?.role])
+  const categoriesQuery = useHelpCategories({ enabled })
+  const featuredQuery = useFeaturedFAQs(3, { enabled })
+  const popularQuery = usePopularFAQs(5, { enabled })
+  const statsQuery = useHelpStats({ enabled })
 
   const canSuggestContent = useMemo(() => {
     return user ? helpService.canSuggestContent(user.role) : false
@@ -324,12 +301,24 @@ export function useHelpDashboard(options: {
                 statsQuery.error
 
   const refetch = useCallback(() => {
-    // Clear cache and refetch
-    helpService.clearCache()
     categoriesQuery.refetch()
     featuredQuery.refetch()
     popularQuery.refetch()
     statsQuery.refetch()
+  }, [categoriesQuery, featuredQuery, popularQuery, statsQuery])
+
+  // Force refresh with cache clearing
+  const forceRefresh = useCallback(async () => {
+    // Clear cache first
+    helpService.clearCache()
+    
+    // Then refetch all data
+    await Promise.all([
+      categoriesQuery.refetch(),
+      featuredQuery.refetch(),
+      popularQuery.refetch(),
+      statsQuery.refetch()
+    ])
   }, [categoriesQuery, featuredQuery, popularQuery, statsQuery])
 
   return {
@@ -342,13 +331,13 @@ export function useHelpDashboard(options: {
     isLoading,
     error,
     refetch,
-    // Cache information
+    forceRefresh,
+    // No stale indicators for normal help page
     hasData: !!(categoriesQuery.data || featuredQuery.data || popularQuery.data),
-    isStale: categoriesQuery.isStale || featuredQuery.isStale || popularQuery.isStale || statsQuery.isStale,
   }
 }
 
-// Hook for FAQ filtering and sorting with smart defaults
+// Hook for FAQ filtering with stable state
 export function useFAQFilters(initialFilters: FAQFilters = {}) {
   const [filters, setFilters] = useState<FAQFilters>(initialFilters)
 
@@ -358,16 +347,10 @@ export function useFAQFilters(initialFilters: FAQFilters = {}) {
       [key]: value,
       page: 1, // Reset page when filtering
     }))
-    
-    // Clear relevant cache when filters change significantly
-    if (['category', 'search', 'featured'].includes(key)) {
-      helpService.clearCache('faqs')
-    }
   }, [])
 
   const clearFilters = useCallback(() => {
     setFilters(initialFilters)
-    helpService.clearCache('faqs')
   }, [initialFilters])
 
   const resetPagination = useCallback(() => {
@@ -389,7 +372,6 @@ export function useFAQFilters(initialFilters: FAQFilters = {}) {
 // Hook for FAQ analytics tracking
 export function useFAQAnalytics() {
   const trackFAQView = useCallback((faqId: number, question: string) => {
-    // Track FAQ view event
     if (typeof window !== 'undefined' && window.gtag) {
       window.gtag('event', 'faq_view', {
         event_category: 'Help',
@@ -400,7 +382,6 @@ export function useFAQAnalytics() {
   }, [])
 
   const trackFAQFeedback = useCallback((faqId: number, isHelpful: boolean, question: string) => {
-    // Track FAQ feedback event
     if (typeof window !== 'undefined' && window.gtag) {
       window.gtag('event', 'faq_feedback', {
         event_category: 'Help',
@@ -414,7 +395,6 @@ export function useFAQAnalytics() {
   }, [])
 
   const trackFAQSearch = useCallback((query: string, resultsCount: number) => {
-    // Track FAQ search event
     if (typeof window !== 'undefined' && window.gtag) {
       window.gtag('event', 'faq_search', {
         event_category: 'Help',
@@ -425,7 +405,6 @@ export function useFAQAnalytics() {
   }, [])
 
   const trackCategoryClick = useCallback((categorySlug: string, categoryName: string) => {
-    // Track category click event
     if (typeof window !== 'undefined' && window.gtag) {
       window.gtag('event', 'help_category_click', {
         event_category: 'Help',
@@ -443,7 +422,7 @@ export function useFAQAnalytics() {
   }
 }
 
-// Hook for managing FAQ favorites/bookmarks with persistence
+// Hook for managing FAQ bookmarks with persistence
 export function useFAQBookmarks() {
   const { user } = useAuth()
   const [bookmarkedFAQs, setBookmarkedFAQs] = useState<number[]>(() => {
@@ -456,24 +435,23 @@ export function useFAQBookmarks() {
     }
   })
 
-  // Update localStorage when bookmarks change
-  useEffect(() => {
-    if (user?.id) {
-      try {
-        localStorage.setItem(`faq_bookmarks_${user.id}`, JSON.stringify(bookmarkedFAQs))
-      } catch (error) {
-        console.error('Failed to save FAQ bookmarks:', error)
-      }
-    }
-  }, [bookmarkedFAQs, user?.id])
-
   const toggleBookmark = useCallback((faqId: number) => {
     setBookmarkedFAQs((prev) => {
-      return prev.includes(faqId)
+      const newBookmarks = prev.includes(faqId)
         ? prev.filter((id) => id !== faqId)
         : [...prev, faqId]
+
+      if (user?.id) {
+        try {
+          localStorage.setItem(`faq_bookmarks_${user.id}`, JSON.stringify(newBookmarks))
+        } catch (error) {
+          console.error('Failed to save FAQ bookmarks:', error)
+        }
+      }
+
+      return newBookmarks
     })
-  }, [])
+  }, [user?.id])
 
   const isBookmarked = useCallback(
     (faqId: number) => {
@@ -501,7 +479,7 @@ export function useFAQBookmarks() {
   }
 }
 
-// Hook for recent FAQ searches with user-specific storage
+// Hook for recent FAQ searches
 export function useRecentFAQSearches() {
   const { user } = useAuth()
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
@@ -514,29 +492,40 @@ export function useRecentFAQSearches() {
     }
   })
 
-  // Update localStorage when searches change
-  useEffect(() => {
-    if (user?.id) {
-      try {
-        localStorage.setItem(`recent_faq_searches_${user.id}`, JSON.stringify(recentSearches))
-      } catch (error) {
-        console.error('Failed to save recent FAQ searches:', error)
-      }
-    }
-  }, [recentSearches, user?.id])
-
   const addRecentSearch = useCallback((query: string) => {
     if (!query.trim() || query.length < 2) return
 
     setRecentSearches((prev) => {
       const filtered = prev.filter((search) => search.toLowerCase() !== query.toLowerCase())
-      return [query, ...filtered].slice(0, 10) // Keep only 10 recent searches
+      const newSearches = [query, ...filtered].slice(0, 10)
+
+      if (user?.id) {
+        try {
+          localStorage.setItem(`recent_faq_searches_${user.id}`, JSON.stringify(newSearches))
+        } catch (error) {
+          console.error('Failed to save recent FAQ searches:', error)
+        }
+      }
+
+      return newSearches
     })
-  }, [])
+  }, [user?.id])
 
   const removeRecentSearch = useCallback((query: string) => {
-    setRecentSearches((prev) => prev.filter((search) => search !== query))
-  }, [])
+    setRecentSearches((prev) => {
+      const newSearches = prev.filter((search) => search !== query)
+
+      if (user?.id) {
+        try {
+          localStorage.setItem(`recent_faq_searches_${user.id}`, JSON.stringify(newSearches))
+        } catch (error) {
+          console.error('Failed to update recent FAQ searches:', error)
+        }
+      }
+
+      return newSearches
+    })
+  }, [user?.id])
 
   const clearRecentSearches = useCallback(() => {
     setRecentSearches([])
@@ -573,7 +562,6 @@ export function useAdminFAQManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.all })
-      helpService.clearCache()
       toast.success('FAQ created successfully!')
     },
     onError: (error: Error) => {
@@ -596,7 +584,6 @@ export function useAdminFAQManagement() {
         ...oldData,
         faq: data?.faq
       }))
-      helpService.clearCache()
       toast.success('FAQ updated successfully!')
     },
     onError: (error: Error) => {
@@ -616,7 +603,6 @@ export function useAdminFAQManagement() {
     onSuccess: (data, id) => {
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.all })
       queryClient.removeQueries({ queryKey: helpQueryKeys.faq(id) })
-      helpService.clearCache()
       toast.success('FAQ deleted successfully!')
     },
     onError: (error: Error) => {
@@ -624,15 +610,75 @@ export function useAdminFAQManagement() {
     }
   })
 
+  // Create Category mutation
+  const createCategory = useMutation({
+    mutationFn: async (categoryData: Partial<HelpCategory>) => {
+      const response = await helpService.createCategory(categoryData, user?.role)
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to create category')
+      }
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.categories() })
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
+      toast.success('Category created successfully!')
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create category')
+    }
+  })
+
+  // Update Category mutation
+  const updateCategory = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Partial<HelpCategory> }) => {
+      const response = await helpService.updateCategory(id, data, user?.role)
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to update category')
+      }
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.categories() })
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
+      toast.success('Category updated successfully!')
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update category')
+    }
+  })
+
+  // Delete Category mutation
+  const deleteCategory = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await helpService.deleteCategory(id, user?.role)
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to delete category')
+      }
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.categories() })
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
+      toast.success('Category deleted successfully!')
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete category')
+    }
+  })
+
   return {
     createFAQ,
     updateFAQ,
     deleteFAQ,
+    createCategory,
+    updateCategory,
+    deleteCategory,
     canManage: helpService.canManageContent(user?.role || ''),
   }
 }
 
-// Utility hook for FAQ formatting and helpers
+// Utility hook for FAQ formatting
 export function useFAQUtils() {
   const formatTimeAgo = useCallback((dateString: string) => {
     return helpService.formatTimeAgo(dateString)
