@@ -1,4 +1,4 @@
-// components/pages/help-page.tsx (FIXED - No stale indicators, working content suggestion)
+// components/pages/help-page.tsx (FIXED - Stable loading without reloading)
 "use client"
 
 import { useState, useCallback } from "react"
@@ -116,11 +116,16 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
   // Content suggestion hook
   const contentSuggestion = useContentSuggestion()
 
-  // Handle search with analytics tracking
+  // Handle search with analytics tracking - NO IMMEDIATE FAQ REFETCH
   const handleSearch = useCallback((query: string) => {
+    // Only update filter, don't add to recent searches immediately
     updateFilter('search', query)
-    addRecentSearch(query)
-    trackFAQSearch(query, faqsData?.faqs?.length || 0)
+    
+    // Add to recent searches
+    if (query.trim()) {
+      addRecentSearch(query)
+      trackFAQSearch(query, faqsData?.faqs?.length || 0)
+    }
   }, [updateFilter, addRecentSearch, trackFAQSearch, faqsData])
 
   // Handle category selection with analytics
@@ -146,7 +151,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
     trackFAQView(faq.id, faq.question)
   }, [trackFAQView])
 
-  // Enhanced refresh
+  // Enhanced refresh - only when explicitly requested
   const handleRefresh = useCallback(async () => {
     try {
       await Promise.all([forceRefresh(), refetchFAQs()])
@@ -215,7 +220,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
     }))
   }, [])
 
-  // Loading skeleton for initial load
+  // Loading skeleton for initial load ONLY
   if (dashboardLoading && !hasData) {
     return (
       <div className="space-y-8">
@@ -258,7 +263,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
 
   return (
     <div className="space-y-8">
-      {/* Header with Role-Based Actions */}
+      {/* Header with Role-Based Actions - STABLE STATS */}
       <div className="relative bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 rounded-2xl p-8 text-white overflow-hidden">
         <div className="absolute inset-0 bg-black/10 rounded-2xl"></div>
         <div className="relative z-10">
@@ -315,17 +320,17 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
             </div>
           </div>
           
-          {/* Stats Grid */}
+          {/* Stats Grid - STABLE, NO CONSTANT RELOADING */}
           <div className="grid grid-cols-3 gap-6 mt-6">
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {dashboardLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : stats?.total_faqs || 0}
+                {stats?.total_faqs || 0}
               </div>
               <div className="text-sm text-blue-100">FAQs</div>
             </div>
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {dashboardLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : categories.length}
+                {categories.length}
               </div>
               <div className="text-sm text-blue-100">Categories</div>
             </div>
@@ -347,7 +352,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
         </div>
       </div>
 
-      {/* Search */}
+      {/* Search - OPTIMIZED TO NOT CAUSE CONSTANT REFETCHES */}
       <Card className="border-0 shadow-lg">
         <CardContent className="p-6">
           <SearchWithSuggestions
@@ -396,7 +401,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
         </Button>
       </div>
 
-      {/* Featured FAQs */}
+      {/* Featured FAQs - STABLE, NO CONSTANT RELOADING */}
       {featured.length > 0 && (
         <Card className="border-0 shadow-lg">
           <CardHeader className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-t-lg">
@@ -493,7 +498,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
 
         <TabsContent value="faqs" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Categories Sidebar */}
+            {/* Categories Sidebar - STABLE */}
             <Card className="border-0 shadow-lg lg:col-span-1">
               <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-t-lg">
                 <CardTitle className="text-lg flex items-center justify-between">
@@ -546,7 +551,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
               </CardContent>
             </Card>
 
-            {/* FAQs List */}
+            {/* FAQs List - OPTIMIZED LOADING */}
             <div className="lg:col-span-3">
               <Card className="border-0 shadow-lg">
                 <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-lg">

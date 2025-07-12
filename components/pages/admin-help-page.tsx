@@ -82,7 +82,7 @@ import {
   useFAQFilters,
   useAdminFAQManagement,
   useHelpStats,
-  useFAQUtils
+  useFAQUtils,
 } from "@/hooks/use-help"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"

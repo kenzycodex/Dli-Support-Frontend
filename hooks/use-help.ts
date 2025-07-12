@@ -1,11 +1,11 @@
-// hooks/use-help.ts (FIXED - Stable loading without constant reloading)
+// hooks/use-help.ts (OPTIMIZED - No constant reloading, stable cache)
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { helpService, type FAQ, type HelpCategory, type FAQFilters, type ContentSuggestion } from '@/services/help.service'
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-// Stable query keys
+// Stable query keys - same as before
 export const helpQueryKeys = {
   all: ['help'] as const,
   categories: (userRole?: string) => [...helpQueryKeys.all, 'categories', userRole] as const,
@@ -16,7 +16,7 @@ export const helpQueryKeys = {
   popular: (limit?: number) => [...helpQueryKeys.all, 'popular', limit] as const,
 }
 
-// Enhanced hook for help categories with stable caching
+// Enhanced hook for help categories with ultra-stable caching
 export function useHelpCategories(options: {
   includeInactive?: boolean
   enabled?: boolean
@@ -37,16 +37,17 @@ export function useHelpCategories(options: {
       }
       return response.data?.categories || []
     },
-    staleTime: 10 * 60 * 1000, // 10 minutes - much longer for stability
-    gcTime: 20 * 60 * 1000, // 20 minutes
+    staleTime: 15 * 60 * 1000, // 15 minutes - even longer for ultra stability
+    gcTime: 30 * 60 * 1000, // 30 minutes
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
-    refetchOnReconnect: false, // Disable automatic reconnect refetch
-    refetchInterval: false, // Disable interval refetch
+    refetchOnReconnect: false,
+    refetchInterval: false,
+    refetchOnMount: false, // Don't refetch on mount if data exists
   })
 }
 
-// Enhanced hook for FAQs with stable caching
+// Ultra-stable FAQ hook with smart cache management
 export function useFAQs(filters: FAQFilters = {}, options: {
   enabled?: boolean
 } = {}) {
@@ -66,12 +67,13 @@ export function useFAQs(filters: FAQFilters = {}, options: {
       }
       return response.data
     },
-    staleTime: 8 * 60 * 1000, // 8 minutes
-    gcTime: 15 * 60 * 1000, // 15 minutes
+    staleTime: 12 * 60 * 1000, // 12 minutes - longer for stability
+    gcTime: 25 * 60 * 1000, // 25 minutes
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
+    refetchOnMount: false, // Don't refetch on mount if data exists
   })
 }
 
@@ -95,15 +97,16 @@ export function useFAQ(id: number, options: {
       return response.data
     },
     enabled: enabled && !!id && !!user,
-    staleTime: 10 * 60 * 1000,
-    gcTime: 20 * 60 * 1000,
+    staleTime: 15 * 60 * 1000, // 15 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
+    refetchOnMount: false,
   })
 }
 
-// Enhanced hook for help statistics
+// Ultra-stable help statistics
 export function useHelpStats(options: {
   enabled?: boolean
 } = {}) {
@@ -122,16 +125,17 @@ export function useHelpStats(options: {
       }
       return response.data?.stats
     },
-    staleTime: 15 * 60 * 1000, // 15 minutes for stats
-    gcTime: 25 * 60 * 1000, // 25 minutes
+    staleTime: 20 * 60 * 1000, // 20 minutes - very long for stats
+    gcTime: 40 * 60 * 1000, // 40 minutes
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
+    refetchOnMount: false,
   })
 }
 
-// Enhanced hook for featured FAQs
+// Ultra-stable featured FAQs
 export function useFeaturedFAQs(limit: number = 3, options: {
   enabled?: boolean
 } = {}) {
@@ -150,16 +154,17 @@ export function useFeaturedFAQs(limit: number = 3, options: {
       }
       return response.data || []
     },
-    staleTime: 10 * 60 * 1000,
-    gcTime: 20 * 60 * 1000,
+    staleTime: 15 * 60 * 1000, // 15 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
+    refetchOnMount: false,
   })
 }
 
-// Enhanced hook for popular FAQs
+// Ultra-stable popular FAQs
 export function usePopularFAQs(limit: number = 5, options: {
   enabled?: boolean
 } = {}) {
@@ -178,12 +183,13 @@ export function usePopularFAQs(limit: number = 5, options: {
       }
       return response.data || []
     },
-    staleTime: 10 * 60 * 1000,
-    gcTime: 20 * 60 * 1000,
+    staleTime: 15 * 60 * 1000, // 15 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
+    refetchOnMount: false,
   })
 }
 
@@ -227,10 +233,8 @@ export function useFAQFeedback() {
         }
       )
 
-      // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: helpQueryKeys.faqs() })
+      // Selectively invalidate only necessary queries
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.popular() })
-      queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
       
       toast.success('Thank you for your feedback!')
     },
@@ -256,8 +260,7 @@ export function useContentSuggestion() {
       return response.data
     },
     onSuccess: () => {
-      // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: helpQueryKeys.faqs() })
+      // Only invalidate stats, not all FAQs
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
 
       toast.success(
@@ -270,7 +273,7 @@ export function useContentSuggestion() {
   })
 }
 
-// Combined hook for help dashboard data with stable loading
+// OPTIMIZED DASHBOARD HOOK - NO CONSTANT RELOADING
 export function useHelpDashboard(options: {
   enabled?: boolean
 } = {}) {
@@ -290,10 +293,11 @@ export function useHelpDashboard(options: {
     return user ? helpService.canManageContent(user.role) : false
   }, [user])
 
-  const isLoading = categoriesQuery.isLoading || 
-                   featuredQuery.isLoading || 
-                   popularQuery.isLoading || 
-                   statsQuery.isLoading
+  // Only show loading for initial load
+  const isLoading = (categoriesQuery.isLoading && !categoriesQuery.data) || 
+                   (featuredQuery.isLoading && !featuredQuery.data) || 
+                   (popularQuery.isLoading && !popularQuery.data) || 
+                   (statsQuery.isLoading && !statsQuery.data)
 
   const error = categoriesQuery.error || 
                 featuredQuery.error || 
@@ -307,7 +311,7 @@ export function useHelpDashboard(options: {
     statsQuery.refetch()
   }, [categoriesQuery, featuredQuery, popularQuery, statsQuery])
 
-  // Force refresh with cache clearing
+  // Force refresh with cache clearing - only when explicitly requested
   const forceRefresh = useCallback(async () => {
     // Clear cache first
     helpService.clearCache()
@@ -332,12 +336,11 @@ export function useHelpDashboard(options: {
     error,
     refetch,
     forceRefresh,
-    // No stale indicators for normal help page
     hasData: !!(categoriesQuery.data || featuredQuery.data || popularQuery.data),
   }
 }
 
-// Hook for FAQ filtering with stable state
+// OPTIMIZED FAQ filtering with stable state management
 export function useFAQFilters(initialFilters: FAQFilters = {}) {
   const [filters, setFilters] = useState<FAQFilters>(initialFilters)
 
@@ -345,7 +348,7 @@ export function useFAQFilters(initialFilters: FAQFilters = {}) {
     setFilters((prev) => ({
       ...prev,
       [key]: value,
-      page: 1, // Reset page when filtering
+      page: key !== 'page' ? 1 : value, // Reset page when filtering, except when updating page itself
     }))
   }, [])
 
@@ -479,7 +482,7 @@ export function useFAQBookmarks() {
   }
 }
 
-// Hook for recent FAQ searches
+// Hook for recent FAQ searches with optimized persistence
 export function useRecentFAQSearches() {
   const { user } = useAuth()
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {

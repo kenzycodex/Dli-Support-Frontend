@@ -102,6 +102,36 @@ export interface ContentSuggestion {
   }
 }
 
+export interface ContentSuggestionItem {
+  id: number
+  category_id: number
+  question: string
+  answer: string
+  slug: string
+  tags: string[]
+  is_published: boolean
+  is_featured: boolean
+  created_by: number
+  created_at: string
+  updated_at: string
+  category?: HelpCategory
+  creator?: {
+    id: number
+    name: string
+    email: string
+  }
+}
+
+export interface ContentSuggestionsResponse {
+  suggestions: ContentSuggestionItem[]
+  pagination: {
+    current_page: number
+    last_page: number
+    per_page: number
+    total: number
+  }
+}
+
 // Stable cache implementation
 class HelpCache {
   private cache = new Map<string, { data: any; timestamp: number; ttl: number }>()
