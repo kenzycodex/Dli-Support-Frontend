@@ -246,17 +246,6 @@ export function FAQFeedbackComponent({
                   </div>
                 </div>
               </div>
-
-              {/* View Count */}
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-white rounded-lg">
-                  <Eye className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <div className="text-lg font-semibold">{faq.view_count}</div>
-                  <div className="text-xs text-gray-600">views</div>
-                </div>
-              </div>
             </div>
 
             {/* Helpfulness breakdown */}

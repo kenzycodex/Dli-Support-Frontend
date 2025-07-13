@@ -223,23 +223,23 @@ class ApiClient {
 
   async post<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
     // Use longer timeout for POST requests with files
-    const timeout = data instanceof FormData ? 120000 : 40000
+    const timeout = data instanceof FormData ? 120000 : 50000
     return this.makeRequest<T>(endpoint, "POST", data, options, timeout)
   }
 
   async put<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 40000
+    const timeout = data instanceof FormData ? 120000 : 50000
     return this.makeRequest<T>(endpoint, "PUT", data, options, timeout)
   }
 
   async patch<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 40000
+    const timeout = data instanceof FormData ? 120000 : 50000
     return this.makeRequest<T>(endpoint, "PATCH", data, options, timeout)
   }
 
   async delete<T = any>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
     // Standard DELETE request
-    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 40000)
+    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 50000)
   }
 
   // Helper method for file downloads

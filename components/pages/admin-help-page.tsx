@@ -552,7 +552,6 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                       <SelectItem value="newest">Newest</SelectItem>
                       <SelectItem value="featured">Featured</SelectItem>
                       <SelectItem value="helpful">Most Helpful</SelectItem>
-                      <SelectItem value="views">Most Viewed</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -639,10 +638,6 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                             </TableCell>
                             <TableCell>
                               <div className="space-y-1 text-sm">
-                                <div className="flex items-center space-x-2">
-                                  <Eye className="h-3 w-3 text-gray-400" />
-                                  <span>{faq.view_count} views</span>
-                                </div>
                                 <div className="flex items-center space-x-2">
                                   <TrendingUp className="h-3 w-3 text-green-500" />
                                   <span>
@@ -920,7 +915,6 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                       <div key={faq.id} className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="font-medium text-sm line-clamp-1">{faq.question}</div>
-                          <div className="text-xs text-gray-500">{faq.view_count} views</div>
                         </div>
                         <div className="text-right">
                           <div className="text-sm font-medium text-green-600">
@@ -992,7 +986,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                         <div>
                           <div className="font-medium text-sm">{faq.question}</div>
                           <div className="text-xs text-gray-500">
-                            {faq.is_published ? 'Published' : 'Draft'} • {faq.view_count} views
+                            {faq.is_published ? 'Published' : 'Draft'}
                           </div>
                         </div>
                       </div>

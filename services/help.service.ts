@@ -28,7 +28,6 @@ export interface FAQ {
   is_featured: boolean
   helpful_count: number
   not_helpful_count: number
-  view_count: number
   created_by?: number
   updated_by?: number
   published_at?: string
@@ -59,7 +58,7 @@ export interface FAQFilters {
   category?: string
   search?: string
   featured?: boolean
-  sort_by?: 'featured' | 'helpful' | 'views' | 'newest'
+  sort_by?: 'featured' | 'helpful' | 'newest'
   per_page?: number
   page?: number
   include_drafts?: boolean
@@ -81,8 +80,7 @@ export interface HelpStats {
   total_faqs: number
   total_categories: number
   most_helpful_faq?: Pick<FAQ, 'id' | 'question' | 'helpful_count'>
-  most_viewed_faq?: Pick<FAQ, 'id' | 'question' | 'view_count'>
-  recent_faqs: Pick<FAQ, 'id' | 'question' | 'published_at' | 'is_published' | 'view_count'>[]
+  recent_faqs: Pick<FAQ, 'id' | 'question' | 'published_at' | 'is_published'>[]
   categories_with_counts: Pick<HelpCategory, 'id' | 'name' | 'slug' | 'color' | 'faqs_count'>[]
 }
 

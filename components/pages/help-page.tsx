@@ -465,10 +465,6 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                             {Math.round((faq.helpful_count / (faq.helpful_count + faq.not_helpful_count)) * 100) || 0}% helpful
                           </span>
                         </div>
-                        <div className="flex items-center space-x-2 text-xs text-gray-500">
-                          <Users className="h-3 w-3" />
-                          <span>{faq.view_count} views</span>
-                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -579,7 +575,6 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                         <SelectContent>
                           <SelectItem value="featured">Featured First</SelectItem>
                           <SelectItem value="helpful">Most Helpful</SelectItem>
-                          <SelectItem value="views">Most Viewed</SelectItem>
                           <SelectItem value="newest">Newest</SelectItem>
                         </SelectContent>
                       </Select>
@@ -639,9 +634,6 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                               </div>
                               
                               <div className="flex items-center space-x-2 ml-4">
-                                <div className="text-xs text-gray-500">
-                                  {faq.view_count} views
-                                </div>
                                 <Button
                                   variant="ghost"
                                   size="sm"
