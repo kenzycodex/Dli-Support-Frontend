@@ -374,6 +374,16 @@ export function useFAQFilters(initialFilters: FAQFilters = {}) {
 
 // Hook for FAQ analytics tracking
 export function useFAQAnalytics() {
+  const trackFAQView = useCallback((faqId: number, question: string) => {
+    if (typeof window !== 'undefined' && window.gtag) {
+      window.gtag('event', 'faq_view', {
+        event_category: 'Help',
+        event_label: question,
+        value: faqId,
+      })
+    }
+  }, [])
+
   const trackFAQFeedback = useCallback((faqId: number, isHelpful: boolean, question: string) => {
     if (typeof window !== 'undefined' && window.gtag) {
       window.gtag('event', 'faq_feedback', {
@@ -408,6 +418,7 @@ export function useFAQAnalytics() {
   }, [])
 
   return {
+    trackFAQView,
     trackFAQFeedback,
     trackFAQSearch,
     trackCategoryClick,
