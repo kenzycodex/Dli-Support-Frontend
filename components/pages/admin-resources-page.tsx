@@ -1,7 +1,7 @@
-// components/pages/admin-resources-page.tsx (NEW - Admin resource management)
+// components/pages/admin-resources-page.tsx (FIXED - All TypeScript errors resolved)
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import React, { useState, useCallback, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -92,6 +92,10 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import type { Resource, ResourceCategory } from "@/services/resources.service"
 
+// FIXED: Proper type definitions
+type ResourceType = 'article' | 'audio' | 'video' | 'exercise' | 'tool' | 'worksheet'
+type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced'
+
 interface AdminResourcesPageProps {
   onNavigate?: (page: string, params?: any) => void
 }
@@ -112,19 +116,36 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<ResourceCategory | null>(null)
 
-  // Form states
-  const [resourceForm, setResourceForm] = useState({
+  // FIXED: Form states with proper types
+  const [resourceForm, setResourceForm] = useState<{
+    category_id: string
+    title: string
+    description: string
+    type: ResourceType
+    subcategory: string
+    difficulty: DifficultyLevel
+    duration: string
+    external_url: string
+    download_url: string
+    thumbnail_url: string
+    tags: string[]
+    author_name: string
+    author_bio: string
+    sort_order: number
+    is_published: boolean
+    is_featured: boolean
+  }>({
     category_id: "",
     title: "",
     description: "",
-    type: "article" as const,
+    type: "article",
     subcategory: "",
-    difficulty: "beginner" as const,
+    difficulty: "beginner",
     duration: "",
     external_url: "",
     download_url: "",
     thumbnail_url: "",
-    tags: [] as string[],
+    tags: [],
     author_name: "",
     author_bio: "",
     sort_order: 0,
@@ -421,6 +442,19 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
     }
   }, [onNavigate])
 
+  // FIXED: Get icon component safely
+  const getIconComponent = useCallback((type: string) => {
+    const iconMap: Record<string, React.ComponentType<any>> = {
+      article: FileText,
+      video: Video,
+      audio: Headphones,
+      exercise: Brain,
+      tool: Heart,
+      worksheet: Download
+    }
+    return iconMap[type] || BookOpen
+  }, [])
+
   const cacheStats = getCacheStats()
 
   if (!canManage || user?.role !== 'admin') {
@@ -619,151 +653,145 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {resourcesData?.resources.map((resource) => (
-                          <TableRow key={resource.id}>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <div className="font-medium line-clamp-1">{resource.title}</div>
-                                <div className="text-sm text-gray-500 line-clamp-1">
-                                  {resource.description}
+                        {resourcesData?.resources.map((resource) => {
+                          const IconComponent = getIconComponent(resource.type)
+                          
+                          return (
+                            <TableRow key={resource.id}>
+                              <TableCell>
+                                <div className="space-y-1">
+                                  <div className="font-medium line-clamp-1">{resource.title}</div>
+                                  <div className="text-sm text-gray-500 line-clamp-1">
+                                    {resource.description.substring(0, 100)}...
+                                  </div>
+                                  {resource.tags && resource.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {resource.tags.slice(0, 2).map((tag, index) => (
+                                        <Badge key={index} variant="outline" className="text-xs">
+                                          {tag}
+                                        </Badge>
+                                      ))}
+                                      {resource.tags.length > 2 && (
+                                        <Badge variant="outline" className="text-xs">
+                                          +{resource.tags.length - 2} more
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                                {resource.tags && resource.tags.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {resource.tags.slice(0, 2).map((tag, index) => (
-                                      <Badge key={index} variant="outline" className="text-xs">
-                                        {tag}
-                                      </Badge>
-                                    ))}
-                                    {resource.tags.length > 2 && (
-                                      <Badge variant="outline" className="text-xs">
-                                        +{resource.tags.length - 2} more
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center space-x-2">
+                                  <div 
+                                    className="w-3 h-3 rounded-full"
+                                    style={{ backgroundColor: resource.category?.color }}
+                                  />
+                                  <span className="text-sm">{resource.category?.name}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center space-x-2">
+                                  <IconComponent className="h-4 w-4 text-gray-500" />
+                                  <span className="text-sm capitalize">{resource.type}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-1">
+                                  <div className="flex items-center space-x-2">
+                                    <Badge 
+                                      variant={resource.is_published ? "default" : "secondary"}
+                                      className={cn(
+                                        resource.is_published ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
+                                      )}
+                                    >
+                                      {resource.is_published ? "Published" : "Draft"}
+                                    </Badge>
+                                    {resource.is_featured && (
+                                      <Badge className="bg-yellow-100 text-yellow-800">
+                                        <Star className="h-3 w-3 mr-1" />
+                                        Featured
                                       </Badge>
                                     )}
                                   </div>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center space-x-2">
-                                <div 
-                                  className="w-3 h-3 rounded-full"
-                                  style={{ backgroundColor: resource.category?.color }}
-                                />
-                                <span className="text-sm">{resource.category?.name}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center space-x-2">
-                                {React.createElement(
-                                  require('lucide-react')[
-                                    resource.type === 'article' ? 'FileText' :
-                                    resource.type === 'video' ? 'Video' :
-                                    resource.type === 'audio' ? 'Headphones' :
-                                    resource.type === 'exercise' ? 'Brain' :
-                                    resource.type === 'tool' ? 'Heart' :
-                                    'Download'
-                                  ], 
-                                  { className: "h-4 w-4 text-gray-500" }
-                                )}
-                                <span className="text-sm capitalize">{resource.type}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <div className="flex items-center space-x-2">
-                                  <Badge 
-                                    variant={resource.is_published ? "default" : "secondary"}
-                                    className={cn(
-                                      resource.is_published ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
-                                    )}
-                                  >
-                                    {resource.is_published ? "Published" : "Draft"}
-                                  </Badge>
-                                  {resource.is_featured && (
-                                    <Badge className="bg-yellow-100 text-yellow-800">
-                                      <Star className="h-3 w-3 mr-1" />
-                                      Featured
-                                    </Badge>
-                                  )}
                                 </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="space-y-1 text-sm">
-                                <div className="flex items-center space-x-2">
-                                  <Eye className="h-3 w-3 text-gray-400" />
-                                  <span>{resource.view_count} views</span>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-1 text-sm">
+                                  <div className="flex items-center space-x-2">
+                                    <Eye className="h-3 w-3 text-gray-400" />
+                                    <span>{resource.view_count} views</span>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <Download className="h-3 w-3 text-blue-500" />
+                                    <span>{resource.download_count} downloads</span>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <Star className="h-3 w-3 text-yellow-500" />
+                                    <span>{(Number(resource.rating) || 0).toFixed(1)} rating</span>
+                                  </div>
                                 </div>
-                                <div className="flex items-center space-x-2">
-                                  <Download className="h-3 w-3 text-blue-500" />
-                                  <span>{resource.download_count} downloads</span>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-sm text-gray-500">
+                                  {new Date(resource.updated_at).toLocaleDateString()}
                                 </div>
-                                <div className="flex items-center space-x-2">
-                                  <Star className="h-3 w-3 text-yellow-500" />
-                                  <span>{resource.rating.toFixed(1)} rating</span>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="text-sm text-gray-500">
-                                {new Date(resource.updated_at).toLocaleDateString()}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="sm">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                  <DropdownMenuItem onClick={() => handleEditResource(resource)}>
-                                    <Edit className="h-4 w-4 mr-2" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleTogglePublish(resource)}>
-                                    {resource.is_published ? (
-                                      <>
-                                        <XCircle className="h-4 w-4 mr-2" />
-                                        Unpublish
-                                      </>
-                                    ) : (
-                                      <>
-                                        <CheckCircle className="h-4 w-4 mr-2" />
-                                        Publish
-                                      </>
-                                    )}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleToggleFeature(resource)}>
-                                    {resource.is_featured ? (
-                                      <>
-                                        <Star className="h-4 w-4 mr-2" />
-                                        Unfeature
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Star className="h-4 w-4 mr-2" />
-                                        Feature
-                                      </>
-                                    )}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem 
-                                    onClick={() => {
-                                      setSelectedResource(resource)
-                                      setShowDeleteResourceDialog(true)
-                                    }}
-                                    className="text-red-600"
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm">
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                    <DropdownMenuItem onClick={() => handleEditResource(resource)}>
+                                      <Edit className="h-4 w-4 mr-2" />
+                                      Edit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleTogglePublish(resource)}>
+                                      {resource.is_published ? (
+                                        <>
+                                          <XCircle className="h-4 w-4 mr-2" />
+                                          Unpublish
+                                        </>
+                                      ) : (
+                                        <>
+                                          <CheckCircle className="h-4 w-4 mr-2" />
+                                          Publish
+                                        </>
+                                      )}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleToggleFeature(resource)}>
+                                      {resource.is_featured ? (
+                                        <>
+                                          <Star className="h-4 w-4 mr-2" />
+                                          Unfeature
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Star className="h-4 w-4 mr-2" />
+                                          Feature
+                                        </>
+                                      )}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem 
+                                      onClick={() => {
+                                        setSelectedResource(resource)
+                                        setShowDeleteResourceDialog(true)
+                                      }}
+                                      className="text-red-600"
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
 
@@ -1182,7 +1210,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="category">Category *</Label>
-                <Select value={resourceForm.category_id} onValueChange={(value) => setResourceForm(prev => ({ ...prev, category_id: value }))}>
+                <Select 
+                  value={resourceForm.category_id} 
+                  onValueChange={(value) => setResourceForm(prev => ({ ...prev, category_id: value }))}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a category" />
                   </SelectTrigger>
@@ -1204,7 +1235,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
 
               <div className="space-y-2">
                 <Label htmlFor="type">Resource Type *</Label>
-                <Select value={resourceForm.type} onValueChange={(value: any) => setResourceForm(prev => ({ ...prev, type: value }))}>
+                <Select 
+                  value={resourceForm.type} 
+                  onValueChange={(value: ResourceType) => setResourceForm(prev => ({ ...prev, type: value }))}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1246,7 +1280,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="difficulty">Difficulty Level *</Label>
-                <Select value={resourceForm.difficulty} onValueChange={(value: any) => setResourceForm(prev => ({ ...prev, difficulty: value }))}>
+                <Select 
+                  value={resourceForm.difficulty} 
+                  onValueChange={(value: DifficultyLevel) => setResourceForm(prev => ({ ...prev, difficulty: value }))}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1386,11 +1423,194 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Same form fields as create dialog */}
           <div className="space-y-4">
-            {/* ... Same form content as create dialog ... */}
-            <div className="text-center py-4 text-gray-500">
-              Edit form fields would be identical to create form fields above
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-category">Category *</Label>
+                <Select 
+                  value={resourceForm.category_id} 
+                  onValueChange={(value) => setResourceForm(prev => ({ ...prev, category_id: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories?.filter(cat => cat.is_active).map((category) => (
+                      <SelectItem key={category.id} value={category.id.toString()}>
+                        <div className="flex items-center space-x-2">
+                          <div 
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          <span>{category.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-type">Resource Type *</Label>
+                <Select 
+                  value={resourceForm.type} 
+                  onValueChange={(value: ResourceType) => setResourceForm(prev => ({ ...prev, type: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="article">Article</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                    <SelectItem value="audio">Audio</SelectItem>
+                    <SelectItem value="worksheet">Worksheet</SelectItem>
+                    <SelectItem value="tool">Tool</SelectItem>
+                    <SelectItem value="exercise">Exercise</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">Title *</Label>
+              <Input
+                id="edit-title"
+                value={resourceForm.title}
+                onChange={(e) => setResourceForm(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="Enter the resource title..."
+                maxLength={255}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description *</Label>
+              <Textarea
+                id="edit-description"
+                value={resourceForm.description}
+                onChange={(e) => setResourceForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Describe what this resource covers..."
+                className="min-h-[100px] resize-none"
+                maxLength={2000}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-difficulty">Difficulty Level *</Label>
+                <Select 
+                  value={resourceForm.difficulty} 
+                  onValueChange={(value: DifficultyLevel) => setResourceForm(prev => ({ ...prev, difficulty: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="beginner">Beginner</SelectItem>
+                    <SelectItem value="intermediate">Intermediate</SelectItem>
+                    <SelectItem value="advanced">Advanced</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-duration">Duration</Label>
+                <Input
+                  id="edit-duration"
+                  value={resourceForm.duration}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, duration: e.target.value }))}
+                  placeholder="e.g., 15 minutes, 2 hours"
+                  maxLength={50}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-external_url">Resource URL *</Label>
+              <Input
+                id="edit-external_url"
+                type="url"
+                value={resourceForm.external_url}
+                onChange={(e) => setResourceForm(prev => ({ ...prev, external_url: e.target.value }))}
+                placeholder="https://example.com/resource"
+                maxLength={500}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-download_url">Download URL (Optional)</Label>
+              <Input
+                id="edit-download_url"
+                type="url"
+                value={resourceForm.download_url}
+                onChange={(e) => setResourceForm(prev => ({ ...prev, download_url: e.target.value }))}
+                placeholder="https://example.com/download"
+                maxLength={500}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-author_name">Author Name</Label>
+                <Input
+                  id="edit-author_name"
+                  value={resourceForm.author_name}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, author_name: e.target.value }))}
+                  placeholder="Resource creator/author"
+                  maxLength={255}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-sort_order">Sort Order</Label>
+                <Input
+                  id="edit-sort_order"
+                  type="number"
+                  value={resourceForm.sort_order}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {resourceForm.tags.map((tag, index) => (
+                  <Badge key={index} variant="secondary" className="cursor-pointer" onClick={() => handleRemoveTag(tag)}>
+                    {tag} ×
+                  </Badge>
+                ))}
+              </div>
+              <Input
+                placeholder="Add tags (press Enter to add)"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const target = e.target as HTMLInputElement
+                    handleAddTag(target.value)
+                    target.value = ''
+                  }
+                }}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="edit-is_published"
+                  checked={resourceForm.is_published}
+                  onCheckedChange={(checked) => setResourceForm(prev => ({ ...prev, is_published: checked }))}
+                />
+                <Label htmlFor="edit-is_published">Published</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="edit-is_featured"
+                  checked={resourceForm.is_featured}
+                  onCheckedChange={(checked) => setResourceForm(prev => ({ ...prev, is_featured: checked }))}
+                />
+                <Label htmlFor="edit-is_featured">Featured</Label>
+              </div>
             </div>
           </div>
 
@@ -1488,6 +1708,89 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Plus className="h-4 w-4 mr-2" />
               )}
               Create Category
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Category Dialog */}
+      <Dialog open={showEditCategoryDialog} onOpenChange={setShowEditCategoryDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Category</DialogTitle>
+            <DialogDescription>
+              Update the category information.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-category-name">Name *</Label>
+              <Input
+                id="edit-category-name"
+                value={categoryForm.name}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Category name..."
+                maxLength={100}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-category-description">Description</Label>
+              <Textarea
+                id="edit-category-description"
+                value={categoryForm.description}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Brief description..."
+                className="min-h-[80px] resize-none"
+                maxLength={500}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-category-color">Color</Label>
+                <Input
+                  id="edit-category-color"
+                  type="color"
+                  value={categoryForm.color}
+                  onChange={(e) => setCategoryForm(prev => ({ ...prev, color: e.target.value }))}
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-category-sort">Sort Order</Label>
+                <Input
+                  id="edit-category-sort"
+                  type="number"
+                  value={categoryForm.sort_order}
+                  onChange={(e) => setCategoryForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="edit-category-active"
+                checked={categoryForm.is_active}
+                onCheckedChange={(checked) => setCategoryForm(prev => ({ ...prev, is_active: checked }))}
+              />
+              <Label htmlFor="edit-category-active">Active</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditCategoryDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateCategory} disabled={updateCategory.isPending}>
+              {updateCategory.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Edit className="h-4 w-4 mr-2" />
+              )}
+              Update Category
             </Button>
           </DialogFooter>
         </DialogContent>

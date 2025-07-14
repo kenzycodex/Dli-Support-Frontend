@@ -1,4 +1,4 @@
-// components/pages/help-page.tsx (FIXED - Stable loading without reloading)
+// components/pages/help-page.tsx (FIXED - Removed nested button issue)
 "use client"
 
 import { useState, useCallback } from "react"
@@ -138,7 +138,9 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
   }, [categories, updateFilter, trackCategoryClick])
 
   // Handle FAQ bookmark toggle
-  const handleFAQBookmark = useCallback((faq: FAQ) => {
+  const handleFAQBookmark = useCallback((faq: FAQ, event: React.MouseEvent) => {
+    event.stopPropagation()
+    event.preventDefault()
     toggleBookmark(faq.id)
     toast.success(
       isBookmarked(faq.id) ? 'Bookmark removed' : 'FAQ bookmarked',
@@ -436,17 +438,17 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                           </div>
                           <Badge className="bg-yellow-100 text-yellow-800">Featured</Badge>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleFAQBookmark(faq)}
+                        {/* Fixed: Use span instead of Button to avoid nested button issue */}
+                        <span
+                          onClick={(e) => handleFAQBookmark(faq, e)}
                           className={cn(
+                            "cursor-pointer p-2 rounded-md hover:bg-gray-100 transition-colors",
                             "text-gray-400 hover:text-blue-600",
                             isBookmarked(faq.id) && "text-blue-600"
                           )}
                         >
                           <Star className={cn("h-4 w-4", isBookmarked(faq.id) && "fill-current")} />
-                        </Button>
+                        </span>
                       </div>
                       
                       <div onClick={() => handleFAQView(faq)}>
@@ -615,7 +617,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                             className="text-left hover:no-underline"
                             onClick={() => handleFAQView(faq)}
                           >
-                            <div className="flex items-start justify-between w-full">
+                            <div className="flex items-start justify-between w-full pr-4">
                               <div className="flex items-start space-x-3">
                                 <HelpCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
@@ -632,28 +634,27 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                                   </div>
                                 </div>
                               </div>
-                              
-                              <div className="flex items-center space-x-2 ml-4">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleFAQBookmark(faq)
-                                  }}
-                                  className={cn(
-                                    "text-gray-400 hover:text-blue-600",
-                                    isBookmarked(faq.id) && "text-blue-600"
-                                  )}
-                                >
-                                  <Star className={cn("h-4 w-4", isBookmarked(faq.id) && "fill-current")} />
-                                </Button>
-                              </div>
                             </div>
                           </AccordionTrigger>
                           <AccordionContent className="pt-4 pb-6">
                             <div className="space-y-4">
                               <div className="ml-8">
+                                {/* Bookmark button moved outside of accordion trigger */}
+                                <div className="flex justify-end mb-4">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => handleFAQBookmark(faq, e)}
+                                    className={cn(
+                                      "text-gray-400 hover:text-blue-600",
+                                      isBookmarked(faq.id) && "text-blue-600"
+                                    )}
+                                  >
+                                    <Star className={cn("h-4 w-4 mr-2", isBookmarked(faq.id) && "fill-current")} />
+                                    {isBookmarked(faq.id) ? 'Bookmarked' : 'Bookmark'}
+                                  </Button>
+                                </div>
+                                
                                 <div className="prose prose-sm max-w-none">
                                   <p className="text-gray-700 leading-relaxed mb-4">{faq.answer}</p>
                                 </div>
