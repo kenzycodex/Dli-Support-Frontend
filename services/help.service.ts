@@ -1,6 +1,6 @@
-// services/help.service.ts - FINAL FIX: Proper response handling and TypeScript compatibility
+// services/help.service.ts - FINAL FIX: Correct response parsing and TypeScript compatibility
 
-import { apiClient, type ApiResponse } from '@/lib/api'
+import { apiClient, type StandardizedApiResponse } from '@/lib/api'
 
 // Enhanced interfaces aligned with your backend workflow
 export interface HelpCategory {
@@ -75,6 +75,9 @@ export interface FAQsResponse {
     last_page: number
     per_page: number
     total: number
+    from?: number
+    to?: number
+    has_more_pages?: boolean
   }
 }
 
@@ -209,6 +212,118 @@ class HelpService {
     return `help:${endpoint}:${paramString}`
   }
 
+  // CRITICAL FIX: Enhanced response parser that handles multiple backend formats
+  private parseBackendResponse(rawResponse: any): { faqs: FAQ[]; featured_faqs?: FAQ[]; pagination?: any } {
+    console.log('🔍 HelpService: Parsing backend response:', rawResponse)
+
+    // Safety check
+    if (!rawResponse) {
+      console.warn('⚠️ HelpService: No response data provided')
+      return { faqs: [] }
+    }
+
+    // STRATEGY 1: Check for direct FAQsResponse structure
+    if (rawResponse.faqs && Array.isArray(rawResponse.faqs)) {
+      console.log('✅ HelpService: Found direct faqs array format')
+      return {
+        faqs: rawResponse.faqs,
+        featured_faqs: rawResponse.featured_faqs || rawResponse.faqs.filter((faq: FAQ) => faq.is_featured),
+        pagination: rawResponse.pagination
+      }
+    }
+
+    // STRATEGY 2: Check for Laravel paginated response with 'items' array
+    if (rawResponse.items && Array.isArray(rawResponse.items)) {
+      console.log('✅ HelpService: Found Laravel paginated items format')
+      return {
+        faqs: rawResponse.items,
+        featured_faqs: rawResponse.items.filter((faq: FAQ) => faq.is_featured),
+        pagination: {
+          current_page: rawResponse.current_page || 1,
+          last_page: rawResponse.last_page || 1,
+          per_page: rawResponse.per_page || rawResponse.items.length,
+          total: rawResponse.total || rawResponse.items.length,
+          from: rawResponse.from,
+          to: rawResponse.to,
+          has_more_pages: rawResponse.has_more_pages
+        }
+      }
+    }
+
+    // STRATEGY 3: Check for Laravel paginated response with 'data' array
+    if (rawResponse.data && Array.isArray(rawResponse.data)) {
+      console.log('✅ HelpService: Found Laravel paginated data format')
+      return {
+        faqs: rawResponse.data,
+        featured_faqs: rawResponse.data.filter((faq: FAQ) => faq.is_featured),
+        pagination: {
+          current_page: rawResponse.current_page || 1,
+          last_page: rawResponse.last_page || 1,
+          per_page: rawResponse.per_page || rawResponse.data.length,
+          total: rawResponse.total || rawResponse.data.length,
+          from: rawResponse.from,
+          to: rawResponse.to,
+          has_more_pages: rawResponse.has_more_pages
+        }
+      }
+    }
+
+    // STRATEGY 4: Check for nested data structure (data.faqs)
+    if (rawResponse.data && rawResponse.data.faqs && Array.isArray(rawResponse.data.faqs)) {
+      console.log('✅ HelpService: Found nested data.faqs format')
+      return {
+        faqs: rawResponse.data.faqs,
+        featured_faqs: rawResponse.data.featured_faqs || rawResponse.data.faqs.filter((faq: FAQ) => faq.is_featured),
+        pagination: rawResponse.data.pagination || rawResponse.pagination
+      }
+    }
+
+    // STRATEGY 5: Check for nested data structure (data.items)
+    if (rawResponse.data && rawResponse.data.items && Array.isArray(rawResponse.data.items)) {
+      console.log('✅ HelpService: Found nested data.items format')
+      return {
+        faqs: rawResponse.data.items,
+        featured_faqs: rawResponse.data.items.filter((faq: FAQ) => faq.is_featured),
+        pagination: {
+          current_page: rawResponse.data.current_page || 1,
+          last_page: rawResponse.data.last_page || 1,
+          per_page: rawResponse.data.per_page || rawResponse.data.items.length,
+          total: rawResponse.data.total || rawResponse.data.items.length,
+          from: rawResponse.data.from,
+          to: rawResponse.data.to,
+          has_more_pages: rawResponse.data.has_more_pages
+        }
+      }
+    }
+
+    // STRATEGY 6: Direct array response
+    if (Array.isArray(rawResponse)) {
+      console.log('✅ HelpService: Found direct array format')
+      return {
+        faqs: rawResponse,
+        featured_faqs: rawResponse.filter((faq: FAQ) => faq.is_featured),
+        pagination: {
+          current_page: 1,
+          last_page: 1,
+          per_page: rawResponse.length,
+          total: rawResponse.length
+        }
+      }
+    }
+
+    // FALLBACK: Log unknown format and return empty
+    console.warn('⚠️ HelpService: Unknown response format, returning empty array:', {
+      type: typeof rawResponse,
+      keys: Object.keys(rawResponse),
+      hasData: 'data' in rawResponse,
+      hasFaqs: 'faqs' in rawResponse,
+      hasItems: 'items' in rawResponse,
+      sample: JSON.stringify(rawResponse).substring(0, 200)
+    })
+
+    return { faqs: [] }
+  }
+
   // =============================================================================
   // BASIC OPERATIONS - Aligned with your backend controllers
   // =============================================================================
@@ -218,7 +333,7 @@ class HelpService {
     include_inactive?: boolean 
     userRole?: string
     forceRefresh?: boolean 
-  } = {}): Promise<ApiResponse<{ categories: HelpCategory[] }>> {
+  } = {}): Promise<StandardizedApiResponse<{ categories: HelpCategory[] }>> {
     const { forceRefresh = false, userRole } = options
     const cacheKey = this.getCacheKey('categories', options)
 
@@ -265,11 +380,11 @@ class HelpService {
     }
   }
 
-  // CRITICAL FIX: Get FAQs with proper response handling
+  // CRITICAL FIX: Get FAQs with enhanced response parsing
   async getFAQs(filters: FAQFilters & { 
     userRole?: string
     forceRefresh?: boolean 
-  } = {}): Promise<ApiResponse<FAQsResponse>> {
+  } = {}): Promise<StandardizedApiResponse<FAQsResponse>> {
     const { forceRefresh = false, userRole, ...apiFilters } = filters
     const cacheKey = this.getCacheKey('faqs', apiFilters)
 
@@ -300,109 +415,36 @@ class HelpService {
       })
 
       const endpoint = `/help/faqs${params.toString() ? `?${params.toString()}` : ''}`
-      console.log('📡 Making FAQ request to:', endpoint)
+      console.log('📡 HelpService: Making FAQ request to:', endpoint)
       
       const response = await apiClient.get<any>(endpoint)
-      console.log('📡 Raw FAQ response:', response)
+      console.log('📡 HelpService: Raw FAQ response:', response)
 
       if (!response.success) {
-        console.error('❌ FAQ request failed:', response)
+        console.error('❌ HelpService: FAQ request failed:', response)
         return response
       }
 
-      // CRITICAL FIX: Handle different response formats from your backend
-      let faqsResponse: FAQsResponse
+      // CRITICAL FIX: Use enhanced response parser
+      const parsedData = this.parseBackendResponse(response.data)
+      console.log('✅ HelpService: Parsed FAQ data:', parsedData)
 
-      if (response.data) {
-        // Handle direct FAQsResponse structure
-        if (response.data.faqs && Array.isArray(response.data.faqs)) {
-          console.log('✅ FAQ Response: Standard FAQsResponse format')
-          faqsResponse = {
-            faqs: response.data.faqs,
-            featured_faqs: response.data.featured_faqs || response.data.faqs.filter((faq: FAQ) => faq.is_featured),
-            pagination: response.data.pagination || {
-              current_page: 1,
-              last_page: 1,
-              per_page: response.data.faqs.length,
-              total: response.data.faqs.length
-            }
-          }
-        }
-        // Handle direct array response
-        else if (Array.isArray(response.data)) {
-          console.log('✅ FAQ Response: Direct array format')
-          faqsResponse = {
-            faqs: response.data,
-            featured_faqs: response.data.filter((faq: FAQ) => faq.is_featured),
-            pagination: {
-              current_page: 1,
-              last_page: 1,
-              per_page: response.data.length,
-              total: response.data.length
-            }
-          }
-        }
-        // Handle nested data structure
-        else if (response.data.data && Array.isArray(response.data.data)) {
-          console.log('✅ FAQ Response: Nested data format')
-          faqsResponse = {
-            faqs: response.data.data,
-            featured_faqs: response.data.data.filter((faq: FAQ) => faq.is_featured),
-            pagination: response.data.pagination || {
-              current_page: 1,
-              last_page: 1,
-              per_page: response.data.data.length,
-              total: response.data.data.length
-            }
-          }
-        }
-        // Handle Laravel resource response (common format)
-        else if (response.data.data && response.data.data.faqs && Array.isArray(response.data.data.faqs)) {
-          console.log('✅ FAQ Response: Laravel resource format')
-          faqsResponse = {
-            faqs: response.data.data.faqs,
-            featured_faqs: response.data.data.featured_faqs || response.data.data.faqs.filter((faq: FAQ) => faq.is_featured),
-            pagination: response.data.data.pagination || {
-              current_page: 1,
-              last_page: 1,
-              per_page: response.data.data.faqs.length,
-              total: response.data.data.faqs.length
-            }
-          }
-        }
-        // Fallback - empty response
-        else {
-          console.warn('⚠️ FAQ Response: Unknown format, returning empty')
-          faqsResponse = {
-            faqs: [],
-            featured_faqs: [],
-            pagination: {
-              current_page: 1,
-              last_page: 1,
-              per_page: 0,
-              total: 0
-            }
-          }
-        }
-      } else {
-        // No data in response
-        console.warn('⚠️ FAQ Response: No data in response')
-        faqsResponse = {
-          faqs: [],
-          featured_faqs: [],
-          pagination: {
-            current_page: 1,
-            last_page: 1,
-            per_page: 0,
-            total: 0
-          }
+      // Create the final FAQsResponse
+      const faqsResponse: FAQsResponse = {
+        faqs: parsedData.faqs || [],
+        featured_faqs: parsedData.featured_faqs || [],
+        pagination: parsedData.pagination || {
+          current_page: 1,
+          last_page: 1,
+          per_page: parsedData.faqs?.length || 0,
+          total: parsedData.faqs?.length || 0
         }
       }
 
-      console.log('✅ Final FAQ Response:', faqsResponse)
+      console.log('✅ HelpService: Final FAQ Response:', faqsResponse)
 
       // Cache the processed response
-      if (!forceRefresh) {
+      if (!forceRefresh && faqsResponse.faqs.length > 0) {
         helpCache.set(cacheKey, faqsResponse, helpCache['FAQ_TTL'])
       }
 
@@ -414,12 +456,12 @@ class HelpService {
       }
 
     } catch (error: any) {
-      console.error('❌ FAQ Service Error:', error)
+      console.error('❌ HelpService: FAQ Service Error:', error)
       
       // Return stale cache if available on error
       const cached = helpCache.get<FAQsResponse>(cacheKey)
       if (cached) {
-        console.log('📋 Returning cached FAQ data due to error')
+        console.log('📋 HelpService: Returning cached FAQ data due to error')
         return {
           success: true,
           status: 200,
@@ -435,7 +477,7 @@ class HelpService {
   async getFAQ(id: number, options: { 
     userRole?: string
     forceRefresh?: boolean 
-  } = {}): Promise<ApiResponse<{ faq: FAQ; user_feedback?: FAQFeedback }>> {
+  } = {}): Promise<StandardizedApiResponse<{ faq: FAQ; user_feedback?: FAQFeedback }>> {
     const { forceRefresh = false } = options
     const cacheKey = this.getCacheKey('faq', { id })
 
@@ -480,7 +522,7 @@ class HelpService {
   async getStats(options: { 
     userRole?: string
     forceRefresh?: boolean 
-  } = {}): Promise<ApiResponse<{ stats: HelpStats }>> {
+  } = {}): Promise<StandardizedApiResponse<{ stats: HelpStats }>> {
     const { forceRefresh = false } = options
     const cacheKey = this.getCacheKey('stats', {})
 
@@ -526,7 +568,7 @@ class HelpService {
     faqId: number, 
     feedback: { is_helpful: boolean; comment?: string },
     options: { userRole?: string } = {}
-  ): Promise<ApiResponse<{ feedback: FAQFeedback }>> {
+  ): Promise<StandardizedApiResponse<{ feedback: FAQFeedback }>> {
     try {
       const response = await apiClient.post<{ feedback: FAQFeedback }>(`/help/faqs/${faqId}/feedback`, feedback)
 
@@ -546,7 +588,7 @@ class HelpService {
   async suggestContent(
     suggestion: ContentSuggestion,
     options: { userRole?: string } = {}
-  ): Promise<ApiResponse<{ faq: FAQ }>> {
+  ): Promise<StandardizedApiResponse<{ faq: FAQ }>> {
     const { userRole } = options
 
     // Validate role
@@ -574,14 +616,14 @@ class HelpService {
   }
 
   // =============================================================================
-  // SPECIALIZED GETTERS - FIXED: Added status properties
+  // SPECIALIZED GETTERS - FIXED: Better response handling
   // =============================================================================
 
   // Get popular FAQs - FIXED: Better response handling
   async getPopularFAQs(limit: number = 5, options: {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<FAQ[]>> {
+  } = {}): Promise<StandardizedApiResponse<FAQ[]>> {
     const { forceRefresh = false } = options
     const cacheKey = this.getCacheKey('popular', { limit })
 
@@ -644,7 +686,7 @@ class HelpService {
   async getFeaturedFAQs(limit: number = 3, options: {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<FAQ[]>> {
+  } = {}): Promise<StandardizedApiResponse<FAQ[]>> {
     const { forceRefresh = false } = options
     const cacheKey = this.getCacheKey('featured', { limit })
 
@@ -714,7 +756,7 @@ class HelpService {
   // =============================================================================
 
   // Create FAQ (Admin only) - aligned with AdminHelpController@storeFAQ
-  async createFAQ(faqData: Partial<FAQ>, userRole?: string): Promise<ApiResponse<{ faq: FAQ }>> {
+  async createFAQ(faqData: Partial<FAQ>, userRole?: string): Promise<StandardizedApiResponse<{ faq: FAQ }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
@@ -742,7 +784,7 @@ class HelpService {
   }
 
   // Update FAQ (Admin only) - aligned with AdminHelpController@updateFAQ
-  async updateFAQ(id: number, faqData: Partial<FAQ>, userRole?: string): Promise<ApiResponse<{ faq: FAQ }>> {
+  async updateFAQ(id: number, faqData: Partial<FAQ>, userRole?: string): Promise<StandardizedApiResponse<{ faq: FAQ }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
@@ -770,7 +812,7 @@ class HelpService {
   }
 
   // Delete FAQ (Admin only) - aligned with AdminHelpController@destroyFAQ
-  async deleteFAQ(id: number, userRole?: string): Promise<ApiResponse<{ message: string }>> {
+  async deleteFAQ(id: number, userRole?: string): Promise<StandardizedApiResponse<{ message: string }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
@@ -799,7 +841,7 @@ class HelpService {
   }
 
   // Create Category (Admin only) - aligned with AdminHelpController@storeCategory
-  async createCategory(categoryData: Partial<HelpCategory>, userRole?: string): Promise<ApiResponse<{ category: HelpCategory }>> {
+  async createCategory(categoryData: Partial<HelpCategory>, userRole?: string): Promise<StandardizedApiResponse<{ category: HelpCategory }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
@@ -823,7 +865,7 @@ class HelpService {
   }
 
   // Update Category (Admin only) - aligned with AdminHelpController@updateCategory
-  async updateCategory(id: number, categoryData: Partial<HelpCategory>, userRole?: string): Promise<ApiResponse<{ category: HelpCategory }>> {
+  async updateCategory(id: number, categoryData: Partial<HelpCategory>, userRole?: string): Promise<StandardizedApiResponse<{ category: HelpCategory }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
@@ -846,8 +888,8 @@ class HelpService {
     }
   }
 
-  // Delete Category (Admin only) - aligned with AdminHelpController@destroyCategory
-  async deleteCategory(id: number, userRole?: string): Promise<ApiResponse<{ message: string }>> {
+  // Delete Category (Admin only) - continued from previous artifact
+  async deleteCategory(id: number, userRole?: string): Promise<StandardizedApiResponse<{ message: string }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
@@ -866,6 +908,165 @@ class HelpService {
 
       return response
     } catch (error: any) {
+      throw error
+    }
+  }
+
+  // ADMIN METHODS: Get admin FAQs with enhanced parsing
+  async getAdminFAQs(filters: FAQFilters & { 
+    userRole?: string
+    forceRefresh?: boolean 
+  } = {}): Promise<StandardizedApiResponse<FAQsResponse>> {
+    const { forceRefresh = false, userRole, ...apiFilters } = filters
+    
+    // Ensure admin role
+    if (!this.validateRole(['admin'], userRole)) {
+      return {
+        success: false,
+        status: 403,
+        message: 'Only administrators can access admin FAQ management.'
+      }
+    }
+
+    const cacheKey = this.getCacheKey('admin_faqs', apiFilters)
+
+    // Try cache first unless force refresh
+    if (!forceRefresh) {
+      const cached = helpCache.get<FAQsResponse>(cacheKey)
+      if (cached && !cached.isStale) {
+        return {
+          success: true,
+          status: 200,
+          message: 'Admin FAQs retrieved successfully',
+          data: cached.data
+        }
+      }
+    }
+
+    try {
+      const params = new URLSearchParams()
+      
+      // Add include_drafts for admin by default
+      params.append('include_drafts', 'true')
+      
+      Object.entries(apiFilters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.append(key, value.toString())
+        }
+      })
+
+      const endpoint = `/admin/help/faqs${params.toString() ? `?${params.toString()}` : ''}`
+      console.log('📡 HelpService: Making Admin FAQ request to:', endpoint)
+      
+      const response = await apiClient.get<any>(endpoint)
+      console.log('📡 HelpService: Raw Admin FAQ response:', response)
+
+      if (!response.success) {
+        console.error('❌ HelpService: Admin FAQ request failed:', response)
+        return response
+      }
+
+      // Use the same enhanced response parser
+      const parsedData = this.parseBackendResponse(response.data)
+      console.log('✅ HelpService: Parsed Admin FAQ data:', parsedData)
+
+      const faqsResponse: FAQsResponse = {
+        faqs: parsedData.faqs || [],
+        featured_faqs: parsedData.featured_faqs || [],
+        pagination: parsedData.pagination || {
+          current_page: 1,
+          last_page: 1,
+          per_page: parsedData.faqs?.length || 0,
+          total: parsedData.faqs?.length || 0
+        }
+      }
+
+      // Cache the processed response
+      if (!forceRefresh && faqsResponse.faqs.length > 0) {
+        helpCache.set(cacheKey, faqsResponse, helpCache['FAQ_TTL'])
+      }
+
+      return {
+        success: true,
+        status: 200,
+        message: response.message || 'Admin FAQs retrieved successfully',
+        data: faqsResponse
+      }
+
+    } catch (error: any) {
+      console.error('❌ HelpService: Admin FAQ Service Error:', error)
+      
+      // Return stale cache if available on error
+      const cached = helpCache.get<FAQsResponse>(cacheKey)
+      if (cached) {
+        console.log('📋 HelpService: Returning cached Admin FAQ data due to error')
+        return {
+          success: true,
+          status: 200,
+          message: 'Admin FAQs retrieved from cache',
+          data: cached.data
+        }
+      }
+      throw error
+    }
+  }
+
+  // Get admin categories with enhanced parsing
+  async getAdminCategories(options: { 
+    include_inactive?: boolean 
+    userRole?: string
+    forceRefresh?: boolean 
+  } = {}): Promise<StandardizedApiResponse<{ categories: HelpCategory[] }>> {
+    const { forceRefresh = false, userRole } = options
+    
+    // Ensure admin role
+    if (!this.validateRole(['admin'], userRole)) {
+      return {
+        success: false,
+        status: 403,
+        message: 'Only administrators can access admin category management.'
+      }
+    }
+
+    const cacheKey = this.getCacheKey('admin_categories', options)
+
+    // Try cache first unless force refresh
+    if (!forceRefresh) {
+      const cached = helpCache.get<{ categories: HelpCategory[] }>(cacheKey)
+      if (cached && !cached.isStale) {
+        return {
+          success: true,
+          status: 200,
+          message: 'Admin categories retrieved successfully',
+          data: cached.data
+        }
+      }
+    }
+
+    try {
+      const params = new URLSearchParams()
+      params.append('include_inactive', 'true') // Admin should see all categories
+      
+      const endpoint = `/admin/help/categories${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await apiClient.get<{ categories: HelpCategory[] }>(endpoint)
+
+      // Cache successful response
+      if (response.success && response.data) {
+        helpCache.set(cacheKey, response.data, helpCache['DEFAULT_TTL'])
+      }
+
+      return response
+    } catch (error: any) {
+      // Return stale cache if available on error
+      const cached = helpCache.get<{ categories: HelpCategory[] }>(cacheKey)
+      if (cached) {
+        return {
+          success: true,
+          status: 200,
+          message: 'Admin categories retrieved from cache',
+          data: cached.data
+        }
+      }
       throw error
     }
   }
@@ -917,6 +1118,110 @@ class HelpService {
     }
   }
 
+  // Enhanced validation for FAQ data
+  validateFAQData(data: Partial<FAQ>): { valid: boolean; errors: string[] } {
+    const errors: string[] = []
+
+    if (!data.question || !data.question.trim()) {
+      errors.push('Question is required')
+    } else if (data.question.length < 10) {
+      errors.push('Question must be at least 10 characters long')
+    } else if (data.question.length > 500) {
+      errors.push('Question cannot exceed 500 characters')
+    }
+
+    if (!data.answer || !data.answer.trim()) {
+      errors.push('Answer is required')
+    } else if (data.answer.length < 20) {
+      errors.push('Answer must be at least 20 characters long')
+    } else if (data.answer.length > 5000) {
+      errors.push('Answer cannot exceed 5000 characters')
+    }
+
+    if (!data.category_id) {
+      errors.push('Category is required')
+    }
+
+    if (data.tags && data.tags.length > 10) {
+      errors.push('Maximum 10 tags allowed')
+    }
+
+    if (data.tags) {
+      for (const tag of data.tags) {
+        if (typeof tag !== 'string' || tag.length > 50) {
+          errors.push('Each tag must be a string with maximum 50 characters')
+          break
+        }
+      }
+    }
+
+    return { valid: errors.length === 0, errors }
+  }
+
+  // Enhanced validation for category data
+  validateCategoryData(data: Partial<HelpCategory>): { valid: boolean; errors: string[] } {
+    const errors: string[] = []
+
+    if (!data.name || !data.name.trim()) {
+      errors.push('Category name is required')
+    } else if (data.name.length < 3) {
+      errors.push('Category name must be at least 3 characters long')
+    } else if (data.name.length > 100) {
+      errors.push('Category name cannot exceed 100 characters')
+    }
+
+    if (data.description && data.description.length > 1000) {
+      errors.push('Description cannot exceed 1000 characters')
+    }
+
+    if (data.color && !/^#[A-Fa-f0-9]{6}$/.test(data.color)) {
+      errors.push('Color must be a valid hex color code (e.g., #FF0000)')
+    }
+
+    if (data.sort_order !== undefined && (data.sort_order < 0 || !Number.isInteger(data.sort_order))) {
+      errors.push('Sort order must be a non-negative integer')
+    }
+
+    return { valid: errors.length === 0, errors }
+  }
+
+  // Check response health and structure
+  validateResponseStructure(response: any): { valid: boolean; issues: string[] } {
+    const issues: string[] = []
+
+    if (!response) {
+      issues.push('Response is null or undefined')
+      return { valid: false, issues }
+    }
+
+    if (typeof response !== 'object') {
+      issues.push('Response is not an object')
+      return { valid: false, issues }
+    }
+
+    // Check for common Laravel response patterns
+    const hasItems = response.items && Array.isArray(response.items)
+    const hasData = response.data && Array.isArray(response.data)
+    const hasFaqs = response.faqs && Array.isArray(response.faqs)
+    const isDirectArray = Array.isArray(response)
+
+    if (!hasItems && !hasData && !hasFaqs && !isDirectArray) {
+      issues.push('Response does not contain expected array data (items, data, faqs, or direct array)')
+    }
+
+    // Check pagination structure if present
+    if (response.current_page !== undefined) {
+      if (typeof response.current_page !== 'number') {
+        issues.push('current_page should be a number')
+      }
+      if (typeof response.total !== 'number') {
+        issues.push('total should be a number when current_page is present')
+      }
+    }
+
+    return { valid: issues.length === 0, issues }
+  }
+
   // =============================================================================
   // CACHE MANAGEMENT
   // =============================================================================
@@ -943,6 +1248,155 @@ class HelpService {
       console.warn('Failed to refresh some help data:', error)
     }
   }
+
+  // Health check for service
+  async healthCheck(): Promise<boolean> {
+    try {
+      const response = await apiClient.get('/health')
+      return response.success
+    } catch {
+      return false
+    }
+  }
+
+  // Debug information
+  getDebugInfo(): {
+    cacheStats: any
+    apiBaseUrl: string
+    hasAuthToken: boolean
+    supportedResponseFormats: string[]
+  } {
+    return {
+      cacheStats: this.getCacheStats(),
+      apiBaseUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api",
+      hasAuthToken: !!localStorage?.getItem('auth_token'),
+      supportedResponseFormats: [
+        'direct faqs array',
+        'Laravel paginated items',
+        'Laravel paginated data',
+        'nested data.faqs',
+        'nested data.items',
+        'direct array response'
+      ]
+    }
+  }
+
+  // Test response parsing with sample data
+  testResponseParsing(sampleResponse: any): { parsed: any; issues: string[] } {
+    try {
+      const validation = this.validateResponseStructure(sampleResponse)
+      const parsed = this.parseBackendResponse(sampleResponse)
+      
+      return {
+        parsed,
+        issues: validation.issues
+      }
+    } catch (error: any) {
+      return {
+        parsed: { faqs: [] },
+        issues: [`Parse error: ${error.message}`]
+      }
+    }
+  }
+
+  // Get current user role from auth context
+  private getCurrentUserRole(): string {
+    try {
+      if (typeof window !== 'undefined') {
+        const userStr = localStorage.getItem('user')
+        if (userStr) {
+          const user = JSON.parse(userStr)
+          return user.role || 'student'
+        }
+      }
+    } catch (error) {
+      console.error('Failed to get user role:', error)
+    }
+    return 'student'
+  }
+
+  // Generate cache key with user context
+  private getCacheKeyWithUser(endpoint: string, params?: any): string {
+    const userRole = this.getCurrentUserRole()
+    const userId = this.getCurrentUserId()
+    const baseKey = this.getCacheKey(endpoint, params)
+    return `${baseKey}:${userRole}:${userId}`
+  }
+
+  // Get current user ID
+  private getCurrentUserId(): string | null {
+    try {
+      if (typeof window !== 'undefined') {
+        const userStr = localStorage.getItem('user')
+        if (userStr) {
+          const user = JSON.parse(userStr)
+          return user.id?.toString() || null
+        }
+      }
+    } catch (error) {
+      console.error('Failed to get user ID:', error)
+    }
+    return null
+  }
+
+  // Performance monitoring
+  private async measurePerformance<T>(
+    operation: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    const startTime = performance.now()
+    try {
+      const result = await fn()
+      const duration = performance.now() - startTime
+      console.log(`⚡ HelpService: ${operation} completed in ${duration.toFixed(2)}ms`)
+      return result
+    } catch (error) {
+      const duration = performance.now() - startTime
+      console.error(`❌ HelpService: ${operation} failed after ${duration.toFixed(2)}ms:`, error)
+      throw error
+    }
+  }
+
+  // Batch operations for efficiency
+  async batchGetFAQs(requests: Array<{ filters: FAQFilters; userRole?: string }>): Promise<StandardizedApiResponse<FAQsResponse>[]> {
+    const results = await Promise.allSettled(
+      requests.map(({ filters, userRole }) => this.getFAQs({ ...filters, userRole }))
+    )
+
+    return results.map(result => {
+      if (result.status === 'fulfilled') {
+        return result.value
+      } else {
+        return {
+          success: false,
+          status: 500,
+          message: 'Batch request failed',
+          errors: { 
+            batch: { 
+              messages: ['Request failed in batch operation'], 
+              first: 'Request failed in batch operation' 
+            } 
+          }
+        }
+      }
+    })
+  }
+
+  // Smart prefetch for common operations
+  async prefetchCommonData(userRole?: string): Promise<void> {
+    try {
+      // Prefetch in parallel without blocking
+      Promise.allSettled([
+        this.getCategories({ userRole }),
+        this.getFeaturedFAQs(3, { userRole }),
+        this.getPopularFAQs(5, { userRole }),
+        this.getStats({ userRole })
+      ])
+    } catch (error) {
+      console.warn('Prefetch failed:', error)
+      // Don't throw - prefetch failures shouldn't break the app
+    }
+  }
 }
 
 // Create and export a singleton instance
@@ -950,3 +1404,16 @@ export const helpService = new HelpService()
 
 // Export cache for external access if needed
 export { helpCache }
+
+// Export additional utilities
+export const helpUtils = {
+  validateFAQData: (data: Partial<FAQ>) => helpService.validateFAQData(data),
+  validateCategoryData: (data: Partial<HelpCategory>) => helpService.validateCategoryData(data),
+  calculateHelpfulnessRate: (helpful: number, notHelpful: number) => helpService.calculateHelpfulnessRate(helpful, notHelpful),
+  formatTimeAgo: (dateString: string) => helpService.formatTimeAgo(dateString),
+  canSuggestContent: (userRole: string) => helpService.canSuggestContent(userRole),
+  canManageContent: (userRole: string) => helpService.canManageContent(userRole),
+  getDebugInfo: () => helpService.getDebugInfo(),
+  healthCheck: () => helpService.healthCheck(),
+  testResponseParsing: (sampleResponse: any) => helpService.testResponseParsing(sampleResponse)
+}

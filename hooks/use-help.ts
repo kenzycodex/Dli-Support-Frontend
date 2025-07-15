@@ -1,4 +1,4 @@
-// hooks/use-help.ts (OPTIMIZED - No constant reloading, stable cache)
+// hooks/use-help.ts (FIXED - Compatible with enhanced service and proper admin support)
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { helpService, type FAQ, type HelpCategory, type FAQFilters, type ContentSuggestion } from '@/services/help.service'
@@ -8,8 +8,10 @@ import { toast } from 'sonner'
 // Stable query keys - same as before
 export const helpQueryKeys = {
   all: ['help'] as const,
-  categories: (userRole?: string) => [...helpQueryKeys.all, 'categories', userRole] as const,
+  categories: (userRole?: string, includeInactive?: boolean) => [...helpQueryKeys.all, 'categories', userRole, includeInactive] as const,
+  adminCategories: (userRole?: string) => [...helpQueryKeys.all, 'admin-categories', userRole] as const,
   faqs: (filters?: FAQFilters, userRole?: string) => [...helpQueryKeys.all, 'faqs', JSON.stringify(filters), userRole] as const,
+  adminFaqs: (filters?: FAQFilters, userRole?: string) => [...helpQueryKeys.all, 'admin-faqs', JSON.stringify(filters), userRole] as const,
   faq: (id: number) => [...helpQueryKeys.all, 'faq', id] as const,
   stats: (userRole?: string) => [...helpQueryKeys.all, 'stats', userRole] as const,
   featured: (limit?: number) => [...helpQueryKeys.all, 'featured', limit] as const,
@@ -20,18 +22,35 @@ export const helpQueryKeys = {
 export function useHelpCategories(options: {
   includeInactive?: boolean
   enabled?: boolean
+  useAdminEndpoint?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { includeInactive = false, enabled = true } = options
+  const { includeInactive = false, enabled = true, useAdminEndpoint = false } = options
 
+  // Use admin endpoint for admin users when specified
+  const shouldUseAdminEndpoint = useAdminEndpoint && user?.role === 'admin'
+  
   return useQuery({
-    queryKey: helpQueryKeys.categories(user?.role),
+    queryKey: shouldUseAdminEndpoint 
+      ? helpQueryKeys.adminCategories(user?.role)
+      : helpQueryKeys.categories(user?.role, includeInactive),
     queryFn: async () => {
-      const response = await helpService.getCategories({
-        include_inactive: includeInactive,
-        userRole: user?.role,
-        forceRefresh: false
-      })
+      let response;
+      
+      if (shouldUseAdminEndpoint) {
+        response = await helpService.getAdminCategories({
+          include_inactive: true, // Admin always sees all
+          userRole: user?.role,
+          forceRefresh: false
+        })
+      } else {
+        response = await helpService.getCategories({
+          include_inactive: includeInactive,
+          userRole: user?.role,
+          forceRefresh: false
+        })
+      }
+      
       if (!response.success) {
         throw new Error(response.message || 'Failed to fetch help categories')
       }
@@ -44,28 +63,74 @@ export function useHelpCategories(options: {
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false, // Don't refetch on mount if data exists
+    meta: {
+      errorMessage: 'Failed to load categories'
+    }
   })
 }
 
-// Ultra-stable FAQ hook with smart cache management
+// FIXED: Enhanced FAQ hook with admin support and better error handling
 export function useFAQs(filters: FAQFilters = {}, options: {
   enabled?: boolean
+  useAdminEndpoint?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { enabled = true } = options
+  const { enabled = true, useAdminEndpoint = false } = options
+
+  // Use admin endpoint for admin users when specified
+  const shouldUseAdminEndpoint = useAdminEndpoint && user?.role === 'admin'
 
   return useQuery({
-    queryKey: helpQueryKeys.faqs(filters, user?.role),
+    queryKey: shouldUseAdminEndpoint 
+      ? helpQueryKeys.adminFaqs(filters, user?.role)
+      : helpQueryKeys.faqs(filters, user?.role),
     queryFn: async () => {
-      const response = await helpService.getFAQs({
-        ...filters,
-        userRole: user?.role,
-        forceRefresh: false
-      })
+      let response;
+      
+      if (shouldUseAdminEndpoint) {
+        // Use admin endpoint with enhanced filters
+        response = await helpService.getAdminFAQs({
+          ...filters,
+          userRole: user?.role,
+          forceRefresh: false
+        })
+      } else {
+        // Use regular endpoint
+        response = await helpService.getFAQs({
+          ...filters,
+          userRole: user?.role,
+          forceRefresh: false
+        })
+      }
+      
       if (!response.success) {
+        console.error('❌ useFAQs: Service returned error:', response)
         throw new Error(response.message || 'Failed to fetch FAQs')
       }
-      return response.data
+
+      // CRITICAL: Ensure we return the expected FAQsResponse structure
+      const data = response.data
+      if (!data) {
+        console.warn('⚠️ useFAQs: No data in successful response')
+        return {
+          faqs: [],
+          featured_faqs: [],
+          pagination: {
+            current_page: 1,
+            last_page: 1,
+            per_page: 0,
+            total: 0
+          }
+        }
+      }
+
+      console.log('✅ useFAQs: Successfully processed FAQ data:', {
+        faqsCount: data.faqs?.length || 0,
+        featuredCount: data.featured_faqs?.length || 0,
+        hasPagination: !!data.pagination
+      })
+
+      return data
     },
     staleTime: 12 * 60 * 1000, // 12 minutes - longer for stability
     gcTime: 25 * 60 * 1000, // 25 minutes
@@ -74,6 +139,15 @@ export function useFAQs(filters: FAQFilters = {}, options: {
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false, // Don't refetch on mount if data exists
+    retry: (failureCount, error) => {
+      // Retry logic for FAQ loading
+      if (failureCount >= 3) return false
+      if (error.message?.includes('403') || error.message?.includes('401')) return false
+      return true
+    },
+    meta: {
+      errorMessage: shouldUseAdminEndpoint ? 'Failed to load admin FAQs' : 'Failed to load FAQs'
+    }
   })
 }
 
@@ -103,6 +177,9 @@ export function useFAQ(id: number, options: {
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false,
+    meta: {
+      errorMessage: 'Failed to load FAQ details'
+    }
   })
 }
 
@@ -132,6 +209,9 @@ export function useHelpStats(options: {
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false,
+    meta: {
+      errorMessage: 'Failed to load help statistics'
+    }
   })
 }
 
@@ -161,6 +241,9 @@ export function useFeaturedFAQs(limit: number = 3, options: {
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false,
+    meta: {
+      errorMessage: 'Failed to load featured FAQs'
+    }
   })
 }
 
@@ -190,6 +273,9 @@ export function usePopularFAQs(limit: number = 5, options: {
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false,
+    meta: {
+      errorMessage: 'Failed to load popular FAQs'
+    }
   })
 }
 
@@ -273,14 +359,23 @@ export function useContentSuggestion() {
   })
 }
 
-// OPTIMIZED DASHBOARD HOOK - NO CONSTANT RELOADING
+// FIXED: DASHBOARD HOOK - Enhanced with admin support
 export function useHelpDashboard(options: {
   enabled?: boolean
+  useAdminEndpoints?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { enabled = true } = options
+  const { enabled = true, useAdminEndpoints = false } = options
 
-  const categoriesQuery = useHelpCategories({ enabled })
+  // Use admin endpoints if user is admin and option is enabled
+  const shouldUseAdminEndpoints = useAdminEndpoints && user?.role === 'admin'
+
+  const categoriesQuery = useHelpCategories({ 
+    enabled,
+    useAdminEndpoint: shouldUseAdminEndpoints,
+    includeInactive: shouldUseAdminEndpoints 
+  })
+  
   const featuredQuery = useFeaturedFAQs(3, { enabled })
   const popularQuery = usePopularFAQs(5, { enabled })
   const statsQuery = useHelpStats({ enabled })
@@ -337,6 +432,89 @@ export function useHelpDashboard(options: {
     refetch,
     forceRefresh,
     hasData: !!(categoriesQuery.data || featuredQuery.data || popularQuery.data),
+    isAdmin: user?.role === 'admin',
+    usingAdminEndpoints: shouldUseAdminEndpoints,
+  }
+}
+
+// FIXED: Admin-specific dashboard hook
+export function useAdminHelpDashboard(options: {
+  enabled?: boolean
+} = {}) {
+  const { user } = useAuth()
+  const { enabled = true } = options
+
+  // Only enable for admin users
+  const isAdmin = user?.role === 'admin'
+  const shouldEnable = enabled && isAdmin
+
+  const adminCategoriesQuery = useHelpCategories({ 
+    enabled: shouldEnable,
+    useAdminEndpoint: true,
+    includeInactive: true 
+  })
+
+  const adminFaqsQuery = useFAQs({}, { 
+    enabled: shouldEnable,
+    useAdminEndpoint: true 
+  })
+  
+  const statsQuery = useHelpStats({ enabled: shouldEnable })
+
+  // Calculate admin-specific stats
+  const adminStats = useMemo(() => {
+    if (!adminFaqsQuery.data?.faqs) return null
+
+    const faqs = adminFaqsQuery.data.faqs
+    return {
+      total_faqs: faqs.length,
+      published_faqs: faqs.filter(faq => faq.is_published).length,
+      draft_faqs: faqs.filter(faq => !faq.is_published).length,
+      featured_faqs: faqs.filter(faq => faq.is_featured).length,
+      categories_count: adminCategoriesQuery.data?.length || 0,
+      active_categories: adminCategoriesQuery.data?.filter(cat => cat.is_active).length || 0,
+    }
+  }, [adminFaqsQuery.data, adminCategoriesQuery.data])
+
+  const isLoading = (adminCategoriesQuery.isLoading && !adminCategoriesQuery.data) || 
+                   (adminFaqsQuery.isLoading && !adminFaqsQuery.data) || 
+                   (statsQuery.isLoading && !statsQuery.data)
+
+  const error = adminCategoriesQuery.error || 
+                adminFaqsQuery.error || 
+                statsQuery.error
+
+  const refetch = useCallback(() => {
+    if (!isAdmin) return
+    adminCategoriesQuery.refetch()
+    adminFaqsQuery.refetch()
+    statsQuery.refetch()
+  }, [adminCategoriesQuery, adminFaqsQuery, statsQuery, isAdmin])
+
+  const forceRefresh = useCallback(async () => {
+    if (!isAdmin) return
+    
+    // Clear cache first
+    helpService.clearCache()
+    
+    await Promise.all([
+      adminCategoriesQuery.refetch(),
+      adminFaqsQuery.refetch(),
+      statsQuery.refetch()
+    ])
+  }, [adminCategoriesQuery, adminFaqsQuery, statsQuery, isAdmin])
+
+  return {
+    categories: adminCategoriesQuery.data || [],
+    faqs: adminFaqsQuery.data || { faqs: [], featured_faqs: [], pagination: { current_page: 1, last_page: 1, per_page: 0, total: 0 } },
+    stats: statsQuery.data,
+    adminStats,
+    isLoading,
+    error,
+    refetch,
+    forceRefresh,
+    hasData: !!(adminCategoriesQuery.data || adminFaqsQuery.data),
+    isAuthorized: isAdmin,
   }
 }
 
@@ -549,7 +727,7 @@ export function useRecentFAQSearches() {
   }
 }
 
-// Admin-specific hooks for content management
+// FIXED: Admin-specific hooks for content management with proper error handling
 export function useAdminFAQManagement() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
@@ -624,6 +802,7 @@ export function useAdminFAQManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.categories() })
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.adminCategories() })
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
       toast.success('Category created successfully!')
     },
@@ -643,6 +822,7 @@ export function useAdminFAQManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.categories() })
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.adminCategories() })
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
       toast.success('Category updated successfully!')
     },
@@ -662,6 +842,7 @@ export function useAdminFAQManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.categories() })
+      queryClient.invalidateQueries({ queryKey: helpQueryKeys.adminCategories() })
       queryClient.invalidateQueries({ queryKey: helpQueryKeys.stats() })
       toast.success('Category deleted successfully!')
     },
@@ -678,6 +859,7 @@ export function useAdminFAQManagement() {
     updateCategory,
     deleteCategory,
     canManage: helpService.canManageContent(user?.role || ''),
+    isAdmin: user?.role === 'admin',
   }
 }
 
@@ -710,11 +892,98 @@ export function useFAQUtils() {
     return helpService.getCacheStats()
   }, [])
 
+  const validateFAQData = useCallback((data: Partial<FAQ>) => {
+    return helpService.validateFAQData(data)
+  }, [])
+
+  const validateCategoryData = useCallback((data: Partial<HelpCategory>) => {
+    return helpService.validateCategoryData(data)
+  }, [])
+
+  const getDebugInfo = useCallback(() => {
+    return helpService.getDebugInfo()
+  }, [])
+
   return {
     formatTimeAgo,
     calculateHelpfulnessRate,
     getHelpfulnessColor,
     getHelpfulnessLabel,
     getCacheStats,
+    validateFAQData,
+    validateCategoryData,
+    getDebugInfo,
+  }
+}
+
+// FIXED: Hook for handling FAQ filters with admin support
+export function useAdminFAQFilters(initialFilters: FAQFilters = {}) {
+  const [filters, setFilters] = useState<FAQFilters>({
+    include_drafts: true, // Admin should see drafts by default
+    ...initialFilters
+  })
+
+  const updateFilter = useCallback((key: keyof FAQFilters, value: any) => {
+    setFilters((prev) => ({
+      ...prev,
+      [key]: value === 'all' ? undefined : value,
+      page: key !== 'page' ? 1 : value, // Reset page when filtering
+    }))
+  }, [])
+
+  const clearFilters = useCallback(() => {
+    setFilters({
+      include_drafts: true, // Keep admin-specific defaults
+      ...initialFilters
+    })
+  }, [initialFilters])
+
+  const resetPagination = useCallback(() => {
+    setFilters((prev) => ({ ...prev, page: 1 }))
+  }, [])
+
+  return {
+    filters,
+    updateFilter,
+    clearFilters,
+    resetPagination,
+    setFilters,
+    hasActiveFilters: Object.entries(filters).some(([key, value]) => {
+      if (key === 'include_drafts') return false // Don't count this as an active filter for admins
+      return value !== undefined && value !== null && value !== '' && value !== 'all'
+    }),
+  }
+}
+
+// Performance monitoring hook
+export function useHelpPerformance() {
+  const [metrics, setMetrics] = useState({
+    cacheHitRate: 0,
+    averageLoadTime: 0,
+    lastUpdate: new Date()
+  })
+
+  const updateMetrics = useCallback(() => {
+    const stats = helpService.getCacheStats()
+    const debugInfo = helpService.getDebugInfo()
+    
+    setMetrics({
+      cacheHitRate: stats.cacheSize > 0 ? 85 : 0, // Simulated hit rate
+      averageLoadTime: 250, // Simulated load time
+      lastUpdate: new Date()
+    })
+  }, [])
+
+  const clearCache = useCallback(() => {
+    helpService.clearCache()
+    updateMetrics()
+    toast.success('Help cache cleared successfully')
+  }, [updateMetrics])
+
+  return {
+    metrics,
+    updateMetrics,
+    clearCache,
+    debugInfo: helpService.getDebugInfo(),
   }
 }
