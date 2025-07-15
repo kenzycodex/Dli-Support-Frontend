@@ -1,4 +1,5 @@
-// components/pages/help-page.tsx (FIXED - Removed nested button issue)
+// components/pages/help-page.tsx - FINAL FIX: Resolves FAQ display and TypeScript issues
+
 "use client"
 
 import { useState, useCallback } from "react"
@@ -56,7 +57,7 @@ import { SearchWithSuggestions } from "@/components/common/search-with-suggestio
 import { useAuth } from "@/contexts/AuthContext"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import type { FAQ } from "@/services/help.service"
+import type { FAQ, HelpCategory } from "@/services/help.service"
 
 // Role-based interface props
 interface HelpPageProps {
@@ -116,6 +117,55 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
   // Content suggestion hook
   const contentSuggestion = useContentSuggestion()
 
+  // FIXED: Safe array access with proper typing and null checks
+  const safeCategories = Array.isArray(categories) ? categories : []
+  const safeFeatured = Array.isArray(featured) ? featured : []
+  const safePopular = Array.isArray(popular) ? popular : []
+  const safeBookmarkedFAQs = Array.isArray(bookmarkedFAQs) ? bookmarkedFAQs : []
+  const safeRecentSearches = Array.isArray(recentSearches) ? recentSearches : []
+  const safeAllCategories = Array.isArray(allCategories) ? allCategories : []
+
+  // FIXED: Better FAQ data extraction with correct TypeScript types
+  const safeFAQs = (() => {
+    if (!faqsData) {
+      console.log('📋 FAQ Data: No data available')
+      return []
+    }
+
+    // FIXED: Handle the correct FAQsResponse structure
+    if (Array.isArray(faqsData.faqs)) {
+      console.log('📋 FAQ Data: Found faqs array with', faqsData.faqs.length, 'items')
+      return faqsData.faqs
+    }
+
+    // Fallback: if somehow the structure is different
+    if (Array.isArray(faqsData)) {
+      console.log('📋 FAQ Data: Direct array format', faqsData.length, 'items')
+      return faqsData
+    }
+
+    console.warn('⚠️ FAQ Data: Unknown format', typeof faqsData, faqsData)
+    return []
+  })()
+
+  // DEBUG: Enhanced logging to help identify the issue
+  console.log('🔍 FAQ Debug Info - Final:', {
+    faqsData,
+    safeFAQs,
+    faqsLength: safeFAQs.length,
+    isLoading: faqsLoading,
+    error: faqsError,
+    filters,
+    dataStructure: faqsData ? {
+      type: typeof faqsData,
+      keys: Object.keys(faqsData),
+      hasFaqs: 'faqs' in faqsData,
+      faqsType: faqsData.faqs ? typeof faqsData.faqs : 'undefined',
+      faqsIsArray: Array.isArray(faqsData.faqs),
+      faqsLength: faqsData.faqs ? (Array.isArray(faqsData.faqs) ? faqsData.faqs.length : 'not array') : 'no faqs'
+    } : 'no data'
+  })
+
   // Handle search with analytics tracking - NO IMMEDIATE FAQ REFETCH
   const handleSearch = useCallback((query: string) => {
     // Only update filter, don't add to recent searches immediately
@@ -124,20 +174,20 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
     // Add to recent searches
     if (query.trim()) {
       addRecentSearch(query)
-      trackFAQSearch(query, faqsData?.faqs?.length || 0)
+      trackFAQSearch(query, safeFAQs.length || 0)
     }
-  }, [updateFilter, addRecentSearch, trackFAQSearch, faqsData])
+  }, [updateFilter, addRecentSearch, trackFAQSearch, safeFAQs.length])
 
-  // Handle category selection with analytics
+  // Handle category selection with analytics - FIXED: Proper typing
   const handleCategorySelect = useCallback((categorySlug: string) => {
-    const category = categories.find(c => c.slug === categorySlug)
+    const category = safeCategories.find((c: HelpCategory) => c.slug === categorySlug)
     if (category) {
       updateFilter('category', categorySlug)
       trackCategoryClick(categorySlug, category.name)
     }
-  }, [categories, updateFilter, trackCategoryClick])
+  }, [safeCategories, updateFilter, trackCategoryClick])
 
-  // Handle FAQ bookmark toggle
+  // Handle FAQ bookmark toggle - FIXED: Proper typing
   const handleFAQBookmark = useCallback((faq: FAQ, event: React.MouseEvent) => {
     event.stopPropagation()
     event.preventDefault()
@@ -148,7 +198,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
     )
   }, [toggleBookmark, isBookmarked])
 
-  // Handle FAQ view with analytics
+  // Handle FAQ view with analytics - FIXED: Proper typing
   const handleFAQView = useCallback((faq: FAQ) => {
     trackFAQView(faq.id, faq.question)
   }, [trackFAQView])
@@ -205,7 +255,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
     }
   }, [suggestionForm, contentSuggestion])
 
-  // Handle tag management for suggestions
+  // Handle tag management for suggestions - FIXED: Proper typing
   const handleAddTag = useCallback((tag: string) => {
     if (tag.trim() && !suggestionForm.tags.includes(tag.trim())) {
       setSuggestionForm(prev => ({
@@ -265,7 +315,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
 
   return (
     <div className="space-y-8">
-      {/* Header with Role-Based Actions - STABLE STATS */}
+      {/* Header with Role-Based Actions - STABLE STATS - FIXED: Safe access */}
       <div className="relative bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 rounded-2xl p-8 text-white overflow-hidden">
         <div className="absolute inset-0 bg-black/10 rounded-2xl"></div>
         <div className="relative z-10">
@@ -322,7 +372,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
             </div>
           </div>
           
-          {/* Stats Grid - STABLE, NO CONSTANT RELOADING */}
+          {/* Stats Grid - STABLE, NO CONSTANT RELOADING - FIXED: Safe access */}
           <div className="grid grid-cols-3 gap-6 mt-6">
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
@@ -332,7 +382,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
             </div>
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {categories.length}
+                {safeCategories.length}
               </div>
               <div className="text-sm text-blue-100">Categories</div>
             </div>
@@ -342,19 +392,19 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
             </div>
           </div>
 
-          {/* User Bookmarks Count (if any) */}
-          {bookmarkedFAQs.length > 0 && (
+          {/* User Bookmarks Count (if any) - FIXED: Safe access */}
+          {safeBookmarkedFAQs.length > 0 && (
             <div className="mt-4 bg-white/10 rounded-lg p-3 border border-white/10">
               <div className="flex items-center space-x-2">
                 <Star className="h-4 w-4 text-yellow-300" />
-                <span className="text-sm">You have {bookmarkedFAQs.length} bookmarked FAQ{bookmarkedFAQs.length > 1 ? 's' : ''}</span>
+                <span className="text-sm">You have {safeBookmarkedFAQs.length} bookmarked FAQ{safeBookmarkedFAQs.length > 1 ? 's' : ''}</span>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Search - OPTIMIZED TO NOT CAUSE CONSTANT REFETCHES */}
+      {/* Search - OPTIMIZED TO NOT CAUSE CONSTANT REFETCHES - FIXED: Safe access */}
       <Card className="border-0 shadow-lg">
         <CardContent className="p-6">
           <SearchWithSuggestions
@@ -362,8 +412,8 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
             onChange={(value) => updateFilter('search', value)}
             onSearch={handleSearch}
             placeholder="Search for help articles, FAQs, or guides..."
-            recentSearches={recentSearches}
-            popularSearches={popular.map(faq => faq.question)}
+            recentSearches={safeRecentSearches}
+            popularSearches={safePopular.map((faq: FAQ) => faq.question)}
             onRecentSearchRemove={removeRecentSearch}
             onClearRecentSearches={clearRecentSearches}
             isLoading={faqsLoading}
@@ -403,8 +453,8 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
         </Button>
       </div>
 
-      {/* Featured FAQs - STABLE, NO CONSTANT RELOADING */}
-      {featured.length > 0 && (
+      {/* Featured FAQs - STABLE, NO CONSTANT RELOADING - FIXED: Safe access */}
+      {safeFeatured.length > 0 && (
         <Card className="border-0 shadow-lg">
           <CardHeader className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-t-lg">
             <div className="flex items-center justify-between">
@@ -427,7 +477,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
           </CardHeader>
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {featured.map((faq) => (
+              {safeFeatured.map((faq: FAQ) => (
                 <Card key={faq.id} className="hover:shadow-lg transition-all duration-300 border-0 shadow-md group">
                   <CardContent className="p-6">
                     <div className="space-y-4">
@@ -496,7 +546,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
 
         <TabsContent value="faqs" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Categories Sidebar - STABLE */}
+            {/* Categories Sidebar - STABLE - FIXED: Safe access */}
             <Card className="border-0 shadow-lg lg:col-span-1">
               <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-t-lg">
                 <CardTitle className="text-lg flex items-center justify-between">
@@ -526,7 +576,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                     </Badge>
                   </Button>
                   
-                  {categories.map((category) => (
+                  {safeCategories.map((category: HelpCategory) => (
                     <Button
                       key={category.id}
                       variant={filters.category === category.slug ? "default" : "ghost"}
@@ -549,15 +599,15 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
               </CardContent>
             </Card>
 
-            {/* FAQs List - OPTIMIZED LOADING */}
+            {/* FAQs List - FIXED: Proper data handling and display */}
             <div className="lg:col-span-3">
               <Card className="border-0 shadow-lg">
                 <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-lg">
                   <div className="flex items-center justify-between">
                     <CardTitle className="flex items-center space-x-2">
                       <span>Frequently Asked Questions</span>
-                      {faqsData && (
-                        <Badge variant="secondary">{faqsData.faqs.length} results</Badge>
+                      {safeFAQs.length > 0 && (
+                        <Badge variant="secondary">{safeFAQs.length} results</Badge>
                       )}
                       {faqsLoading && (
                         <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
@@ -591,7 +641,8 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                 </CardHeader>
                 
                 <CardContent className="p-6">
-                  {faqsLoading && !faqsData ? (
+                  {/* FIXED: Better loading/error/data handling */}
+                  {faqsLoading && safeFAQs.length === 0 ? (
                     <div className="space-y-4">
                       {[...Array(3)].map((_, i) => (
                         <div key={i} className="animate-pulse">
@@ -609,9 +660,10 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                         Retry
                       </Button>
                     </div>
-                  ) : faqsData && faqsData.faqs.length > 0 ? (
+                  ) : safeFAQs.length > 0 ? (
+                    // FIXED: Display FAQs when available - This is the key part
                     <Accordion type="single" collapsible className="space-y-4">
-                      {faqsData.faqs.map((faq) => (
+                      {safeFAQs.map((faq: FAQ) => (
                         <AccordionItem key={faq.id} value={faq.id.toString()} className="border rounded-lg px-4">
                           <AccordionTrigger 
                             className="text-left hover:no-underline"
@@ -662,7 +714,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                                 {/* FAQ Tags */}
                                 {faq.tags && faq.tags.length > 0 && (
                                   <div className="flex flex-wrap gap-2 mb-4">
-                                    {faq.tags.map((tag, index) => (
+                                    {faq.tags.map((tag: string, index: number) => (
                                       <Badge key={index} variant="outline" className="text-xs">
                                         {tag}
                                       </Badge>
@@ -816,7 +868,7 @@ export function HelpPage({ onNavigate }: HelpPageProps) {
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {allCategories?.filter(cat => cat.is_active).map((category) => (
+                  {safeAllCategories?.filter((cat: HelpCategory) => cat.is_active).map((category: HelpCategory) => (
                     <SelectItem key={category.id} value={category.id.toString()}>
                       <div className="flex items-center space-x-2">
                         <div 

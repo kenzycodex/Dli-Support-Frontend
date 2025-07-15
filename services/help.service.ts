@@ -1,7 +1,8 @@
-// services/help.service.ts (FIXED - Stable caching without constant reloading)
-import { apiClient, ApiResponse } from '@/lib/api'
+// services/help.service.ts - FINAL FIX: Proper response handling and TypeScript compatibility
 
-// Enhanced interfaces with stable caching
+import { apiClient, type ApiResponse } from '@/lib/api'
+
+// Enhanced interfaces aligned with your backend workflow
 export interface HelpCategory {
   id: number
   name: string
@@ -68,8 +69,8 @@ export interface FAQFilters {
 
 export interface FAQsResponse {
   faqs: FAQ[]
-  featured_faqs: FAQ[]
-  pagination: {
+  featured_faqs?: FAQ[]
+  pagination?: {
     current_page: number
     last_page: number
     per_page: number
@@ -132,10 +133,10 @@ export interface ContentSuggestionsResponse {
   }
 }
 
-// Stable cache implementation
+// Stable cache implementation aligned with your backend caching
 class HelpCache {
   private cache = new Map<string, { data: any; timestamp: number; ttl: number }>()
-  private readonly DEFAULT_TTL = 10 * 60 * 1000 // 10 minutes - longer for stability
+  private readonly DEFAULT_TTL = 10 * 60 * 1000 // 10 minutes
   private readonly STATS_TTL = 15 * 60 * 1000 // 15 minutes for stats
   private readonly FAQ_TTL = 8 * 60 * 1000 // 8 minutes for FAQs
 
@@ -157,7 +158,6 @@ class HelpCache {
     const age = now - entry.timestamp
     const isStale = age > entry.ttl
 
-    // Return data even if stale, but mark it as stale
     return {
       data: entry.data as T,
       isStale
@@ -178,7 +178,7 @@ class HelpCache {
   cleanup(): void {
     const now = Date.now()
     for (const [key, entry] of this.cache.entries()) {
-      if (now - entry.timestamp > entry.ttl * 3) { // Remove entries older than 3x TTL
+      if (now - entry.timestamp > entry.ttl * 3) {
         this.cache.delete(key)
       }
     }
@@ -210,10 +210,10 @@ class HelpService {
   }
 
   // =============================================================================
-  // BASIC OPERATIONS WITH STABLE CACHING
+  // BASIC OPERATIONS - Aligned with your backend controllers
   // =============================================================================
 
-  // Get help categories with stable caching
+  // Get help categories - aligned with HelpController@getCategories
   async getCategories(options: { 
     include_inactive?: boolean 
     userRole?: string
@@ -228,6 +228,7 @@ class HelpService {
       if (cached && !cached.isStale) {
         return {
           success: true,
+          status: 200,
           message: 'Categories retrieved successfully',
           data: cached.data
         }
@@ -255,6 +256,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
+          status: 200,
           message: 'Categories retrieved from cache',
           data: cached.data
         }
@@ -263,7 +265,7 @@ class HelpService {
     }
   }
 
-  // Get FAQs with stable caching
+  // CRITICAL FIX: Get FAQs with proper response handling
   async getFAQs(filters: FAQFilters & { 
     userRole?: string
     forceRefresh?: boolean 
@@ -277,6 +279,7 @@ class HelpService {
       if (cached && !cached.isStale) {
         return {
           success: true,
+          status: 200,
           message: 'FAQs retrieved successfully',
           data: cached.data
         }
@@ -297,20 +300,129 @@ class HelpService {
       })
 
       const endpoint = `/help/faqs${params.toString() ? `?${params.toString()}` : ''}`
-      const response = await apiClient.get<FAQsResponse>(endpoint)
+      console.log('📡 Making FAQ request to:', endpoint)
+      
+      const response = await apiClient.get<any>(endpoint)
+      console.log('📡 Raw FAQ response:', response)
 
-      // Cache successful response
-      if (response.success && response.data) {
-        helpCache.set(cacheKey, response.data, helpCache['FAQ_TTL'])
+      if (!response.success) {
+        console.error('❌ FAQ request failed:', response)
+        return response
       }
 
-      return response
+      // CRITICAL FIX: Handle different response formats from your backend
+      let faqsResponse: FAQsResponse
+
+      if (response.data) {
+        // Handle direct FAQsResponse structure
+        if (response.data.faqs && Array.isArray(response.data.faqs)) {
+          console.log('✅ FAQ Response: Standard FAQsResponse format')
+          faqsResponse = {
+            faqs: response.data.faqs,
+            featured_faqs: response.data.featured_faqs || response.data.faqs.filter((faq: FAQ) => faq.is_featured),
+            pagination: response.data.pagination || {
+              current_page: 1,
+              last_page: 1,
+              per_page: response.data.faqs.length,
+              total: response.data.faqs.length
+            }
+          }
+        }
+        // Handle direct array response
+        else if (Array.isArray(response.data)) {
+          console.log('✅ FAQ Response: Direct array format')
+          faqsResponse = {
+            faqs: response.data,
+            featured_faqs: response.data.filter((faq: FAQ) => faq.is_featured),
+            pagination: {
+              current_page: 1,
+              last_page: 1,
+              per_page: response.data.length,
+              total: response.data.length
+            }
+          }
+        }
+        // Handle nested data structure
+        else if (response.data.data && Array.isArray(response.data.data)) {
+          console.log('✅ FAQ Response: Nested data format')
+          faqsResponse = {
+            faqs: response.data.data,
+            featured_faqs: response.data.data.filter((faq: FAQ) => faq.is_featured),
+            pagination: response.data.pagination || {
+              current_page: 1,
+              last_page: 1,
+              per_page: response.data.data.length,
+              total: response.data.data.length
+            }
+          }
+        }
+        // Handle Laravel resource response (common format)
+        else if (response.data.data && response.data.data.faqs && Array.isArray(response.data.data.faqs)) {
+          console.log('✅ FAQ Response: Laravel resource format')
+          faqsResponse = {
+            faqs: response.data.data.faqs,
+            featured_faqs: response.data.data.featured_faqs || response.data.data.faqs.filter((faq: FAQ) => faq.is_featured),
+            pagination: response.data.data.pagination || {
+              current_page: 1,
+              last_page: 1,
+              per_page: response.data.data.faqs.length,
+              total: response.data.data.faqs.length
+            }
+          }
+        }
+        // Fallback - empty response
+        else {
+          console.warn('⚠️ FAQ Response: Unknown format, returning empty')
+          faqsResponse = {
+            faqs: [],
+            featured_faqs: [],
+            pagination: {
+              current_page: 1,
+              last_page: 1,
+              per_page: 0,
+              total: 0
+            }
+          }
+        }
+      } else {
+        // No data in response
+        console.warn('⚠️ FAQ Response: No data in response')
+        faqsResponse = {
+          faqs: [],
+          featured_faqs: [],
+          pagination: {
+            current_page: 1,
+            last_page: 1,
+            per_page: 0,
+            total: 0
+          }
+        }
+      }
+
+      console.log('✅ Final FAQ Response:', faqsResponse)
+
+      // Cache the processed response
+      if (!forceRefresh) {
+        helpCache.set(cacheKey, faqsResponse, helpCache['FAQ_TTL'])
+      }
+
+      return {
+        success: true,
+        status: 200,
+        message: response.message || 'FAQs retrieved successfully',
+        data: faqsResponse
+      }
+
     } catch (error: any) {
+      console.error('❌ FAQ Service Error:', error)
+      
       // Return stale cache if available on error
       const cached = helpCache.get<FAQsResponse>(cacheKey)
       if (cached) {
+        console.log('📋 Returning cached FAQ data due to error')
         return {
           success: true,
+          status: 200,
           message: 'FAQs retrieved from cache',
           data: cached.data
         }
@@ -319,7 +431,7 @@ class HelpService {
     }
   }
 
-  // Get single FAQ with caching
+  // Get single FAQ - aligned with HelpController@showFAQ
   async getFAQ(id: number, options: { 
     userRole?: string
     forceRefresh?: boolean 
@@ -333,6 +445,7 @@ class HelpService {
       if (cached && !cached.isStale) {
         return {
           success: true,
+          status: 200,
           message: 'FAQ retrieved successfully',
           data: cached.data
         }
@@ -354,6 +467,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
+          status: 200,
           message: 'FAQ retrieved from cache',
           data: cached.data
         }
@@ -362,7 +476,7 @@ class HelpService {
     }
   }
 
-  // Get help statistics with stable caching
+  // Get help statistics - aligned with HelpController@getStats
   async getStats(options: { 
     userRole?: string
     forceRefresh?: boolean 
@@ -376,6 +490,7 @@ class HelpService {
       if (cached && !cached.isStale) {
         return {
           success: true,
+          status: 200,
           message: 'Stats retrieved successfully',
           data: cached.data
         }
@@ -397,6 +512,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
+          status: 200,
           message: 'Stats retrieved from cache',
           data: cached.data
         }
@@ -405,7 +521,7 @@ class HelpService {
     }
   }
 
-  // Provide feedback with selective cache invalidation
+  // Provide feedback - aligned with HelpController@provideFeedback
   async provideFeedback(
     faqId: number, 
     feedback: { is_helpful: boolean; comment?: string },
@@ -426,7 +542,7 @@ class HelpService {
     }
   }
 
-  // Suggest content with role validation
+  // Suggest content - aligned with HelpController@suggestContent
   async suggestContent(
     suggestion: ContentSuggestion,
     options: { userRole?: string } = {}
@@ -437,8 +553,8 @@ class HelpService {
     if (!this.validateRole(['counselor', 'admin'], userRole)) {
       return {
         success: false,
-        message: 'Only counselors and administrators can suggest content.',
-        status: 403
+        status: 403,
+        message: 'Only counselors and administrators can suggest content.'
       }
     }
 
@@ -458,10 +574,10 @@ class HelpService {
   }
 
   // =============================================================================
-  // SPECIALIZED GETTERS WITH STABLE CACHING
+  // SPECIALIZED GETTERS - FIXED: Added status properties
   // =============================================================================
 
-  // Get popular FAQs with stable caching
+  // Get popular FAQs - FIXED: Better response handling
   async getPopularFAQs(limit: number = 5, options: {
     userRole?: string
     forceRefresh?: boolean
@@ -474,6 +590,7 @@ class HelpService {
       if (cached && !cached.isStale) {
         return {
           success: true,
+          status: 200,
           message: 'Popular FAQs retrieved successfully',
           data: cached.data
         }
@@ -487,7 +604,7 @@ class HelpService {
         forceRefresh: true // Get fresh data for processing
       })
       
-      if (response.success && response.data) {
+      if (response.success && response.data && response.data.faqs) {
         const popularFAQs = response.data.faqs
         
         if (!forceRefresh) {
@@ -496,6 +613,7 @@ class HelpService {
 
         return {
           success: true,
+          status: 200,
           message: response.message,
           data: popularFAQs
         }
@@ -503,6 +621,7 @@ class HelpService {
       
       return {
         success: false,
+        status: response.status || 500,
         message: response.message || 'Failed to fetch popular FAQs',
         errors: response.errors
       }
@@ -512,6 +631,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
+          status: 200,
           message: 'Popular FAQs retrieved from cache',
           data: cached.data
         }
@@ -520,7 +640,7 @@ class HelpService {
     }
   }
 
-  // Get featured FAQs with stable caching
+  // Get featured FAQs - FIXED: Better response handling
   async getFeaturedFAQs(limit: number = 3, options: {
     userRole?: string
     forceRefresh?: boolean
@@ -533,6 +653,7 @@ class HelpService {
       if (cached && !cached.isStale) {
         return {
           success: true,
+          status: 200,
           message: 'Featured FAQs retrieved successfully',
           data: cached.data
         }
@@ -547,9 +668,14 @@ class HelpService {
       })
       
       if (response.success && response.data) {
-        const featuredFAQs = response.data.featured_faqs.length > 0 
-          ? response.data.featured_faqs 
-          : response.data.faqs.filter(faq => faq.is_featured)
+        let featuredFAQs: FAQ[] = []
+        
+        // Try to get from featured_faqs first, then filter from main faqs
+        if (response.data.featured_faqs && response.data.featured_faqs.length > 0) {
+          featuredFAQs = response.data.featured_faqs
+        } else if (response.data.faqs) {
+          featuredFAQs = response.data.faqs.filter((faq: FAQ) => faq.is_featured)
+        }
         
         if (!forceRefresh) {
           helpCache.set(cacheKey, featuredFAQs, helpCache['FAQ_TTL'])
@@ -557,6 +683,7 @@ class HelpService {
 
         return {
           success: true,
+          status: 200,
           message: response.message,
           data: featuredFAQs
         }
@@ -564,6 +691,7 @@ class HelpService {
       
       return {
         success: false,
+        status: response.status || 500,
         message: response.message || 'Failed to fetch featured FAQs',
         errors: response.errors
       }
@@ -572,6 +700,7 @@ class HelpService {
       if (cached) {
         return {
           success: true,
+          status: 200,
           message: 'Featured FAQs retrieved from cache',
           data: cached.data
         }
@@ -581,16 +710,16 @@ class HelpService {
   }
 
   // =============================================================================
-  // ADMIN-ONLY METHODS WITH ROLE VALIDATION
+  // ADMIN-ONLY METHODS - Aligned with AdminHelpController
   // =============================================================================
 
-  // Create FAQ (Admin only)
+  // Create FAQ (Admin only) - aligned with AdminHelpController@storeFAQ
   async createFAQ(faqData: Partial<FAQ>, userRole?: string): Promise<ApiResponse<{ faq: FAQ }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
-        message: 'Only administrators can create FAQs.',
-        status: 403
+        status: 403,
+        message: 'Only administrators can create FAQs.'
       }
     }
 
@@ -612,13 +741,13 @@ class HelpService {
     }
   }
 
-  // Update FAQ (Admin only)
+  // Update FAQ (Admin only) - aligned with AdminHelpController@updateFAQ
   async updateFAQ(id: number, faqData: Partial<FAQ>, userRole?: string): Promise<ApiResponse<{ faq: FAQ }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
-        message: 'Only administrators can update FAQs.',
-        status: 403
+        status: 403,
+        message: 'Only administrators can update FAQs.'
       }
     }
 
@@ -640,13 +769,13 @@ class HelpService {
     }
   }
 
-  // Delete FAQ (Admin only)
+  // Delete FAQ (Admin only) - aligned with AdminHelpController@destroyFAQ
   async deleteFAQ(id: number, userRole?: string): Promise<ApiResponse<{ message: string }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
-        message: 'Only administrators can delete FAQs.',
-        status: 403
+        status: 403,
+        message: 'Only administrators can delete FAQs.'
       }
     }
 
@@ -669,13 +798,13 @@ class HelpService {
     }
   }
 
-  // Create Category (Admin only)
+  // Create Category (Admin only) - aligned with AdminHelpController@storeCategory
   async createCategory(categoryData: Partial<HelpCategory>, userRole?: string): Promise<ApiResponse<{ category: HelpCategory }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
-        message: 'Only administrators can create categories.',
-        status: 403
+        status: 403,
+        message: 'Only administrators can create categories.'
       }
     }
 
@@ -693,13 +822,13 @@ class HelpService {
     }
   }
 
-  // Update Category (Admin only)
+  // Update Category (Admin only) - aligned with AdminHelpController@updateCategory
   async updateCategory(id: number, categoryData: Partial<HelpCategory>, userRole?: string): Promise<ApiResponse<{ category: HelpCategory }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
-        message: 'Only administrators can update categories.',
-        status: 403
+        status: 403,
+        message: 'Only administrators can update categories.'
       }
     }
 
@@ -717,13 +846,13 @@ class HelpService {
     }
   }
 
-  // Delete Category (Admin only)
+  // Delete Category (Admin only) - aligned with AdminHelpController@destroyCategory
   async deleteCategory(id: number, userRole?: string): Promise<ApiResponse<{ message: string }>> {
     if (!this.validateRole(['admin'], userRole)) {
       return {
         success: false,
-        message: 'Only administrators can delete categories.',
-        status: 403
+        status: 403,
+        message: 'Only administrators can delete categories.'
       }
     }
 

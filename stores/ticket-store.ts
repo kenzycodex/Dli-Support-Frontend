@@ -1,7 +1,8 @@
-// stores/ticket-store.ts (FIXED - State management and API handling issues)
+// stores/ticket-store.ts - UPDATED for Laravel Standardized Response Format
+
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import { apiClient } from '@/lib/api'
+import { apiClient, StandardizedApiResponse } from '@/lib/api'
 import { authService } from '@/services/auth.service'
 
 // Enhanced TicketData with slug generation
@@ -111,7 +112,7 @@ export interface UpdateTicketRequest {
   description?: string
 }
 
-// FIXED: Complete store interface with proper state management
+// UPDATED store interface with standardized response handling
 interface TicketState {
   // Core data - Simple arrays and objects only
   tickets: TicketData[]
@@ -156,7 +157,7 @@ interface TicketState {
   // Simple UI state
   selectedTickets: Set<number>
   
-  // COMPLETE ACTIONS INTERFACE
+  // COMPLETE ACTIONS INTERFACE - UPDATED for standardized responses
   actions: {
     // Data fetching
     fetchTickets: (params?: Partial<TicketFilters>) => Promise<void>
@@ -261,7 +262,7 @@ const buildQueryString = (filters: TicketFilters): string => {
   return params.toString()
 }
 
-// FIXED: Enhanced store with better state management and error handling
+// UPDATED: Enhanced store with standardized response handling
 export const useTicketStore = create<TicketState>()(
   devtools(
     (set, get) => ({
@@ -297,7 +298,7 @@ export const useTicketStore = create<TicketState>()(
       selectedTickets: new Set<number>(),
 
       actions: {
-        // ENHANCED: fetchTickets with better error handling
+        // UPDATED: fetchTickets with standardized response handling
         fetchTickets: async (params?: Partial<TicketFilters>) => {
           const state = get();
 
@@ -320,7 +321,12 @@ export const useTicketStore = create<TicketState>()(
             console.log('🎫 TicketStore: Fetching tickets with params:', mergedFilters);
 
             const queryString = buildQueryString(mergedFilters);
-            const response = await apiClient.get(`/tickets?${queryString}`);
+            const response: StandardizedApiResponse<{
+              tickets: any[]
+              pagination: any
+              stats: any
+              user_role: string
+            }> = await apiClient.get(`/tickets?${queryString}`);
 
             if (response.success && response.data) {
               const { tickets, pagination, stats } = response.data;
@@ -355,7 +361,7 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // FIXED: Fetch single ticket with better error handling and state management
+        // UPDATED: Fetch single ticket with standardized response handling
         fetchTicket: async (id: number) => {
           if (!id || isNaN(id)) {
             console.error('❌ TicketStore: Invalid ticket ID provided:', id);
@@ -373,7 +379,10 @@ export const useTicketStore = create<TicketState>()(
           try {
             console.log('🎫 TicketStore: Fetching ticket:', id);
 
-            const response = await apiClient.get(`/tickets/${id}`);
+            const response: StandardizedApiResponse<{ 
+              ticket: any
+              permissions?: any 
+            }> = await apiClient.get(`/tickets/${id}`);
 
             if (response.success && response.data && response.data.ticket) {
               const ticket = {
@@ -411,7 +420,7 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // FIXED: Fetch ticket by slug with better error handling
+        // UPDATED: Fetch ticket by slug with standardized response handling
         fetchTicketBySlug: async (slug: string) => {
           const ticketId = parseTicketIdFromSlug(slug);
 
@@ -434,7 +443,7 @@ export const useTicketStore = create<TicketState>()(
           await get().actions.fetchTickets();
         },
 
-        // ENHANCED: Create ticket with better validation
+        // UPDATED: Create ticket with standardized response handling
         createTicket: async (data: CreateTicketRequest) => {
           set((state) => ({
             loading: { ...state.loading, create: true },
@@ -463,7 +472,7 @@ export const useTicketStore = create<TicketState>()(
               });
             }
 
-            const response = await apiClient.post('/tickets', formData);
+            const response: StandardizedApiResponse<{ ticket: any }> = await apiClient.post('/tickets', formData);
 
             if (response.success && response.data?.ticket) {
               const newTicket = {
@@ -491,6 +500,8 @@ export const useTicketStore = create<TicketState>()(
               errorMessage = errors.join(', ');
             } else if (error.response?.data?.message) {
               errorMessage = error.response.data.message;
+            } else if (error.message) {
+              errorMessage = error.message;
             }
 
             set((state) => ({
@@ -501,7 +512,7 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // FIXED: Update ticket with proper validation
+        // UPDATED: Update ticket with standardized response handling
         updateTicket: async (id: number, data: UpdateTicketRequest) => {
           set((state) => ({
             loading: { ...state.loading, update: true },
@@ -511,7 +522,7 @@ export const useTicketStore = create<TicketState>()(
           try {
             console.log('🎫 TicketStore: Updating ticket:', id, data);
 
-            const response = await apiClient.patch(`/tickets/${id}`, data);
+            const response: StandardizedApiResponse<{ ticket: any }> = await apiClient.patch(`/tickets/${id}`, data);
 
             if (response.success && response.data?.ticket) {
               const updatedTicket = {
@@ -535,6 +546,8 @@ export const useTicketStore = create<TicketState>()(
             let errorMessage = 'Failed to update ticket';
             if (error.response?.data?.message) {
               errorMessage = error.response.data.message;
+            } else if (error.message) {
+              errorMessage = error.message;
             }
 
             set((state) => ({
@@ -544,7 +557,7 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // FIXED: Delete ticket with better timeout handling and user feedback
+        // UPDATED: Delete ticket with standardized response handling
         deleteTicket: async (id: number, reason = 'Deleted by admin', notifyUser = false) => {
           console.log('🎫 TicketStore: Starting ticket deletion:', id);
 
@@ -556,8 +569,12 @@ export const useTicketStore = create<TicketState>()(
           try {
             console.log('🎫 TicketStore: Calling delete API:', { id, reason, notifyUser });
 
-            // FIXED: Use the existing API client delete method with proper data structure
-            const response = await apiClient.delete(`/tickets/${id}`, {
+            const response: StandardizedApiResponse<{
+              ticket_number?: string
+              deletion_reason?: string
+              user_notified?: boolean
+              deleted_by?: any
+            }> = await apiClient.delete(`/tickets/${id}`, {
               reason: reason.trim(),
               notify_user: notifyUser,
             });
@@ -565,18 +582,13 @@ export const useTicketStore = create<TicketState>()(
             if (response.success) {
               console.log('✅ TicketStore: Delete API call successful, updating state immediately');
 
-              // FIXED: Immediate and atomic state cleanup to prevent UI freeze
+              // Immediate and atomic state cleanup
               set((state) => {
-                // Create new Set without the deleted ticket
                 const newSelectedTickets = new Set(state.selectedTickets);
                 newSelectedTickets.delete(id);
 
-                // Filter out the deleted ticket
                 const newTickets = state.tickets.filter((t) => t.id !== id);
-
-                // Update current ticket if it was the deleted one
-                const newCurrentTicket =
-                  state.currentTicket?.id === id ? null : state.currentTicket;
+                const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
 
                 return {
                   tickets: newTickets,
@@ -589,7 +601,6 @@ export const useTicketStore = create<TicketState>()(
 
               console.log('✅ TicketStore: State updated successfully, ticket deleted');
             } else {
-              // FIXED: Handle API errors gracefully
               let errorMessage = response.message || 'Failed to delete ticket';
 
               // For timeout errors, suggest the user refresh to check
@@ -597,13 +608,12 @@ export const useTicketStore = create<TicketState>()(
                 errorMessage =
                   'Delete operation timed out. Please refresh the page to check if the ticket was deleted.';
 
-                // FIXED: For timeouts, still remove from local state as it might have succeeded
+                // For timeouts, still remove from local state as it might have succeeded
                 set((state) => {
                   const newSelectedTickets = new Set(state.selectedTickets);
                   newSelectedTickets.delete(id);
                   const newTickets = state.tickets.filter((t) => t.id !== id);
-                  const newCurrentTicket =
-                    state.currentTicket?.id === id ? null : state.currentTicket;
+                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
 
                   return {
                     tickets: newTickets,
@@ -614,7 +624,7 @@ export const useTicketStore = create<TicketState>()(
                   };
                 });
 
-                return; // Exit early for timeout case
+                return;
               }
 
               throw new Error(errorMessage);
@@ -624,7 +634,6 @@ export const useTicketStore = create<TicketState>()(
 
             let errorMessage = 'Failed to delete ticket';
 
-            // FIXED: Better error message handling
             if (error.message) {
               if (error.message.includes('timeout')) {
                 errorMessage =
@@ -635,8 +644,7 @@ export const useTicketStore = create<TicketState>()(
                   const newSelectedTickets = new Set(state.selectedTickets);
                   newSelectedTickets.delete(id);
                   const newTickets = state.tickets.filter((t) => t.id !== id);
-                  const newCurrentTicket =
-                    state.currentTicket?.id === id ? null : state.currentTicket;
+                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
 
                   return {
                     tickets: newTickets,
@@ -659,8 +667,7 @@ export const useTicketStore = create<TicketState>()(
                   const newSelectedTickets = new Set(state.selectedTickets);
                   newSelectedTickets.delete(id);
                   const newTickets = state.tickets.filter((t) => t.id !== id);
-                  const newCurrentTicket =
-                    state.currentTicket?.id === id ? null : state.currentTicket;
+                  const newCurrentTicket = state.currentTicket?.id === id ? null : state.currentTicket;
 
                   return {
                     tickets: newTickets,
@@ -681,12 +688,71 @@ export const useTicketStore = create<TicketState>()(
               errors: { ...state.errors, delete: errorMessage },
             }));
 
-            // Re-throw error so the UI can handle it properly
             throw new Error(errorMessage);
           }
         },
 
-        // FIXED: Assign ticket with proper endpoint and error handling
+        // UPDATED: Add response with standardized response handling
+        addResponse: async (ticketId: number, data: AddResponseRequest) => {
+          set((state) => ({
+            loading: { ...state.loading, response: true },
+            errors: { ...state.errors, response: null },
+          }));
+
+          try {
+            console.log('🎫 TicketStore: Adding response to ticket:', ticketId);
+
+            const formData = new FormData();
+            formData.append('message', data.message.trim());
+
+            if (data.is_internal !== undefined) {
+              formData.append('is_internal', data.is_internal.toString());
+            }
+
+            if (data.visibility) {
+              formData.append('visibility', data.visibility);
+            }
+
+            if (data.is_urgent !== undefined) {
+              formData.append('is_urgent', data.is_urgent.toString());
+            }
+
+            if (data.attachments && data.attachments.length > 0) {
+              data.attachments.forEach((file) => {
+                formData.append('attachments[]', file, file.name);
+              });
+            }
+
+            const response: StandardizedApiResponse<{ response: any }> = await apiClient.post(`/tickets/${ticketId}/responses`, formData);
+
+            if (response.success) {
+              console.log('✅ TicketStore: Response added successfully');
+              
+              // Refresh the ticket to get updated conversation
+              await get().actions.fetchTicket(ticketId);
+              
+              set((state) => ({
+                loading: { ...state.loading, response: false },
+              }));
+            } else {
+              throw new Error(response.message || 'Failed to add response');
+            }
+          } catch (error: any) {
+            console.error('❌ TicketStore: Failed to add response:', error);
+
+            let errorMessage = 'Failed to add response';
+            if (error.message) {
+              errorMessage = error.message;
+            }
+
+            set((state) => ({
+              loading: { ...state.loading, response: false },
+              errors: { ...state.errors, response: errorMessage },
+            }));
+          }
+        },
+
+        // UPDATED: Assign ticket with standardized response handling
         assignTicket: async (ticketId: number, assignedTo: number | null, reason = '') => {
           set((state) => ({
             loading: { ...state.loading, assign: true },
@@ -696,7 +762,7 @@ export const useTicketStore = create<TicketState>()(
           try {
             console.log('🎫 TicketStore: Assigning ticket:', ticketId, 'to:', assignedTo);
 
-            const response = await apiClient.post(`/tickets/${ticketId}/assign`, {
+            const response: StandardizedApiResponse<{ ticket: any }> = await apiClient.post(`/tickets/${ticketId}/assign`, {
               assigned_to: assignedTo,
               reason,
             });
@@ -724,8 +790,8 @@ export const useTicketStore = create<TicketState>()(
             let errorMessage = 'Failed to assign ticket';
             if (error.response?.status === 403) {
               errorMessage = 'You do not have permission to assign tickets';
-            } else if (error.response?.data?.message) {
-              errorMessage = error.response.data.message;
+            } else if (error.message) {
+              errorMessage = error.message;
             }
 
             set((state) => ({
@@ -735,7 +801,7 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // Bulk assign tickets
+        // UPDATED: Bulk assign with standardized response handling
         bulkAssign: async (ticketIds: number[], assignedTo: number, reason = '') => {
           set((state) => ({
             loading: { ...state.loading, assign: true },
@@ -749,7 +815,7 @@ export const useTicketStore = create<TicketState>()(
               reason,
             });
 
-            const response = await apiClient.post('/admin/bulk-assign', {
+            const response: StandardizedApiResponse<{ assigned_count: number }> = await apiClient.post('/admin/bulk-assign', {
               ticket_ids: ticketIds,
               assigned_to: assignedTo,
               reason,
@@ -781,12 +847,12 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // Tag management methods
+        // UPDATED: Tag management with standardized response handling
         addTag: async (ticketId: number, tag: string) => {
           try {
             console.log('🎫 TicketStore: Adding tag:', tag, 'to ticket:', ticketId);
 
-            const response = await apiClient.post(`/tickets/${ticketId}/tags`, {
+            const response: StandardizedApiResponse<{ ticket: any }> = await apiClient.post(`/tickets/${ticketId}/tags`, {
               action: 'add',
               tags: [tag],
             });
@@ -819,7 +885,7 @@ export const useTicketStore = create<TicketState>()(
           try {
             console.log('🎫 TicketStore: Removing tag:', tag, 'from ticket:', ticketId);
 
-            const response = await apiClient.post(`/tickets/${ticketId}/tags`, {
+            const response: StandardizedApiResponse<{ ticket: any }> = await apiClient.post(`/tickets/${ticketId}/tags`, {
               action: 'remove',
               tags: [tag],
             });
@@ -852,7 +918,7 @@ export const useTicketStore = create<TicketState>()(
           try {
             console.log('🎫 TicketStore: Setting tags for ticket:', ticketId, tags);
 
-            const response = await apiClient.post(`/tickets/${ticketId}/tags`, {
+            const response: StandardizedApiResponse<{ ticket: any }> = await apiClient.post(`/tickets/${ticketId}/tags`, {
               action: 'set',
               tags,
             });
@@ -881,7 +947,7 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // Download attachment method
+        // UPDATED: Download attachment with better error handling
         downloadAttachment: async (attachmentId: number, fileName: string) => {
           set((state) => ({
             loading: { ...state.loading, download: true },
@@ -891,25 +957,7 @@ export const useTicketStore = create<TicketState>()(
           try {
             console.log('🎫 TicketStore: Downloading attachment:', attachmentId);
 
-            const blob = await apiClient.downloadFile(
-              `/tickets/attachments/${attachmentId}/download`
-            );
-
-            // Create download link
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = fileName;
-            link.style.display = 'none';
-
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            // Clean up
-            setTimeout(() => {
-              window.URL.revokeObjectURL(url);
-            }, 100);
+            await apiClient.downloadFile(`/tickets/attachments/${attachmentId}/download`, fileName);
 
             set((state) => ({
               loading: { ...state.loading, download: false },
@@ -925,7 +973,7 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // FIXED: Filter management with better state handling
+        // Filter management with better state handling
         setFilters: (newFilters: TicketFilters, autoFetch = false) => {
           set((state) => ({
             filters: { ...state.filters, ...newFilters, page: 1 },
@@ -951,7 +999,7 @@ export const useTicketStore = create<TicketState>()(
           }
         },
 
-        // FIXED: UI state management with proper cleanup
+        // UI state management with proper cleanup
         setCurrentTicket: (ticket: TicketData | null) => {
           set(() => ({ currentTicket: ticket }));
         },
@@ -1004,7 +1052,7 @@ export const useTicketStore = create<TicketState>()(
           }));
         },
 
-        // FIXED: Export tickets using admin endpoint
+        // UPDATED: Export tickets with standardized response handling
         exportTickets: async (
           format: 'csv' | 'excel' | 'json' = 'csv',
           filters = {},
@@ -1038,12 +1086,17 @@ export const useTicketStore = create<TicketState>()(
               });
             }
 
-            const response = await apiClient.get(`/admin/export-tickets?${queryParams.toString()}`);
+            const response: StandardizedApiResponse<{
+              tickets: any[]
+              filename: string
+              count: number
+              exported_at: string
+            }> = await apiClient.get(`/admin/export-tickets?${queryParams.toString()}`);
 
             if (response.success && response.data) {
               // Handle client-side CSV generation
               const exportData = response.data.tickets;
-              const filename = response.data.filename;
+              const filename = response.data.filename || `tickets-export-${new Date().toISOString().split('T')[0]}.csv`;
 
               if (format === 'csv') {
                 // Generate CSV content
@@ -1074,7 +1127,11 @@ export const useTicketStore = create<TicketState>()(
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                window.URL.revokeObjectURL(url);
+                
+                // Clean up
+                setTimeout(() => {
+                  window.URL.revokeObjectURL(url);
+                }, 1000);
               } else {
                 // For JSON format
                 const jsonContent = JSON.stringify(exportData, null, 2);
@@ -1087,7 +1144,11 @@ export const useTicketStore = create<TicketState>()(
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                window.URL.revokeObjectURL(url);
+                
+                // Clean up
+                setTimeout(() => {
+                  window.URL.revokeObjectURL(url);
+                }, 1000);
               }
 
               set((state) => ({
@@ -1110,18 +1171,6 @@ export const useTicketStore = create<TicketState>()(
     { name: 'ticket-store' }
   )
 );
-
-// ENHANCED: Export utility functions for slug handling with better validation
-export const generateTicketURL = (ticket: TicketData, baseURL?: string): string => {
-  try {
-    const base = baseURL || (typeof window !== 'undefined' ? window.location.origin : '');
-    const slug = generateTicketSlug(ticket);
-    return `${base}/tickets/${slug}`;
-  } catch (error) {
-    console.error('Failed to generate ticket URL:', error);
-    return `${baseURL || ''}/tickets/${ticket.id}`;
-  }
-};
 
 export const parseTicketIdFromTicketSlug = (slug: string): number | null => {
   return parseTicketIdFromSlug(slug);
@@ -1159,7 +1208,7 @@ export const useTicketError = (type: keyof TicketState['errors'] = 'list') => {
   return useTicketStore((state) => state.errors[type]);
 };
 
-// FIXED: Updated permissions with admin-only assignment
+// UPDATED: Permissions with admin-only assignment
 export const useTicketPermissions = () => {
   const currentUser = authService.getStoredUser();
 
@@ -1181,13 +1230,13 @@ export const useTicketPermissions = () => {
   return {
     can_create: currentUser.role === 'student' || currentUser.role === 'admin',
     can_view_all: currentUser.role === 'admin',
-    can_assign: currentUser.role === 'admin', // FIXED: Only admin can assign
+    can_assign: currentUser.role === 'admin', // Only admin can assign
     can_modify: ['counselor', 'admin'].includes(currentUser.role),
     can_delete: currentUser.role === 'admin',
     can_export: currentUser.role === 'admin',
     can_manage_tags: ['counselor', 'admin'].includes(currentUser.role),
     can_add_internal_notes: ['counselor', 'admin'].includes(currentUser.role),
-    can_bulk_assign: currentUser.role === 'admin', // FIXED: Only admin can bulk assign
+    can_bulk_assign: currentUser.role === 'admin', // Only admin can bulk assign
     can_download_attachments: true, // All users can download attachments
   };
 };

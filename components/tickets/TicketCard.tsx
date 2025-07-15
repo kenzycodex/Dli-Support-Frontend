@@ -199,11 +199,6 @@ export function TicketCard({
                   )}
 
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => onAction('copy_link')}>
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copy Link
-                  </DropdownMenuItem>
-
                   {/* REMOVED: Open in New Tab and Delete options */}
                 </DropdownMenuContent>
               </DropdownMenu>

@@ -1,4 +1,5 @@
-// app/page.tsx (FIXED - Enhanced router integration and ticket details handling)
+// app/page.tsx - SIMPLIFIED: Fixed router integration without slug complexity
+
 "use client"
 
 import { useAuth } from "@/contexts/AuthContext"
@@ -29,7 +30,7 @@ function AppContent() {
   const { page, params, navigate, isReady } = useAppRouter()
   const [isInitialized, setIsInitialized] = useState(false)
 
-  // ENHANCED: Wait for router to be ready before rendering
+  // Wait for router to be ready before rendering
   useEffect(() => {
     if (isReady) {
       console.log('🌐 App: Router is ready, current route:', { page, params })
@@ -42,7 +43,7 @@ function AppContent() {
     navigate('dashboard')
   }
 
-  // ENHANCED: Page rendering with better ticket details support
+  // SIMPLIFIED: Page rendering without complex slug handling
   const renderPage = () => {
     console.log('🌐 App: Rendering page:', page, 'with params:', params)
     
@@ -61,7 +62,7 @@ function AppContent() {
         }
       
       case "appointments":
-        return <AppointmentsPage onNavigate={navigate} />
+        return <AppointmentsPage />
       
       case "tickets":
         return <TicketsPage onNavigate={navigate} />
@@ -70,22 +71,26 @@ function AppContent() {
         return <SubmitTicketPage onNavigate={navigate} />
       
       case "ticket-details":
-        // ENHANCED: Better parameter handling for ticket details
+        // SIMPLIFIED: Only use ticket ID, no slug complexity
         const ticketId = params.ticketId as number
-        const slug = params.slug as string
         
-        console.log('🌐 App: Rendering ticket details with:', { ticketId, slug })
+        console.log('🌐 App: Rendering ticket details with ID:', ticketId)
+        
+        if (!ticketId || isNaN(ticketId)) {
+          console.warn('🌐 App: Invalid ticket ID, redirecting to tickets')
+          navigate('tickets')
+          return <TicketsPage onNavigate={navigate} />
+        }
         
         return (
           <TicketDetailsPage 
             ticketId={ticketId}
-            slug={slug}
             onNavigate={navigate} 
           />
         )
       
       case "counseling":
-        return <CounselingPage onNavigate={navigate} />
+        return <CounselingPage />
       
       case "help":
         return <HelpPage onNavigate={navigate} />
@@ -100,7 +105,7 @@ function AppContent() {
         return <AdminResourcesPage onNavigate={navigate} />
       
       case "notifications":
-        return <NotificationsPage onNavigate={navigate} />
+        return <NotificationsPage />
       
       case "admin-users":
         return <AdminUsersPage onNavigate={navigate} />
@@ -119,7 +124,7 @@ function AppContent() {
     }
   }
 
-  // ENHANCED: Show loading state while router initializes
+  // Show loading state while router initializes
   if (!isInitialized || !isReady) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">

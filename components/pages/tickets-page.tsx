@@ -288,15 +288,6 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
             }
             break;
 
-          case 'copy_link':
-            const url = `${window.location.origin}/tickets/${ticket.id}`;
-            await navigator.clipboard.writeText(url);
-            toast({
-              title: 'Success',
-              description: 'Ticket link copied to clipboard',
-            });
-            break;
-
           case 'delete':
             if (currentUser?.role !== 'admin') {
               throw new Error('Only administrators can delete tickets');

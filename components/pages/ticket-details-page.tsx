@@ -1,4 +1,5 @@
-// components/pages/ticket-details-page.tsx (FIXED - Enhanced loading and URL handling)
+// components/pages/ticket-details-page.tsx - FIXED: Simplified without slug complexity
+
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
@@ -22,7 +23,7 @@ import {
   ImageIcon,
   Loader2,
   RefreshCw,
-	AlertCircle,
+  AlertCircle,
   X,
   Flag,
   Edit,
@@ -35,13 +36,11 @@ import {
 import { 
   useTicketStore, 
   useTicketById,
-  useTicketBySlug,
   useTicketLoading, 
   useTicketError,
   useTicketPermissions,
   TicketData,
   AddResponseRequest,
-  generateTicketURL
 } from "@/stores/ticket-store"
 import { authService } from "@/services/auth.service"
 import { ticketService } from "@/services/ticket.service"
@@ -49,45 +48,16 @@ import { useToast } from "@/hooks/use-toast"
 
 interface TicketDetailsPageProps {
   ticketId?: number
-  slug?: string
   onNavigate: (page: string, params?: any) => void
 }
 
-export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsPageProps) {
-  // ENHANCED: Store access with better initialization handling
+export function TicketDetailsPage({ ticketId, onNavigate }: TicketDetailsPageProps) {
+  // SIMPLIFIED: Store access without slug complexity
   const actions = useTicketStore(state => state?.actions)
   const tickets = useTicketStore(state => state?.tickets || [])
   
-  // ENHANCED: Try to get ticket by slug first, then by ID, with fallback search
-  const ticketBySlug = useTicketBySlug(slug || '')
-  const ticketById = useTicketById(ticketId || 0)
-  
-  // Enhanced ticket resolution with local search fallback
-  const ticket = useMemo(() => {
-    // First try slug-based lookup
-    if (slug && ticketBySlug) {
-      console.log('🎫 TicketDetailsPage: Found ticket by slug:', ticketBySlug.id)
-      return ticketBySlug
-    }
-    
-    // Then try ID-based lookup
-    if (ticketId && ticketById) {
-      console.log('🎫 TicketDetailsPage: Found ticket by ID:', ticketById.id)
-      return ticketById
-    }
-    
-    // Fallback: search in current tickets array
-    if (ticketId && tickets.length > 0) {
-      const foundTicket = tickets.find(t => t.id === ticketId)
-      if (foundTicket) {
-        console.log('🎫 TicketDetailsPage: Found ticket in array fallback:', foundTicket.id)
-        return foundTicket
-      }
-    }
-    
-    console.log('🎫 TicketDetailsPage: No ticket found', { ticketId, slug, ticketsCount: tickets.length })
-    return null
-  }, [ticketBySlug, ticketById, ticketId, slug, tickets])
+  // SIMPLIFIED: Get ticket by ID only
+  const ticket = useTicketById(ticketId || 0)
   
   const loadingDetails = useTicketLoading('details')
   const loadingResponse = useTicketLoading('response')
@@ -95,7 +65,6 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
   const currentResponseError = useTicketError('response')
   const permissions = useTicketPermissions()
 
-  // Toast hook
   const { toast } = useToast()
 
   // Local state for response form
@@ -109,17 +78,18 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
   const currentUser = useMemo(() => authService.getStoredUser(), [])
   const initRef = useRef(false)
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const autoRefreshRef = useRef<NodeJS.Timeout | null>(null)
 
-  // ENHANCED: Load ticket details with better error handling and direct URL support
+  // SIMPLIFIED: Load ticket details without slug complexity
   useEffect(() => {
     let isMounted = true
     
     const loadTicketDetails = async () => {
-      if (!actions || initRef.current) return
+      if (!actions || !ticketId || initRef.current) return
       
       initRef.current = true
       
-      console.log("🎫 TicketDetailsPage: Starting ticket load", { ticketId, slug, hasTicket: !!ticket })
+      console.log("🎫 TicketDetailsPage: Starting ticket load for ID:", ticketId)
       
       // If we already have the ticket, mark as initialized
       if (ticket) {
@@ -139,23 +109,11 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
           setIsLoading(false)
           setIsInitialized(true)
         }
-      }, 10000) // 10 second timeout
+      }, 15000)
       
       try {
-        console.log("🎫 TicketDetailsPage: Fetching ticket details")
-        
-        // If we have a slug, use slug-based fetch
-        if (slug) {
-          console.log('🎫 TicketDetailsPage: Fetching by slug:', slug)
-          await actions.fetchTicketBySlug(slug)
-        } 
-        // Otherwise use ID-based fetch
-        else if (ticketId) {
-          console.log('🎫 TicketDetailsPage: Fetching by ID:', ticketId)
-          await actions.fetchTicket(ticketId)
-        } else {
-          throw new Error('No ticket ID or slug provided')
-        }
+        console.log("🎫 TicketDetailsPage: Fetching ticket details for ID:", ticketId)
+        await actions.fetchTicket(ticketId)
         
         if (isMounted) {
           setIsInitialized(true)
@@ -180,26 +138,31 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
         clearTimeout(loadingTimeoutRef.current)
       }
     }
-  }, [ticketId, slug, actions, ticket])
+  }, [ticketId, actions, ticket])
 
-  // Auto-refresh ticket details periodically for open tickets
+  // Auto-refresh for open tickets
   useEffect(() => {
-    if (!ticket || !isInitialized) return
+    if (!ticket || !isInitialized || !actions) return
 
     const isTicketOpen = ticket.status === "Open" || ticket.status === "In Progress"
     
     if (isTicketOpen) {
-      const interval = setInterval(() => {
+      autoRefreshRef.current = setInterval(() => {
         console.log("🔄 TicketDetailsPage: Auto-refreshing ticket details")
         fetchTicketDetails(true) // Silent refresh
-      }, 30000) // Refresh every 30 seconds for open tickets
+      }, 30000)
 
-      return () => clearInterval(interval)
+      return () => {
+        if (autoRefreshRef.current) {
+          clearInterval(autoRefreshRef.current)
+        }
+      }
     }
-  }, [ticket?.status, isInitialized])
+  }, [ticket?.status, isInitialized, actions])
 
+  // SIMPLIFIED: Fetch ticket details
   const fetchTicketDetails = useCallback(async (silent = false) => {
-    if (!actions || (!ticketId && !slug)) return
+    if (!actions || !ticketId) return
     
     if (!silent) {
       setRefreshing(true)
@@ -207,11 +170,7 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
     setLocalError(null)
     
     try {
-      if (slug) {
-        await actions.fetchTicketBySlug(slug)
-      } else if (ticketId) {
-        await actions.fetchTicket(ticketId)
-      }
+      await actions.fetchTicket(ticketId)
       console.log('✅ TicketDetailsPage: Ticket details refreshed')
       
       if (!silent) {
@@ -235,23 +194,18 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
         setRefreshing(false)
       }
     }
-  }, [ticketId, slug, actions, toast])
+  }, [ticketId, actions, toast])
 
-  // ENHANCED: Clear form after successful response
+  // SIMPLIFIED: Send response without complex error handling
   const handleSendResponse = useCallback(async () => {
     if (!newResponse.trim() || !ticket || !actions?.addResponse) return
 
     setLocalError(null)
     actions.clearError && actions.clearError('response')
 
-    // Validate response
+    // Basic validation
     if (newResponse.length < 5) {
       setLocalError("Response must be at least 5 characters long")
-      toast({
-        title: "Error",
-        description: "Response must be at least 5 characters long",
-        variant: "destructive"
-      })
       return
     }
 
@@ -260,11 +214,6 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
       const validation = ticketService.validateFiles(attachments, 3)
       if (!validation.valid) {
         setLocalError(validation.errors.join(', '))
-        toast({
-          title: "Error",
-          description: validation.errors.join(', '),
-          variant: "destructive"
-        })
         return
       }
     }
@@ -278,22 +227,21 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
       console.log("🎫 TicketDetailsPage: Sending response:", responseData)
       await actions.addResponse(ticket.id, responseData)
 
-      // Check if there was an error after the call
+      // Check for errors
       const errorAfterCall = useTicketStore.getState().errors.response
       if (!errorAfterCall) {
         console.log("✅ TicketDetailsPage: Response sent successfully, clearing form")
         setNewResponse("")
         setAttachments([])
         
-        // Refresh ticket to get updated conversation
-        await fetchTicketDetails(true)
+        // Refresh to get updated conversation
+        setTimeout(() => fetchTicketDetails(true), 1000)
         
         toast({
           title: "Success",
           description: "Response sent successfully"
         })
       } else {
-        console.error("❌ TicketDetailsPage: Response submission failed:", errorAfterCall)
         setLocalError(errorAfterCall)
         toast({
           title: "Error",
@@ -304,53 +252,35 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
     } catch (err) {
       console.error("❌ TicketDetailsPage: Failed to add response:", err)
       setLocalError("Failed to send response. Please try again.")
-      toast({
-        title: "Error",
-        description: "Failed to send response. Please try again.",
-        variant: "destructive"
-      })
     }
   }, [ticket, newResponse, attachments, actions, fetchTicketDetails, toast])
 
-  // Handle file upload for responses
+  // Handle file upload
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
     
     setLocalError(null)
     
-    // Validate files
     const validation = ticketService.validateFiles(files, 3)
     if (!validation.valid) {
       setLocalError(validation.errors.join(', '))
-      toast({
-        title: "Error",
-        description: validation.errors.join(', '),
-        variant: "destructive"
-      })
       return
     }
 
     if (attachments.length + files.length > 3) {
       setLocalError("Maximum 3 attachments allowed per response")
-      toast({
-        title: "Error",
-        description: "Maximum 3 attachments allowed per response",
-        variant: "destructive"
-      })
       return
     }
 
     setAttachments(prev => [...prev, ...files])
-    
-    // Reset file input
     event.target.value = ''
-  }, [attachments.length, toast])
+  }, [attachments.length])
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index))
   }, [])
 
-  // Handle attachment download
+  // SIMPLIFIED: Download attachment
   const handleDownloadAttachment = useCallback(async (attachmentId: number, fileName: string) => {
     if (!actions?.downloadAttachment) return
     
@@ -362,7 +292,6 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
       })
     } catch (err) {
       console.error("Failed to download attachment:", err)
-      setLocalError("Failed to download attachment")
       toast({
         title: "Error",
         description: "Failed to download attachment",
@@ -371,14 +300,13 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
     }
   }, [actions, toast])
 
-  // ENHANCED: Quick actions with proper feedback - FIXED: Only admin can assign
+  // Quick actions
   const handleQuickAction = useCallback(async (action: string, params?: any) => {
     if (!ticket || !actions) return
     
     try {
       switch (action) {
         case 'assign_to_me':
-          // FIXED: Only admin can assign tickets
           if (currentUser?.role === 'admin' && actions.assignTicket) {
             await actions.assignTicket(ticket.id, currentUser.id)
             toast({
@@ -415,18 +343,10 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
             })
           }
           break
-        case 'copy_link':
-          const url = generateTicketURL(ticket)
-          await navigator.clipboard.writeText(url)
-          toast({
-            title: "Success",
-            description: "Ticket link copied to clipboard"
-          })
-          break
       }
       
-      // Refresh ticket after action
-      await fetchTicketDetails(true)
+      // Refresh after action
+      setTimeout(() => fetchTicketDetails(true), 500)
     } catch (error) {
       console.error(`Failed to ${action}:`, error)
       toast({
@@ -470,7 +390,7 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
     return ticketService.formatFileSize(bytes)
   }, [])
 
-  // Check if user can add responses
+  // Check permissions
   const canAddResponse = useMemo(() => {
     if (!ticket || !currentUser) return false
     
@@ -486,18 +406,28 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
     return ticket ? (ticket.status === "Closed" || ticket.status === "Resolved") : false
   }, [ticket?.status])
 
-  // FIXED: Show staff actions only for admin and counselors, not students
   const showStaffActions = useMemo(() => {
     return currentUser?.role !== 'student'
   }, [currentUser?.role])
 
-  // FIXED: Show ticket information only for admin and counselors
   const showTicketInformation = useMemo(() => {
     return currentUser?.role !== 'student'
   }, [currentUser?.role])
 
-  // ENHANCED: Show loading state with better UX
-  if (isLoading || (loadingDetails && !isInitialized) || !actions) {
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
+      }
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current)
+      }
+    }
+  }, [])
+
+  // Show loading state
+  if (isLoading || (loadingDetails && !isInitialized) || !actions || !ticketId) {
     return (
       <div className="w-full max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center gap-4 mb-6">
@@ -515,9 +445,9 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
             <div className="flex flex-col items-center justify-center gap-4">
               <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
               <span className="text-lg text-gray-600">Loading ticket details...</span>
-              {slug && (
-                <span className="text-sm text-gray-500">Loading ticket from URL: {slug}</span>
-              )}
+              <div className="text-xs text-gray-400 mt-2">
+                Loading ticket ID: {ticketId}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -525,7 +455,7 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
     )
   }
 
-  // ENHANCED: Error state with better messaging
+  // Error state
   if (!ticket && (error || localError)) {
     return (
       <div className="w-full max-w-6xl mx-auto px-4 py-6">
@@ -549,11 +479,15 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
               </p>
               <div className="flex gap-2">
                 <Button onClick={() => fetchTicketDetails()}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
                   Try Again
                 </Button>
                 <Button variant="outline" onClick={() => onNavigate('tickets')}>
                   Back to Tickets
                 </Button>
+              </div>
+              <div className="text-xs text-gray-500 mt-2">
+                Ticket ID: {ticketId}
               </div>
             </div>
           </CardContent>
@@ -609,7 +543,7 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
             Refresh
           </Button>
 
-          {/* Quick Actions for Staff - FIXED: Only admin can assign */}
+          {/* Quick Actions for Staff */}
           {showStaffActions && (
             <>
               {!ticket.assigned_to && currentUser?.role === 'admin' && (
@@ -652,16 +586,6 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
                     Mark Resolved
                   </Button>
                 )}
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleQuickAction('copy_link')}
-                className="hover:bg-blue-50"
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Copy Link
-              </Button>
             </>
           )}
         </div>
@@ -1106,7 +1030,7 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
         </Alert>
       )}
 
-      {/* Staff-only Quick Actions Panel - FIXED: Only for admin and counselors */}
+      {/* Staff-only Quick Actions Panel */}
       {showStaffActions && (
         <Card className="border shadow-sm">
           <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50 border-b px-6 py-4">
@@ -1117,7 +1041,6 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
           </CardHeader>
           <CardContent className="p-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {/* FIXED: Only admin can assign tickets */}
               {!ticket.assigned_to && currentUser?.role === 'admin' && (
                 <Button
                   variant="outline"
@@ -1168,33 +1091,12 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
                     Escalate
                   </Button>
                 )}
-
-              <Button
-                variant="outline"
-                onClick={() => handleQuickAction('copy_link')}
-                className="flex items-center gap-2 hover:bg-blue-50"
-              >
-                <Copy className="h-4 w-4" />
-                Copy Link
-              </Button>
-
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const url = generateTicketURL(ticket);
-                  window.open(url, '_blank');
-                }}
-                className="flex items-center gap-2 hover:bg-purple-50"
-              >
-                <ExternalLink className="h-4 w-4" />
-                Open in New Tab
-              </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Ticket Information Panel - FIXED: Only show for admin and counselors, not students */}
+      {/* Ticket Information Panel */}
       {showTicketInformation && (
         <Card className="border shadow-sm">
           <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50 border-b px-6 py-4">
@@ -1259,6 +1161,29 @@ export function TicketDetailsPage({ ticketId, slug, onNavigate }: TicketDetailsP
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Auto-refresh indicator for open tickets */}
+      {(ticket.status === 'Open' || ticket.status === 'In Progress') && (
+        <div className="text-center py-2">
+          <div className="inline-flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span>Auto-refreshing every 30 seconds for updates</span>
+          </div>
+        </div>
+      )}
+
+      {/* Loading states overlay */}
+      {(loadingDetails || loadingResponse) && (
+        <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-50">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            <span className="text-sm text-gray-700">
+              {loadingDetails && 'Updating ticket...'}
+              {loadingResponse && 'Sending response...'}
+            </span>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
-// components/pages/admin-help-page.tsx (COMPLETE - All tabs functional)
+// components/pages/admin-help-page.tsx - FIXED: TypeScript Issues
+
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
@@ -221,6 +222,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
   }, [faqForm, createFAQ, refetchFAQs])
 
+  // Handle edit FAQ - FIXED: Proper typing
   const handleEditFAQ = useCallback((faq: FAQ) => {
     setSelectedFAQ(faq)
     setFAQForm({
@@ -270,7 +272,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
   }, [selectedFAQ, deleteFAQ, refetchFAQs])
 
-  // Category CRUD Operations
+  // Category CRUD Operations - FIXED: Proper typing
   const handleCreateCategory = useCallback(async () => {
     if (!categoryForm.name.trim()) {
       toast.error('Please enter a category name')
@@ -339,7 +341,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
   }, [selectedCategory, deleteCategory, refetchCategories])
 
-  // Quick actions
+  // Quick actions - FIXED: Proper typing
   const handleTogglePublish = useCallback(async (faq: FAQ) => {
     try {
       await updateFAQ.mutateAsync({
@@ -366,7 +368,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
   }, [updateFAQ, refetchFAQs])
 
-  // Handle tag input
+  // Handle tag input - FIXED: Proper typing
   const handleAddTag = useCallback((tag: string) => {
     if (tag.trim() && !faqForm.tags.includes(tag.trim())) {
       setFAQForm(prev => ({
@@ -467,7 +469,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
                 {faqsLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : 
-                  faqsData?.faqs.filter(faq => !faq.is_published).length || 0}
+                  faqsData?.faqs.filter((faq: FAQ) => !faq.is_published).length || 0}
               </div>
               <div className="text-sm text-blue-100">Unpublished</div>
             </div>
@@ -536,7 +538,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
-                      {categories?.map((category) => (
+                      {categories?.map((category: HelpCategory) => (
                         <SelectItem key={category.id} value={category.slug}>
                           {category.name}
                         </SelectItem>
@@ -583,7 +585,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {faqsData?.faqs.map((faq) => (
+                        {faqsData?.faqs.map((faq: FAQ) => (
                           <TableRow key={faq.id}>
                             <TableCell>
                               <div className="space-y-1">
@@ -593,7 +595,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                 </div>
                                 {faq.tags && faq.tags.length > 0 && (
                                   <div className="flex flex-wrap gap-1">
-                                    {faq.tags.slice(0, 2).map((tag, index) => (
+                                    {faq.tags.slice(0, 2).map((tag: string, index: number) => (
                                       <Badge key={index} variant="outline" className="text-xs">
                                         {tag}
                                       </Badge>
@@ -751,7 +753,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {categories?.map((category) => (
+                    {categories?.map((category: HelpCategory) => (
                       <Card key={category.id} className="border-0 shadow-md hover:shadow-lg transition-shadow">
                         <CardContent className="p-6">
                           <div className="space-y-4">
@@ -833,7 +835,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             </Card>
           </TabsContent>
 
-          {/* Analytics Tab */}
+          {/* Analytics Tab - FIXED: Proper FAQ typing */}
           <TabsContent value="analytics" className="space-y-6">
             {/* Key Metrics Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -859,7 +861,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     </div>
                     <div>
                       <div className="text-2xl font-bold">
-                        {faqsData?.faqs.filter(faq => faq.is_published).length || 0}
+                        {faqsData?.faqs.filter((faq: FAQ) => faq.is_published).length || 0}
                       </div>
                       <div className="text-sm text-gray-600">Published</div>
                     </div>
@@ -875,7 +877,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     </div>
                     <div>
                       <div className="text-2xl font-bold">
-                        {faqsData?.faqs.filter(faq => faq.is_featured).length || 0}
+                        {faqsData?.faqs.filter((faq: FAQ) => faq.is_featured).length || 0}
                       </div>
                       <div className="text-sm text-gray-600">Featured</div>
                     </div>
@@ -891,7 +893,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     </div>
                     <div>
                       <div className="text-2xl font-bold">
-                        {faqsData?.faqs.filter(faq => !faq.is_published).length || 0}
+                        {faqsData?.faqs.filter((faq: FAQ) => !faq.is_published).length || 0}
                       </div>
                       <div className="text-sm text-gray-600">Drafts</div>
                     </div>
@@ -911,7 +913,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="space-y-4">
-                    {faqsData?.faqs.slice(0, 5).map((faq) => (
+                    {faqsData?.faqs.slice(0, 5).map((faq: FAQ) => (
                       <div key={faq.id} className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="font-medium text-sm line-clamp-1">{faq.question}</div>
@@ -942,7 +944,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="space-y-4">
-                    {categories?.slice(0, 5).map((category) => (
+                    {categories?.slice(0, 5).map((category: HelpCategory) => (
                       <div key={category.id} className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <div 
@@ -976,7 +978,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
               </CardHeader>
               <CardContent className="p-6">
                 <div className="space-y-4">
-                  {stats?.recent_faqs?.slice(0, 5).map((faq) => (
+                  {stats?.recent_faqs?.slice(0, 5).map((faq: any) => (
                     <div key={faq.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center space-x-3">
                         <div className={cn(
@@ -1082,7 +1084,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories?.filter(cat => cat.is_active).map((category) => (
+                  {categories?.filter((cat: HelpCategory) => cat.is_active).map((category: HelpCategory) => (
                     <SelectItem key={category.id} value={category.id.toString()}>
                       <div className="flex items-center space-x-2">
                         <div 
@@ -1129,7 +1131,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <div className="space-y-2">
               <Label>Tags</Label>
               <div className="flex flex-wrap gap-2 mb-2">
-                {faqForm.tags.map((tag, index) => (
+                {faqForm.tags.map((tag: string, index: number) => (
                   <Badge key={index} variant="secondary" className="cursor-pointer" onClick={() => handleRemoveTag(tag)}>
                     {tag} ×
                   </Badge>
@@ -1215,7 +1217,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories?.filter(cat => cat.is_active).map((category) => (
+                  {categories?.filter((cat: HelpCategory) => cat.is_active).map((category: HelpCategory) => (
                     <SelectItem key={category.id} value={category.id.toString()}>
                       <div className="flex items-center space-x-2">
                         <div 
@@ -1262,7 +1264,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <div className="space-y-2">
               <Label>Tags</Label>
               <div className="flex flex-wrap gap-2 mb-2">
-                {faqForm.tags.map((tag, index) => (
+                {faqForm.tags.map((tag: string, index: number) => (
                   <Badge key={index} variant="secondary" className="cursor-pointer" onClick={() => handleRemoveTag(tag)}>
                     {tag} ×
                   </Badge>

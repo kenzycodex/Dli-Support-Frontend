@@ -1,4 +1,4 @@
-// lib/router.ts (FIXED - Safe navigation to prevent freezing)
+// lib/router.ts - SIMPLIFIED: Removed complex slug logic to fix navigation issues
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
@@ -16,7 +16,7 @@ class AppRouter {
   private listeners: Set<(route: ParsedRoute) => void> = new Set()
   private currentRoute: ParsedRoute = { page: 'dashboard', params: {} }
   private isInitialized = false
-  private isNavigating = false // FIXED: Prevent navigation during transitions
+  private isNavigating = false
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -26,15 +26,11 @@ class AppRouter {
       // Listen for browser navigation
       window.addEventListener('popstate', this.handlePopState)
       
-      // Listen for manual URL changes
-      window.addEventListener('hashchange', this.handlePopState)
-      
       console.log('🌐 Router initialized with route:', this.currentRoute)
     }
   }
 
   private handlePopState = () => {
-    // FIXED: Prevent handling popstate during navigation
     if (this.isNavigating) {
       console.log('🌐 Router: Ignoring popstate during navigation')
       return
@@ -52,7 +48,6 @@ class AppRouter {
     }
 
     const path = window.location.pathname
-    
     console.log('🌐 Router: Parsing URL:', path)
 
     // Remove leading slash and split path
@@ -64,7 +59,7 @@ class AppRouter {
 
     const [firstSegment, ...restSegments] = segments
 
-    // Handle different route patterns dynamically
+    // SIMPLIFIED: Handle route patterns without complex slug logic
     switch (firstSegment) {
       case 'dashboard':
         return { page: 'dashboard', params: {} }
@@ -74,44 +69,20 @@ class AppRouter {
           return { page: 'tickets', params: {} }
         }
         
-        // ENHANCED: Handle ticket details with proper slug parsing
+        // SIMPLIFIED: Just use ticket ID, no slug complexity
         const ticketIdentifier = restSegments[0]
-        console.log('🌐 Router: Parsing ticket identifier:', ticketIdentifier)
+        const ticketId = parseInt(ticketIdentifier)
         
-        // Check if it's a slug (contains hyphens) or just an ID
-        if (ticketIdentifier.includes('-')) {
-          // It's a slug: extract ticket ID from the beginning
-          const slugParts = ticketIdentifier.split('-')
-          const ticketId = parseInt(slugParts[0])
-          
-          if (!isNaN(ticketId)) {
-            console.log('🌐 Router: Parsed slug - ID:', ticketId, 'Slug:', ticketIdentifier)
-            return {
-              page: 'ticket-details',
-              params: { 
-                ticketId, 
-                slug: ticketIdentifier 
-              }
-            }
-          }
-        } else {
-          // It's just an ID
-          const ticketId = parseInt(ticketIdentifier)
-          
-          if (!isNaN(ticketId)) {
-            console.log('🌐 Router: Parsed ID-only:', ticketId)
-            return {
-              page: 'ticket-details',
-              params: { 
-                ticketId,
-                slug: undefined 
-              }
-            }
+        if (!isNaN(ticketId)) {
+          console.log('🌐 Router: Parsed ticket ID:', ticketId)
+          return {
+            page: 'ticket-details',
+            params: { ticketId }
           }
         }
         
-        // If we can't parse the ticket identifier, go back to tickets list
-        console.warn('🌐 Router: Failed to parse ticket identifier:', ticketIdentifier)
+        // If we can't parse, go back to tickets list
+        console.warn('🌐 Router: Failed to parse ticket ID:', ticketIdentifier)
         return { page: 'tickets', params: {} }
       
       case 'submit-ticket':
@@ -150,9 +121,8 @@ class AppRouter {
     return { page: 'dashboard', params: {} }
   }
 
-  // FIXED: Safe navigation with anti-freeze protection
+  // SIMPLIFIED: Navigation without complex slug handling
   public navigate(page: string, params: RouteParams = {}) {
-    // FIXED: Prevent navigation during another navigation
     if (this.isNavigating) {
       console.warn('🌐 Router: Navigation blocked - already navigating')
       return
@@ -174,7 +144,6 @@ class AppRouter {
       // Update current route and notify listeners
       this.currentRoute = newRoute
       
-      // FIXED: Use setTimeout to prevent UI freeze
       setTimeout(() => {
         this.notifyListeners()
         this.isNavigating = false
@@ -186,9 +155,7 @@ class AppRouter {
     }
   }
 
-  // FIXED: Safe replace with anti-freeze protection
   public replace(page: string, params: RouteParams = {}) {
-    // FIXED: Prevent replace during navigation
     if (this.isNavigating) {
       console.warn('🌐 Router: Replace blocked - already navigating')
       return
@@ -210,7 +177,6 @@ class AppRouter {
       // Update current route and notify listeners
       this.currentRoute = newRoute
       
-      // FIXED: Use setTimeout to prevent UI freeze
       setTimeout(() => {
         this.notifyListeners()
         this.isNavigating = false
@@ -234,10 +200,8 @@ class AppRouter {
         return '/submit-ticket'
       
       case 'ticket-details':
-        // ENHANCED: Prefer slug over ID for better URLs
-        if (params.slug) {
-          return `/tickets/${params.slug}`
-        } else if (params.ticketId) {
+        // SIMPLIFIED: Just use ticket ID in URL
+        if (params.ticketId) {
           return `/tickets/${params.ticketId}`
         }
         return '/tickets'
@@ -279,7 +243,6 @@ class AppRouter {
     
     // Immediately call the listener with current route if initialized
     if (this.isInitialized) {
-      // FIXED: Use setTimeout to prevent blocking
       setTimeout(() => {
         try {
           listener(this.currentRoute)
@@ -295,13 +258,11 @@ class AppRouter {
     }
   }
 
-  // FIXED: Safe listener notification with error handling
   private notifyListeners() {
     console.log('🌐 Router: Notifying listeners of route change:', this.currentRoute)
     
     this.listeners.forEach(listener => {
       try {
-        // FIXED: Use setTimeout to prevent blocking UI
         setTimeout(() => {
           try {
             listener(this.currentRoute)
@@ -319,18 +280,13 @@ class AppRouter {
     return this.currentRoute
   }
 
-  // ENHANCED: Method to generate proper URLs for tickets with slugs
-  public generateTicketURL(ticketId: number, slug?: string): string {
+  // SIMPLIFIED: Generate ticket URLs without slug complexity
+  public generateTicketURL(ticketId: number): string {
     const baseURL = typeof window !== 'undefined' ? window.location.origin : ''
-    
-    if (slug) {
-      return `${baseURL}/tickets/${slug}`
-    } else {
-      return `${baseURL}/tickets/${ticketId}`
-    }
+    return `${baseURL}/tickets/${ticketId}`
   }
 
-  // ENHANCED: Method to validate ticket URLs
+  // SIMPLIFIED: Validate ticket URLs
   public isValidTicketURL(url: string): boolean {
     try {
       const urlObj = new URL(url)
@@ -342,22 +298,13 @@ class AppRouter {
       }
       
       const ticketIdentifier = segments[1]
-      
-      // Check if it's a valid slug or ID
-      if (ticketIdentifier.includes('-')) {
-        // Slug format: should start with a number
-        const firstPart = ticketIdentifier.split('-')[0]
-        return !isNaN(parseInt(firstPart))
-      } else {
-        // ID format: should be a number
-        return !isNaN(parseInt(ticketIdentifier))
-      }
+      return !isNaN(parseInt(ticketIdentifier))
     } catch {
       return false
     }
   }
 
-  // ENHANCED: Force re-parse of current URL
+  // Force re-parse of current URL
   public refreshRoute() {
     if (this.isNavigating) {
       console.warn('🌐 Router: Cannot refresh during navigation')
@@ -368,24 +315,20 @@ class AppRouter {
     const newRoute = this.parseURL()
     this.currentRoute = newRoute
     
-    // FIXED: Use setTimeout to prevent UI freeze
     setTimeout(() => {
       this.notifyListeners()
     }, 0)
   }
 
-  // FIXED: Safe destroy method
   public destroy() {
     if (typeof window !== 'undefined') {
       window.removeEventListener('popstate', this.handlePopState)
-      window.removeEventListener('hashchange', this.handlePopState)
     }
     this.listeners.clear()
     this.isNavigating = false
     console.log('🌐 Router: Destroyed')
   }
 
-  // Public method to reset navigation state
   public resetNavigationState() {
     this.isNavigating = false
   }
@@ -394,10 +337,9 @@ class AppRouter {
 // Singleton instance
 export const appRouter = new AppRouter()
 
-// ENHANCED React hook for using the router
+// SIMPLIFIED React hook for using the router
 export function useAppRouter() {
   const [currentRoute, setCurrentRoute] = useState<ParsedRoute>(() => {
-    // Initialize with current route from router
     return appRouter.getCurrentRoute()
   })
   const [isReady, setIsReady] = useState(false)
@@ -440,8 +382,8 @@ export function useAppRouter() {
     appRouter.replace(page, params)
   }, [])
 
-  const generateTicketURL = useCallback((ticketId: number, slug?: string) => {
-    return appRouter.generateTicketURL(ticketId, slug)
+  const generateTicketURL = useCallback((ticketId: number) => {
+    return appRouter.generateTicketURL(ticketId)
   }, [])
 
   const isValidTicketURL = useCallback((url: string) => {
@@ -466,49 +408,43 @@ export function useAppRouter() {
   }
 }
 
-// ENHANCED: Utility function to handle ticket navigation with proper slug support
-export function navigateToTicket(ticketId: number, slug?: string) {
-  console.log('🌐 navigateToTicket:', ticketId, slug)
-  if (slug) {
-    appRouter.navigate('ticket-details', { ticketId, slug })
-  } else {
-    appRouter.navigate('ticket-details', { ticketId })
-  }
+// SIMPLIFIED: Utility function to handle ticket navigation
+export function navigateToTicket(ticketId: number) {
+  console.log('🌐 navigateToTicket:', ticketId)
+  appRouter.navigate('ticket-details', { ticketId })
 }
 
-// ENHANCED: Utility function to get current ticket info from URL
-export function getCurrentTicketFromURL(): { ticketId: number | null; slug: string | null } {
+// Get current ticket info from URL
+export function getCurrentTicketFromURL(): { ticketId: number | null } {
   const route = appRouter.getCurrentRoute()
   
   if (route.page === 'ticket-details') {
     return {
-      ticketId: (route.params.ticketId as number) || null,
-      slug: (route.params.slug as string) || null
+      ticketId: (route.params.ticketId as number) || null
     }
   }
   
-  return { ticketId: null, slug: null }
+  return { ticketId: null }
 }
 
-// ENHANCED: Utility function to handle browser back/forward for ticket details
-export function handleTicketNavigation(onTicketChange: (ticketId: number | null, slug: string | null) => void) {
+// Handle browser back/forward for ticket details
+export function handleTicketNavigation(onTicketChange: (ticketId: number | null) => void) {
   return appRouter.subscribe((route) => {
     try {
       if (route.page === 'ticket-details') {
         const ticketId = (route.params.ticketId as number) || null
-        const slug = (route.params.slug as string) || null
-        onTicketChange(ticketId, slug)
+        onTicketChange(ticketId)
       } else {
-        onTicketChange(null, null)
+        onTicketChange(null)
       }
     } catch (error) {
       console.error('🌐 handleTicketNavigation: Error in ticket navigation handler:', error)
-      onTicketChange(null, null)
+      onTicketChange(null)
     }
   })
 }
 
-// FIXED: Safe page transition helper
+// Safe page transition helper
 export function safePageTransition(page: string, params: RouteParams = {}, timeout: number = 5000): Promise<boolean> {
   return new Promise((resolve) => {
     let timeoutId: NodeJS.Timeout
@@ -544,39 +480,7 @@ export function safePageTransition(page: string, params: RouteParams = {}, timeo
   })
 }
 
-// FIXED: Batch navigation for multiple route changes
-export async function batchNavigate(routes: Array<{ page: string; params?: RouteParams; delay?: number }>) {
-  console.log('🌐 Router: Starting batch navigation for', routes.length, 'routes')
-  
-  for (let i = 0; i < routes.length; i++) {
-    const { page, params = {}, delay = 100 } = routes[i]
-    
-    try {
-      console.log(`🌐 Router: Batch navigate ${i + 1}/${routes.length}:`, page)
-      
-      if (i === routes.length - 1) {
-        // Last route - use normal navigation
-        appRouter.navigate(page, params)
-      } else {
-        // Intermediate routes - use replace to avoid history buildup
-        appRouter.replace(page, params)
-      }
-      
-      // Add delay between navigations
-      if (delay > 0 && i < routes.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, delay))
-      }
-      
-    } catch (error) {
-      console.error(`❌ Router: Batch navigation failed at step ${i + 1}:`, error)
-      break
-    }
-  }
-  
-  console.log('✅ Router: Batch navigation completed')
-}
-
-// FIXED: Check if current navigation is safe
+// Check if current navigation is safe
 export function isNavigationSafe(): boolean {
   try {
     const router = appRouter as any
@@ -586,7 +490,7 @@ export function isNavigationSafe(): boolean {
   }
 }
 
-// FIXED: Wait for safe navigation state
+// Wait for safe navigation state
 export function waitForSafeNavigation(timeout: number = 3000): Promise<boolean> {
   return new Promise((resolve) => {
     if (isNavigationSafe()) {
@@ -606,76 +510,6 @@ export function waitForSafeNavigation(timeout: number = 3000): Promise<boolean> 
       }
     }, 100)
   })
-}
-
-// FIXED: Router performance monitor
-export function getRouterPerformance() {
-  try {
-    const router = appRouter as any
-    return {
-      isNavigating: router.isNavigating || false,
-      isInitialized: router.isInitialized || false,
-      currentRoute: router.currentRoute || { page: 'unknown', params: {} },
-      listenerCount: router.listeners?.size || 0,
-      lastNavigationTime: router.lastNavigationTime || 0,
-      navigationCount: router.navigationCount || 0
-    }
-  } catch (error) {
-    console.error('Error getting router performance:', error)
-    return {
-      isNavigating: false,
-      isInitialized: false,
-      currentRoute: { page: 'error', params: {} },
-      listenerCount: 0,
-      lastNavigationTime: 0,
-      navigationCount: 0
-    }
-  }
-}
-
-// FIXED: Router health check
-export function routerHealthCheck(): { healthy: boolean; issues: string[] } {
-  const issues: string[] = []
-  
-  try {
-    const perf = getRouterPerformance()
-    
-    if (!perf.isInitialized) {
-      issues.push('Router not initialized')
-    }
-    
-    if (perf.isNavigating && Date.now() - perf.lastNavigationTime > 10000) {
-      issues.push('Navigation stuck for more than 10 seconds')
-    }
-    
-    if (perf.listenerCount > 50) {
-      issues.push(`Too many listeners: ${perf.listenerCount}`)
-    }
-    
-    if (perf.navigationCount > 1000) {
-      issues.push(`High navigation count: ${perf.navigationCount}`)
-    }
-    
-    // Check browser history state
-    if (typeof window !== 'undefined') {
-      try {
-        const historyLength = window.history.length
-        if (historyLength > 500) {
-          issues.push(`History too large: ${historyLength}`)
-        }
-      } catch (error) {
-        issues.push('Cannot access browser history')
-      }
-    }
-    
-  } catch (error) {
-    issues.push(`Health check failed: ${error}`)
-  }
-  
-  return {
-    healthy: issues.length === 0,
-    issues
-  }
 }
 
 // Export router utilities
