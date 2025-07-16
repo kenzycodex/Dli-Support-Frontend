@@ -1,4 +1,4 @@
-// components/resources/bookmark-manager.tsx (FIXED - Responsive and smooth)
+// components/resources/bookmark-manager.tsx (FIXED - Safe array handling for tags)
 "use client"
 
 import React, { useState, useCallback, useMemo } from "react"
@@ -32,13 +32,17 @@ import {
 import { useResourceBookmarks, useResourceUtils, useResourceAccess } from "@/hooks/use-resources"
 import { ResourceRatingComponent } from "./resource-rating"
 import { cn } from "@/lib/utils"
-import type { Resource } from "@/services/resources.service"
+import type { Resource, ResourceCategory } from "@/services/resources.service"
 import { toast } from "sonner"
 
 interface BookmarkManagerProps {
   viewMode?: 'grid' | 'list'
   showFilters?: boolean
   onResourceClick?: (resource: Resource) => void
+}
+
+interface BookmarkedResource extends Resource {
+  bookmarked_at: string
 }
 
 export function BookmarkManagerComponent({ 
@@ -71,8 +75,23 @@ export function BookmarkManagerComponent({
   
   const accessMutation = useResourceAccess()
 
+  // CRITICAL FIX: Safe array utility function
+  const ensureArray = useCallback((value: any): any[] => {
+    if (Array.isArray(value)) return value
+    if (value === null || value === undefined) return []
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value)
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return [value] // If it's a single string, wrap it in an array
+      }
+    }
+    return []
+  }, [])
+
   // Handle resource access with individual loading states
-  const handleResourceAccess = useCallback(async (resource: Resource, event: React.MouseEvent) => {
+  const handleResourceAccess = useCallback(async (resource: BookmarkedResource, event: React.MouseEvent) => {
     event.stopPropagation()
     event.preventDefault()
     
@@ -127,7 +146,7 @@ export function BookmarkManagerComponent({
     }
   }, [refetch])
 
-  // Filter bookmarks
+  // FIXED: Filter bookmarks with safe array handling
   const filteredBookmarks = useMemo(() => {
     if (!bookmarksData?.bookmarks) return []
 
@@ -136,32 +155,39 @@ export function BookmarkManagerComponent({
     // Search filter
     if (searchTerm.trim()) {
       const searchLower = searchTerm.toLowerCase()
-      filtered = filtered.filter(bookmark => 
-        bookmark.title.toLowerCase().includes(searchLower) ||
-        bookmark.description.toLowerCase().includes(searchLower) ||
-        bookmark.tags?.some(tag => tag.toLowerCase().includes(searchLower))
-      )
+      filtered = filtered.filter((bookmark: BookmarkedResource) => {
+        const matchesTitle = bookmark.title?.toLowerCase().includes(searchLower)
+        const matchesDescription = bookmark.description?.toLowerCase().includes(searchLower)
+        
+        // SAFE: Handle tags search with proper array checking
+        const safeTags = ensureArray(bookmark.tags)
+        const matchesTags = safeTags.some((tag: any) => 
+          String(tag).toLowerCase().includes(searchLower)
+        )
+        
+        return matchesTitle || matchesDescription || matchesTags
+      })
     }
 
     // Category filter
     if (categoryFilter !== "all" && categoryFilter) {
-      filtered = filtered.filter(bookmark => 
+      filtered = filtered.filter((bookmark: BookmarkedResource) => 
         bookmark.category?.slug === categoryFilter
       )
     }
 
     // Type filter
     if (typeFilter !== "all" && typeFilter) {
-      filtered = filtered.filter(bookmark => bookmark.type === typeFilter)
+      filtered = filtered.filter((bookmark: BookmarkedResource) => bookmark.type === typeFilter)
     }
 
     // Sort
-    filtered.sort((a, b) => {
+    filtered.sort((a: BookmarkedResource, b: BookmarkedResource) => {
       switch (sortBy) {
         case 'title':
           return a.title.localeCompare(b.title)
         case 'rating':
-          return (b.rating || 0) - (a.rating || 0)
+          return (Number(b.rating) || 0) - (Number(a.rating) || 0)
         case 'type':
           return a.type.localeCompare(b.type)
         case 'bookmarked_at':
@@ -171,23 +197,23 @@ export function BookmarkManagerComponent({
     })
 
     return filtered
-  }, [bookmarksData?.bookmarks, searchTerm, categoryFilter, typeFilter, sortBy])
+  }, [bookmarksData?.bookmarks, searchTerm, categoryFilter, typeFilter, sortBy, ensureArray])
 
   // Get unique categories and types from bookmarks
   const availableCategories = useMemo(() => {
     if (!bookmarksData?.bookmarks) return []
     const categories = new Map()
-    bookmarksData.bookmarks.forEach(bookmark => {
+    bookmarksData.bookmarks.forEach((bookmark: BookmarkedResource) => {
       if (bookmark.category) {
         categories.set(bookmark.category.slug, bookmark.category)
       }
     })
-    return Array.from(categories.values())
+    return Array.from(categories.values()) as ResourceCategory[]
   }, [bookmarksData?.bookmarks])
 
   const availableTypes = useMemo(() => {
     if (!bookmarksData?.bookmarks) return []
-    const types = new Set(bookmarksData.bookmarks.map(bookmark => bookmark.type))
+    const types = new Set(bookmarksData.bookmarks.map((bookmark: BookmarkedResource) => bookmark.type))
     return Array.from(types)
   }, [bookmarksData?.bookmarks])
 
@@ -204,9 +230,13 @@ export function BookmarkManagerComponent({
     return iconMap[type] || BookOpen
   }, [])
 
-  const BookmarkCard = ({ bookmark }: { bookmark: Resource & { bookmarked_at: string } }) => {
+  // FIXED: BookmarkCard with safe tag handling
+  const BookmarkCard = ({ bookmark }: { bookmark: BookmarkedResource }) => {
     const IconComponent = getIconComponent(bookmark.type)
     const isLoading = loadingStates[bookmark.id]
+
+    // SAFE: Handle tags with proper array checking
+    const safeTags = ensureArray(bookmark.tags)
 
     return (
       <Card className="hover:shadow-xl transition-all duration-300 border-0 shadow-md group cursor-pointer">
@@ -259,7 +289,7 @@ export function BookmarkManagerComponent({
             {/* Metadata */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Badge className={getDifficultyColor(bookmark.difficulty)} size="sm">
+                <Badge className={getDifficultyColor(bookmark.difficulty)}>
                   {bookmark.difficulty}
                 </Badge>
                 <div className="flex items-center space-x-1 text-xs text-gray-500">
@@ -290,17 +320,17 @@ export function BookmarkManagerComponent({
               </div>
             )}
 
-            {/* Tags */}
-            {bookmark.tags && bookmark.tags.length > 0 && (
+            {/* FIXED: Tags with safe array handling */}
+            {safeTags.length > 0 && (
               <div className="flex flex-wrap gap-1">
-                {bookmark.tags.slice(0, 2).map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-xs">
-                    {tag}
+                {safeTags.slice(0, 2).map((tag: any, index: number) => (
+                  <Badge key={index} variant="secondary" className="text-xs">
+                    {String(tag)}
                   </Badge>
                 ))}
-                {bookmark.tags.length > 2 && (
+                {safeTags.length > 2 && (
                   <Badge variant="secondary" className="text-xs">
-                    +{bookmark.tags.length - 2}
+                    +{safeTags.length - 2}
                   </Badge>
                 )}
               </div>
@@ -333,9 +363,13 @@ export function BookmarkManagerComponent({
     )
   }
 
-  const BookmarkListItem = ({ bookmark }: { bookmark: Resource & { bookmarked_at: string } }) => {
+  // FIXED: BookmarkListItem with safe tag handling
+  const BookmarkListItem = ({ bookmark }: { bookmark: BookmarkedResource }) => {
     const IconComponent = getIconComponent(bookmark.type)
     const isLoading = loadingStates[bookmark.id]
+    
+    // SAFE: Handle tags with proper array checking
+    const safeTags = ensureArray(bookmark.tags)
 
     return (
       <Card className="hover:shadow-md transition-all duration-200 cursor-pointer">
@@ -371,7 +405,7 @@ export function BookmarkManagerComponent({
                   <Badge variant="outline" className="capitalize text-xs">
                     {getTypeLabel(bookmark.type)}
                   </Badge>
-                  <Badge className={getDifficultyColor(bookmark.difficulty)} size="sm">
+                  <Badge className={getDifficultyColor(bookmark.difficulty)}>
                     {bookmark.difficulty}
                   </Badge>
                   <div className="flex items-center space-x-1">
@@ -390,6 +424,22 @@ export function BookmarkManagerComponent({
                         style={{ backgroundColor: bookmark.category.color }}
                       />
                       <span className="text-xs text-gray-600">{bookmark.category.name}</span>
+                    </div>
+                  )}
+                  
+                  {/* FIXED: Tags display with safe handling */}
+                  {safeTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {safeTags.slice(0, 3).map((tag: any, index: number) => (
+                        <Badge key={index} variant="outline" className="text-xs">
+                          {String(tag)}
+                        </Badge>
+                      ))}
+                      {safeTags.length > 3 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{safeTags.length - 3}
+                        </Badge>
+                      )}
                     </div>
                   )}
                 </div>
@@ -507,7 +557,7 @@ export function BookmarkManagerComponent({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
-                    {availableCategories.map((category) => (
+                    {availableCategories.map((category: ResourceCategory) => (
                       <SelectItem key={category.id} value={category.slug}>
                         <div className="flex items-center space-x-2">
                           <div 
@@ -530,7 +580,7 @@ export function BookmarkManagerComponent({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
-                    {availableTypes.map((type) => (
+                    {availableTypes.map((type: string) => (
                       <SelectItem key={type} value={type}>
                         {getTypeLabel(type)}
                       </SelectItem>
@@ -563,7 +613,7 @@ export function BookmarkManagerComponent({
             ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
             : "space-y-3 sm:space-y-4"
         )}>
-          {filteredBookmarks.map((bookmark) => (
+          {filteredBookmarks.map((bookmark: BookmarkedResource) => (
             viewMode === 'grid' 
               ? <BookmarkCard key={bookmark.id} bookmark={bookmark} />
               : <BookmarkListItem key={bookmark.id} bookmark={bookmark} />

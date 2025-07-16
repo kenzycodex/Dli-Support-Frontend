@@ -1,4 +1,4 @@
-// components/resources/resource-rating.tsx (NEW - Resource rating component)
+// components/resources/resource-rating.tsx (FIXED - TypeScript errors resolved)
 "use client"
 
 import React, { useState, useCallback } from "react"
@@ -27,19 +27,14 @@ import {
 import { useResourceFeedback, useResourceUtils } from "@/hooks/use-resources"
 import { useAuth } from "@/contexts/AuthContext"
 import { cn } from "@/lib/utils"
-import type { Resource } from "@/services/resources.service"
+import type { Resource, ResourceFeedback } from "@/services/resources.service"
 import { toast } from "sonner"
 
 interface ResourceRatingProps {
   resource: Resource
   showStats?: boolean
   compact?: boolean
-  userFeedback?: {
-    id: number
-    rating: number
-    comment?: string
-    is_recommended: boolean
-  }
+  userFeedback?: ResourceFeedback
 }
 
 export function ResourceRatingComponent({ 

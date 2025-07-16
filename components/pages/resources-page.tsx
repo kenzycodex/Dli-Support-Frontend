@@ -1,4 +1,4 @@
-// components/pages/resources-page.tsx (FIXED - Smooth caching and responsive design)
+// components/pages/resources-page.tsx (FIXED - TypeScript errors resolved)
 "use client"
 
 import React, { useState, useCallback, useMemo } from "react"
@@ -58,7 +58,7 @@ import { BookmarkManagerComponent } from "@/components/resources/bookmark-manage
 import { SearchWithSuggestions } from "@/components/common/search-with-suggestions"
 import { useAuth } from "@/contexts/AuthContext"
 import { cn } from "@/lib/utils"
-import type { Resource } from "@/services/resources.service"
+import type { Resource, ResourceCategory } from "@/services/resources.service"
 import { toast } from 'sonner'
 
 interface ResourcesPageProps {
@@ -152,7 +152,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
   }, [updateFilter, addRecentSearch, trackResourceSearch, resourcesData])
 
   const handleCategorySelect = useCallback((categorySlug: string) => {
-    const category = categories.find(c => c.slug === categorySlug)
+    const category = categories.find((c: ResourceCategory) => c.slug === categorySlug)
     if (category) {
       updateFilter('category', categorySlug)
       trackResourceCategoryClick(categorySlug, category.name)
@@ -274,7 +274,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             {/* Metadata */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Badge className={getDifficultyColor(resource.difficulty)} size="sm">
+                <Badge className={getDifficultyColor(resource.difficulty)}>
                   {resource.difficulty}
                 </Badge>
                 <div className="flex items-center space-x-1 text-xs text-gray-500">
@@ -292,7 +292,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
 
             {/* Tags */}
             <div className="flex flex-wrap gap-1">
-              {resource.tags?.slice(0, 2).map((tag) => (
+              {resource.tags?.slice(0, 2).map((tag: string) => (
                 <Badge key={tag} variant="secondary" className="text-xs">
                   {tag}
                 </Badge>
@@ -387,7 +387,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                   <Badge variant="outline" className="capitalize text-xs">
                     {getTypeLabel(resource.type)}
                   </Badge>
-                  <Badge className={getDifficultyColor(resource.difficulty)} size="sm">
+                  <Badge className={getDifficultyColor(resource.difficulty)}>
                     {resource.difficulty}
                   </Badge>
                   <div className="flex items-center space-x-1">
@@ -594,7 +594,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {featured.map((resource) => (
+              {featured.map((resource: Resource) => (
                 <ResourceCard key={resource.id} resource={resource} />
               ))}
             </div>
@@ -611,7 +611,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             onSearch={handleSearch}
             placeholder="Search resources..."
             recentSearches={recentSearches}
-            popularSearches={popular.map(r => r.title)}
+            popularSearches={popular.map((r: Resource) => r.title)}
             onRecentSearchRemove={removeRecentSearch}
             onClearRecentSearches={clearRecentSearches}
             isLoading={resourcesLoading}
@@ -646,7 +646,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
-                      {categories.map((category) => (
+                      {categories.map((category: ResourceCategory) => (
                         <SelectItem key={category.id} value={category.slug}>
                           {category.name} ({category.resources_count || 0})
                         </SelectItem>
@@ -765,7 +765,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                   ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
                   : "space-y-3 sm:space-y-4"
               )}>
-                {resourcesData.resources.map((resource) => (
+                {resourcesData.resources.map((resource: Resource) => (
                   viewMode === 'grid' 
                     ? <ResourceCard key={resource.id} resource={resource} />
                     : <ResourceListItem key={resource.id} resource={resource} />
@@ -808,7 +808,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             </CardHeader>
             <CardContent className="p-4 sm:p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                {topRated.map((resource) => (
+                {topRated.map((resource: Resource) => (
                   <ResourceCard key={resource.id} resource={resource} />
                 ))}
               </div>
@@ -826,7 +826,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             </CardHeader>
             <CardContent className="p-4 sm:p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                {popular.map((resource) => (
+                {popular.map((resource: Resource) => (
                   <ResourceCard key={resource.id} resource={resource} />
                 ))}
               </div>
@@ -866,7 +866,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                       <Badge variant="outline" className="capitalize text-xs">
                         {getTypeLabel(selectedResource.type)}
                       </Badge>
-                      <Badge className={getDifficultyColor(selectedResource.difficulty)} size="sm">
+                      <Badge className={getDifficultyColor(selectedResource.difficulty)}>
                         {selectedResource.difficulty}
                       </Badge>
                       {selectedResource.is_featured && (
@@ -911,7 +911,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                 <div>
                   <h4 className="font-medium mb-2 text-sm sm:text-base">Tags</h4>
                   <div className="flex flex-wrap gap-2">
-                    {selectedResource.tags.map((tag, index) => (
+                    {selectedResource.tags.map((tag: string, index: number) => (
                       <Badge key={index} variant="outline" className="text-xs">
                         {tag}
                       </Badge>

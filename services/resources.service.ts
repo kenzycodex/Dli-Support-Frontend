@@ -1,5 +1,6 @@
-// services/resources.service.ts (FIXED - All TypeScript errors resolved)
-import { apiClient, ApiResponse } from '@/lib/api'
+// services/resources.service.ts (FIXED - Enhanced response parsing like help service)
+
+import { apiClient, type StandardizedApiResponse } from '@/lib/api'
 
 export interface ResourceCategory {
   id: number
@@ -75,13 +76,16 @@ export interface ResourceFilters {
 
 export interface ResourcesResponse {
   resources: Resource[]
-  featured_resources: Resource[]
-  type_counts: Record<string, number>
-  pagination: {
+  featured_resources?: Resource[]
+  type_counts?: Record<string, number>
+  pagination?: {
     current_page: number
     last_page: number
     per_page: number
     total: number
+    from?: number
+    to?: number
+    has_more_pages?: boolean
   }
 }
 
@@ -190,12 +194,130 @@ class ResourcesService {
     }
   }
 
-  // FIXED: Enhanced API methods with proper ApiResponse handling
+  // CRITICAL FIX: Enhanced response parser that handles multiple backend formats (like help service)
+  private parseBackendResponse(rawResponse: any): ResourcesResponse {
+    console.log('🔍 ResourcesService: Parsing backend response:', rawResponse)
+
+    // Safety check
+    if (!rawResponse) {
+      console.warn('⚠️ ResourcesService: No response data provided')
+      return { resources: [] }
+    }
+
+    // STRATEGY 1: Check for direct ResourcesResponse structure
+    if (rawResponse.resources && Array.isArray(rawResponse.resources)) {
+      console.log('✅ ResourcesService: Found direct resources array format')
+      return {
+        resources: rawResponse.resources || [],
+        featured_resources: rawResponse.featured_resources || rawResponse.resources?.filter((r: Resource) => r.is_featured) || [],
+        type_counts: rawResponse.type_counts || {},
+        pagination: rawResponse.pagination
+      }
+    }
+
+    // STRATEGY 2: Check for Laravel paginated response with 'items' array
+    if (rawResponse.items && Array.isArray(rawResponse.items)) {
+      console.log('✅ ResourcesService: Found Laravel paginated items format')
+      return {
+        resources: rawResponse.items || [],
+        featured_resources: rawResponse.items?.filter((r: Resource) => r.is_featured) || [],
+        type_counts: rawResponse.type_counts || {},
+        pagination: {
+          current_page: rawResponse.current_page || 1,
+          last_page: rawResponse.last_page || 1,
+          per_page: rawResponse.per_page || rawResponse.items?.length || 0,
+          total: rawResponse.total || rawResponse.items?.length || 0,
+          from: rawResponse.from,
+          to: rawResponse.to,
+          has_more_pages: rawResponse.has_more_pages
+        }
+      }
+    }
+
+    // STRATEGY 3: Check for Laravel paginated response with 'data' array
+    if (rawResponse.data && Array.isArray(rawResponse.data)) {
+      console.log('✅ ResourcesService: Found Laravel paginated data format')
+      return {
+        resources: rawResponse.data || [],
+        featured_resources: rawResponse.data?.filter((r: Resource) => r.is_featured) || [],
+        type_counts: rawResponse.type_counts || {},
+        pagination: {
+          current_page: rawResponse.current_page || 1,
+          last_page: rawResponse.last_page || 1,
+          per_page: rawResponse.per_page || rawResponse.data?.length || 0,
+          total: rawResponse.total || rawResponse.data?.length || 0,
+          from: rawResponse.from,
+          to: rawResponse.to,
+          has_more_pages: rawResponse.has_more_pages
+        }
+      }
+    }
+
+    // STRATEGY 4: Check for nested data structure (data.resources)
+    if (rawResponse.data && rawResponse.data.resources && Array.isArray(rawResponse.data.resources)) {
+      console.log('✅ ResourcesService: Found nested data.resources format')
+      return {
+        resources: rawResponse.data.resources || [],
+        featured_resources: rawResponse.data.featured_resources || rawResponse.data.resources?.filter((r: Resource) => r.is_featured) || [],
+        type_counts: rawResponse.data.type_counts || {},
+        pagination: rawResponse.data.pagination || rawResponse.pagination
+      }
+    }
+
+    // STRATEGY 5: Check for nested data structure (data.items)
+    if (rawResponse.data && rawResponse.data.items && Array.isArray(rawResponse.data.items)) {
+      console.log('✅ ResourcesService: Found nested data.items format')
+      return {
+        resources: rawResponse.data.items || [],
+        featured_resources: rawResponse.data.items?.filter((r: Resource) => r.is_featured) || [],
+        type_counts: rawResponse.data.type_counts || {},
+        pagination: {
+          current_page: rawResponse.data.current_page || 1,
+          last_page: rawResponse.data.last_page || 1,
+          per_page: rawResponse.data.per_page || rawResponse.data.items?.length || 0,
+          total: rawResponse.data.total || rawResponse.data.items?.length || 0,
+          from: rawResponse.data.from,
+          to: rawResponse.data.to,
+          has_more_pages: rawResponse.data.has_more_pages
+        }
+      }
+    }
+
+    // STRATEGY 6: Direct array response
+    if (Array.isArray(rawResponse)) {
+      console.log('✅ ResourcesService: Found direct array format')
+      return {
+        resources: rawResponse || [],
+        featured_resources: rawResponse?.filter((r: Resource) => r.is_featured) || [],
+        type_counts: {},
+        pagination: {
+          current_page: 1,
+          last_page: 1,
+          per_page: rawResponse?.length || 0,
+          total: rawResponse?.length || 0
+        }
+      }
+    }
+
+    // FALLBACK: Log unknown format and return empty
+    console.warn('⚠️ ResourcesService: Unknown response format, returning empty array:', {
+      type: typeof rawResponse,
+      keys: Object.keys(rawResponse),
+      hasData: 'data' in rawResponse,
+      hasResources: 'resources' in rawResponse,
+      hasItems: 'items' in rawResponse,
+      sample: JSON.stringify(rawResponse).substring(0, 200)
+    })
+
+    return { resources: [] }
+  }
+
+  // FIXED: Enhanced API methods with proper StandardizedApiResponse handling
   async getCategories(options: {
     include_inactive?: boolean
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<{ categories: ResourceCategory[] }>> {
+  } = {}): Promise<StandardizedApiResponse<{ categories: ResourceCategory[] }>> {
     const { include_inactive = false, userRole, forceRefresh = false } = options
     const cacheKey = this.getCacheKey('/resources/categories', { include_inactive, userRole })
 
@@ -203,13 +325,13 @@ class ResourcesService {
       const cached = this.getCache(cacheKey)
       if (cached) return { 
         success: true, 
+        status: 200,
         message: 'Categories retrieved from cache',
         data: cached 
       }
     }
 
     try {
-      // FIXED: Proper API call without invalid params property
       const queryParams = new URLSearchParams()
       if (include_inactive) {
         queryParams.append('include_inactive', 'true')
@@ -226,16 +348,17 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to fetch resource categories',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to fetch resource categories'
       }
     }
   }
 
+  // CRITICAL FIX: Enhanced getResources with proper response parsing
   async getResources(filters: ResourceFilters & {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<ResourcesResponse>> {
+  } = {}): Promise<StandardizedApiResponse<ResourcesResponse>> {
     const { userRole, forceRefresh = false, ...apiFilters } = filters
     const cacheKey = this.getCacheKey('/resources', { ...apiFilters, userRole })
 
@@ -243,6 +366,7 @@ class ResourcesService {
       const cached = this.getCache(cacheKey)
       if (cached) return { 
         success: true, 
+        status: 200,
         message: 'Resources retrieved from cache',
         data: cached 
       }
@@ -257,26 +381,69 @@ class ResourcesService {
       })
 
       const endpoint = `/resources${params.toString() ? `?${params.toString()}` : ''}`
-      const response = await apiClient.get<ResourcesResponse>(endpoint)
+      console.log('📡 ResourcesService: Making request to:', endpoint)
+      
+      const response = await apiClient.get<any>(endpoint)
+      console.log('📡 ResourcesService: Raw response:', response)
 
-      if (response.success) {
-        this.setCache(cacheKey, response.data, this.DEFAULT_TTL)
+      if (!response.success) {
+        console.error('❌ ResourcesService: Request failed:', response)
+        return response
       }
 
-      return response
-    } catch (error) {
+      // CRITICAL FIX: Use enhanced response parser
+      const parsedData = this.parseBackendResponse(response.data)
+      console.log('✅ ResourcesService: Parsed data:', parsedData)
+
+      // Create the final ResourcesResponse with safe defaults
+      const resourcesResponse: ResourcesResponse = {
+        resources: parsedData.resources || [],
+        featured_resources: parsedData.featured_resources || [],
+        type_counts: parsedData.type_counts || {},
+        pagination: parsedData.pagination || {
+          current_page: 1,
+          last_page: 1,
+          per_page: parsedData.resources?.length || 0,
+          total: parsedData.resources?.length || 0
+        }
+      }
+
+      console.log('✅ ResourcesService: Final response:', resourcesResponse)
+
+      // Cache the processed response
+      if (!forceRefresh && resourcesResponse.resources.length > 0) {
+        this.setCache(cacheKey, resourcesResponse, this.DEFAULT_TTL)
+      }
+
       return {
-        success: false,
-        message: 'Failed to fetch resources',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        success: true,
+        status: 200,
+        message: response.message || 'Resources retrieved successfully',
+        data: resourcesResponse
       }
+
+    } catch (error: any) {
+      console.error('❌ ResourcesService: Service Error:', error)
+      
+      // Return stale cache if available on error
+      const cached = this.getCache(cacheKey)
+      if (cached) {
+        console.log('📋 ResourcesService: Returning cached data due to error')
+        return {
+          success: true,
+          status: 200,
+          message: 'Resources retrieved from cache',
+          data: cached
+        }
+      }
+      throw error
     }
   }
 
   async getResource(id: number, options: {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<{
+  } = {}): Promise<StandardizedApiResponse<{
     resource: Resource
     user_feedback?: ResourceFeedback
     related_resources: Resource[]
@@ -288,6 +455,7 @@ class ResourcesService {
       const cached = this.getCache(cacheKey)
       if (cached) return { 
         success: true, 
+        status: 200,
         message: 'Resource retrieved from cache',
         data: cached 
       }
@@ -308,15 +476,15 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to fetch resource',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to fetch resource'
       }
     }
   }
 
   async accessResource(id: number, options: {
     userRole?: string
-  } = {}): Promise<ApiResponse<{
+  } = {}): Promise<StandardizedApiResponse<{
     url: string
     action: 'access' | 'download'
     resource: Pick<Resource, 'id' | 'title' | 'type'>
@@ -335,8 +503,8 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to access resource',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to access resource'
       }
     }
   }
@@ -347,7 +515,7 @@ class ResourcesService {
     options: {
       userRole?: string
     } = {}
-  ): Promise<ApiResponse<{ feedback: ResourceFeedback }>> {
+  ): Promise<StandardizedApiResponse<{ feedback: ResourceFeedback }>> {
     try {
       const response = await apiClient.post<{ feedback: ResourceFeedback }>(
         `/resources/${resourceId}/feedback`,
@@ -362,15 +530,15 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to submit feedback',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to submit feedback'
       }
     }
   }
 
   async toggleBookmark(resourceId: number, options: {
     userRole?: string
-  } = {}): Promise<ApiResponse<{ bookmarked: boolean }>> {
+  } = {}): Promise<StandardizedApiResponse<{ bookmarked: boolean }>> {
     try {
       const response = await apiClient.post<{ bookmarked: boolean }>(`/resources/${resourceId}/bookmark`)
 
@@ -383,8 +551,8 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to toggle bookmark',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to toggle bookmark'
       }
     }
   }
@@ -396,7 +564,7 @@ class ResourcesService {
       userRole?: string
       forceRefresh?: boolean
     } = {}
-  ): Promise<ApiResponse<BookmarksResponse>> {
+  ): Promise<StandardizedApiResponse<BookmarksResponse>> {
     const { userRole, forceRefresh = false } = options
     const cacheKey = this.getCacheKey('/resources/user/bookmarks', { page, per_page: perPage, userRole })
 
@@ -404,6 +572,7 @@ class ResourcesService {
       const cached = this.getCache(cacheKey)
       if (cached) return { 
         success: true, 
+        status: 200,
         message: 'Bookmarks retrieved from cache',
         data: cached 
       }
@@ -422,8 +591,8 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to fetch bookmarks',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to fetch bookmarks'
       }
     }
   }
@@ -431,7 +600,7 @@ class ResourcesService {
   async getStats(options: {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<{ stats: ResourceStats }>> {
+  } = {}): Promise<StandardizedApiResponse<{ stats: ResourceStats }>> {
     const { userRole, forceRefresh = false } = options
     const cacheKey = this.getCacheKey('/resources/stats', { userRole })
 
@@ -439,6 +608,7 @@ class ResourcesService {
       const cached = this.getCache(cacheKey)
       if (cached) return { 
         success: true, 
+        status: 200,
         message: 'Stats retrieved from cache',
         data: cached 
       }
@@ -455,17 +625,18 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to fetch resource statistics',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to fetch resource statistics'
       }
     }
   }
 
-  async getOptions(): Promise<ApiResponse<ResourceOptions>> {
+  async getOptions(): Promise<StandardizedApiResponse<ResourceOptions>> {
     const cacheKey = this.getCacheKey('/resources/options')
     const cached = this.getCache(cacheKey)
     if (cached) return { 
       success: true, 
+      status: 200,
       message: 'Options retrieved from cache',
       data: cached 
     }
@@ -481,8 +652,8 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to fetch resource options',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to fetch resource options'
       }
     }
   }
@@ -493,16 +664,16 @@ class ResourcesService {
       userRole?: string
       forceRefresh?: boolean
     } = {}
-  ): Promise<ApiResponse<ResourcesResponse>> {
+  ): Promise<StandardizedApiResponse<ResourcesResponse>> {
     const { userRole, forceRefresh = false, ...searchFilters } = filters
     return this.getResources({ ...searchFilters, search: query, userRole, forceRefresh })
   }
 
-  // Enhanced methods for featured, popular, and top-rated resources
+  // Enhanced methods for featured, popular, and top-rated resources with safe processing
   async getFeaturedResources(limit: number = 3, options: {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<Resource[]>> {
+  } = {}): Promise<StandardizedApiResponse<Resource[]>> {
     const response = await this.getResources({
       featured: true,
       per_page: limit,
@@ -510,24 +681,30 @@ class ResourcesService {
     })
 
     if (response.success && response.data) {
+      // SAFE ACCESS: Use optional chaining and default to empty array
+      const featuredResources = response.data.featured_resources || 
+                               response.data.resources?.filter(r => r.is_featured) || 
+                               []
+
       return {
         success: true,
+        status: 200,
         message: response.message || 'Featured resources retrieved successfully',
-        data: response.data.featured_resources || response.data.resources || [],
+        data: featuredResources,
       }
     }
 
     return {
       success: false,
+      status: response.status || 500,
       message: response.message || 'Failed to fetch featured resources',
-      errors: response.errors,
     }
   }
 
   async getPopularResources(limit: number = 5, options: {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<Resource[]>> {
+  } = {}): Promise<StandardizedApiResponse<Resource[]>> {
     const response = await this.getResources({
       sort_by: 'popular',
       per_page: limit,
@@ -535,8 +712,10 @@ class ResourcesService {
     })
 
     if (response.success && response.data) {
+      // SAFE ACCESS: Use optional chaining and default to empty array
       return {
         success: true,
+        status: 200,
         message: response.message || 'Popular resources retrieved successfully',
         data: response.data.resources || [],
       }
@@ -544,15 +723,15 @@ class ResourcesService {
 
     return {
       success: false,
+      status: response.status || 500,
       message: response.message || 'Failed to fetch popular resources',
-      errors: response.errors,
     }
   }
 
   async getTopRatedResources(limit: number = 5, options: {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<ApiResponse<Resource[]>> {
+  } = {}): Promise<StandardizedApiResponse<Resource[]>> {
     const response = await this.getResources({
       sort_by: 'rating',
       per_page: limit,
@@ -560,8 +739,10 @@ class ResourcesService {
     })
 
     if (response.success && response.data) {
+      // SAFE ACCESS: Use optional chaining and default to empty array
       return {
         success: true,
+        status: 200,
         message: response.message || 'Top rated resources retrieved successfully',
         data: response.data.resources || [],
       }
@@ -569,13 +750,13 @@ class ResourcesService {
 
     return {
       success: false,
+      status: response.status || 500,
       message: response.message || 'Failed to fetch top rated resources',
-      errors: response.errors,
     }
   }
 
   // Admin methods (would need separate API endpoints)
-  async createResource(resourceData: Partial<Resource>, userRole?: string): Promise<ApiResponse<{ resource: Resource }>> {
+  async createResource(resourceData: Partial<Resource>, userRole?: string): Promise<StandardizedApiResponse<{ resource: Resource }>> {
     try {
       const response = await apiClient.post<{ resource: Resource }>('/admin/resources', resourceData)
       
@@ -588,13 +769,13 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to create resource',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to create resource'
       }
     }
   }
 
-  async updateResource(id: number, resourceData: Partial<Resource>, userRole?: string): Promise<ApiResponse<{ resource: Resource }>> {
+  async updateResource(id: number, resourceData: Partial<Resource>, userRole?: string): Promise<StandardizedApiResponse<{ resource: Resource }>> {
     try {
       const response = await apiClient.put<{ resource: Resource }>(`/admin/resources/${id}`, resourceData)
       
@@ -610,13 +791,13 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to update resource',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to update resource'
       }
     }
   }
 
-  async deleteResource(id: number, userRole?: string): Promise<ApiResponse<void>> {
+  async deleteResource(id: number, userRole?: string): Promise<StandardizedApiResponse<void>> {
     try {
       const response = await apiClient.delete(`/admin/resources/${id}`)
       
@@ -629,13 +810,13 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to delete resource',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to delete resource'
       }
     }
   }
 
-  async createCategory(categoryData: Partial<ResourceCategory>, userRole?: string): Promise<ApiResponse<{ category: ResourceCategory }>> {
+  async createCategory(categoryData: Partial<ResourceCategory>, userRole?: string): Promise<StandardizedApiResponse<{ category: ResourceCategory }>> {
     try {
       const response = await apiClient.post<{ category: ResourceCategory }>('/admin/resources/categories', categoryData)
       
@@ -650,13 +831,13 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to create category',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to create category'
       }
     }
   }
 
-  async updateCategory(id: number, categoryData: Partial<ResourceCategory>, userRole?: string): Promise<ApiResponse<{ category: ResourceCategory }>> {
+  async updateCategory(id: number, categoryData: Partial<ResourceCategory>, userRole?: string): Promise<StandardizedApiResponse<{ category: ResourceCategory }>> {
     try {
       const response = await apiClient.put<{ category: ResourceCategory }>(`/admin/resources/categories/${id}`, categoryData)
       
@@ -671,13 +852,13 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to update category',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to update category'
       }
     }
   }
 
-  async deleteCategory(id: number, userRole?: string): Promise<ApiResponse<void>> {
+  async deleteCategory(id: number, userRole?: string): Promise<StandardizedApiResponse<void>> {
     try {
       const response = await apiClient.delete(`/admin/resources/categories/${id}`)
       
@@ -692,13 +873,13 @@ class ResourcesService {
     } catch (error) {
       return {
         success: false,
-        message: 'Failed to delete category',
-        errors: [error instanceof Error ? error.message : 'Unknown error']
+        status: 500,
+        message: 'Failed to delete category'
       }
     }
   }
 
-  // Utility methods
+  // Utility methods - All SAFE with proper defaults
   formatDuration(duration?: string): string {
     if (!duration) return 'Self-paced'
     return duration
