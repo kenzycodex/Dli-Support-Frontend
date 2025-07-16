@@ -1,4 +1,4 @@
-// components/pages/resources-page.tsx (FIXED - TypeScript errors resolved)
+// components/pages/resources-page.tsx (FIXED - Simple stats calculation and bookmark visual feedback)
 "use client"
 
 import React, { useState, useCallback, useMemo } from "react"
@@ -124,6 +124,11 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
   const canSuggestContent = useMemo(() => 
     user?.role === 'counselor' || user?.role === 'admin', [user?.role]
   )
+
+  // FIXED: Simple calculation for total resources
+  const totalResourcesCount = useMemo(() => {
+    return resourcesData?.resources?.length || 0
+  }, [resourcesData?.resources])
 
   // Enhanced refresh - only when explicitly requested
   const handleRefresh = useCallback(async () => {
@@ -334,7 +339,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                 {isLoading === 'bookmarking' ? (
                   <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
                 ) : (
-                  <Bookmark className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <Bookmark className={cn(
+                    "h-3 w-3 sm:h-4 sm:w-4",
+                    resource.is_bookmarked ? "fill-current text-black" : "text-gray-500"
+                  )} />
                 )}
               </Button>
               <Button variant="outline" size="sm" className="px-2 sm:px-3">
@@ -432,7 +440,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                     {isLoading === 'bookmarking' ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      <Bookmark className="h-3 w-3" />
+                      <Bookmark className={cn(
+                        "h-3 w-3",
+                        resource.is_bookmarked ? "fill-current text-black" : "text-gray-500"
+                      )} />
                     )}
                   </Button>
                 </div>
@@ -548,11 +559,11 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             </div>
           </div>
           
-          {/* Stats Grid - STABLE */}
+          {/* FIXED: Stats Grid - Using simple calculation */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mt-6">
             <div className="bg-white/10 rounded-lg p-3 sm:p-4 backdrop-blur-sm border border-white/10">
               <div className="text-xl sm:text-2xl font-bold">
-                {stats?.total_resources || 0}+
+                {totalResourcesCount}
               </div>
               <div className="text-xs sm:text-sm text-indigo-100">Total Resources</div>
             </div>
@@ -960,7 +971,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                   {loadingStates[selectedResource.id] === 'bookmarking' ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
-                    <Bookmark className="h-4 w-4 mr-2" />
+                    <Bookmark className={cn(
+                      "h-4 w-4 mr-2",
+                      selectedResource.is_bookmarked ? "fill-current text-black" : "text-gray-500"
+                    )} />
                   )}
                   Bookmark
                 </Button>

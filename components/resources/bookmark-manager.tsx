@@ -1,12 +1,18 @@
-// components/resources/bookmark-manager.tsx (FIXED - Safe array handling for tags)
-"use client"
+// components/resources/bookmark-manager.tsx (FIXED - React key error and safe array handling)
+'use client';
 
-import React, { useState, useCallback, useMemo } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
+import React, { useState, useCallback, useMemo } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import {
   BookOpen,
   Bookmark,
@@ -26,196 +32,199 @@ import {
   Headphones,
   Brain,
   Heart,
-  FileText
-} from "lucide-react"
+  FileText,
+} from 'lucide-react';
 
-import { useResourceBookmarks, useResourceUtils, useResourceAccess } from "@/hooks/use-resources"
-import { ResourceRatingComponent } from "./resource-rating"
-import { cn } from "@/lib/utils"
-import type { Resource, ResourceCategory } from "@/services/resources.service"
-import { toast } from "sonner"
+import { useResourceBookmarks, useResourceUtils, useResourceAccess } from '@/hooks/use-resources';
+import { ResourceRatingComponent } from './resource-rating';
+import { cn } from '@/lib/utils';
+import type { Resource, ResourceCategory } from '@/services/resources.service';
+import { toast } from 'sonner';
 
 interface BookmarkManagerProps {
-  viewMode?: 'grid' | 'list'
-  showFilters?: boolean
-  onResourceClick?: (resource: Resource) => void
+  viewMode?: 'grid' | 'list';
+  showFilters?: boolean;
+  onResourceClick?: (resource: Resource) => void;
 }
 
 interface BookmarkedResource extends Resource {
-  bookmarked_at: string
+  bookmarked_at: string;
 }
 
-export function BookmarkManagerComponent({ 
-  viewMode = 'grid', 
+export function BookmarkManagerComponent({
+  viewMode = 'grid',
   showFilters = true,
-  onResourceClick 
+  onResourceClick,
 }: BookmarkManagerProps) {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState("all")
-  const [typeFilter, setTypeFilter] = useState("all")
-  const [sortBy, setSortBy] = useState("bookmarked_at")
-  const [loadingStates, setLoadingStates] = useState<Record<number, string>>({})
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('bookmarked_at');
+  const [loadingStates, setLoadingStates] = useState<Record<number, string>>({});
 
   // Hooks
-  const {
-    data: bookmarksData,
-    isLoading,
-    error,
-    refetch
-  } = useResourceBookmarks()
-  
+  const { data: bookmarksData, isLoading, error, refetch } = useResourceBookmarks();
+
   const {
     getTypeIcon,
     getTypeLabel,
     getDifficultyColor,
     formatDuration,
     formatCount,
-    formatTimeAgo
-  } = useResourceUtils()
-  
-  const accessMutation = useResourceAccess()
+    formatTimeAgo,
+  } = useResourceUtils();
+
+  const accessMutation = useResourceAccess();
 
   // CRITICAL FIX: Safe array utility function
   const ensureArray = useCallback((value: any): any[] => {
-    if (Array.isArray(value)) return value
-    if (value === null || value === undefined) return []
+    if (Array.isArray(value)) return value;
+    if (value === null || value === undefined) return [];
     if (typeof value === 'string') {
       try {
-        const parsed = JSON.parse(value)
-        return Array.isArray(parsed) ? parsed : []
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
       } catch {
-        return [value] // If it's a single string, wrap it in an array
+        return [value]; // If it's a single string, wrap it in an array
       }
     }
-    return []
-  }, [])
+    return [];
+  }, []);
 
   // Handle resource access with individual loading states
-  const handleResourceAccess = useCallback(async (resource: BookmarkedResource, event: React.MouseEvent) => {
-    event.stopPropagation()
-    event.preventDefault()
-    
-    // Set loading state for this specific resource
-    setLoadingStates(prev => ({ ...prev, [resource.id]: 'accessing' }))
-    
-    try {
-      const result = await accessMutation.mutateAsync(resource.id)
-      
-      if (result && result.url) {
-        window.open(result.url, '_blank')
-        
-        if (result.action === 'download') {
-          toast.success(`${resource.title} download started`)
-        } else {
-          toast.success(`Opening ${resource.title}`)
+  const handleResourceAccess = useCallback(
+    async (resource: BookmarkedResource, event: React.MouseEvent) => {
+      event.stopPropagation();
+      event.preventDefault();
+
+      // Set loading state for this specific resource
+      setLoadingStates((prev) => ({ ...prev, [resource.id]: 'accessing' }));
+
+      try {
+        const result = await accessMutation.mutateAsync(resource.id);
+
+        if (result && result.url) {
+          window.open(result.url, '_blank');
+
+          if (result.action === 'download') {
+            toast.success(`${resource.title} download started`);
+          } else {
+            toast.success(`Opening ${resource.title}`);
+          }
         }
+      } catch (error) {
+        toast.error('Failed to access resource');
+      } finally {
+        // Clear loading state for this resource
+        setLoadingStates((prev) => {
+          const newStates = { ...prev };
+          delete newStates[resource.id];
+          return newStates;
+        });
       }
-    } catch (error) {
-      toast.error('Failed to access resource')
-    } finally {
-      // Clear loading state for this resource
-      setLoadingStates(prev => {
-        const newStates = { ...prev }
-        delete newStates[resource.id]
-        return newStates
-      })
-    }
-  }, [accessMutation])
+    },
+    [accessMutation]
+  );
 
   // Handle remove bookmark with individual loading states
-  const handleRemoveBookmark = useCallback(async (resourceId: number, event: React.MouseEvent) => {
-    event.stopPropagation()
-    event.preventDefault()
-    
-    // Set loading state for this specific resource
-    setLoadingStates(prev => ({ ...prev, [resourceId]: 'removing' }))
-    
-    try {
-      // This would call the bookmark mutation to remove
-      toast.success('Bookmark removed')
-      refetch()
-    } catch (error) {
-      toast.error('Failed to remove bookmark')
-    } finally {
-      // Clear loading state for this resource
-      setLoadingStates(prev => {
-        const newStates = { ...prev }
-        delete newStates[resourceId]
-        return newStates
-      })
-    }
-  }, [refetch])
+  const handleRemoveBookmark = useCallback(
+    async (resourceId: number, event: React.MouseEvent) => {
+      event.stopPropagation();
+      event.preventDefault();
+
+      // Set loading state for this specific resource
+      setLoadingStates((prev) => ({ ...prev, [resourceId]: 'removing' }));
+
+      try {
+        // This would call the bookmark mutation to remove
+        toast.success('Bookmark removed');
+        refetch();
+      } catch (error) {
+        toast.error('Failed to remove bookmark');
+      } finally {
+        // Clear loading state for this resource
+        setLoadingStates((prev) => {
+          const newStates = { ...prev };
+          delete newStates[resourceId];
+          return newStates;
+        });
+      }
+    },
+    [refetch]
+  );
 
   // FIXED: Filter bookmarks with safe array handling
   const filteredBookmarks = useMemo(() => {
-    if (!bookmarksData?.bookmarks) return []
+    if (!bookmarksData?.bookmarks) return [];
 
-    let filtered = bookmarksData.bookmarks
+    let filtered = bookmarksData.bookmarks;
 
     // Search filter
     if (searchTerm.trim()) {
-      const searchLower = searchTerm.toLowerCase()
+      const searchLower = searchTerm.toLowerCase();
       filtered = filtered.filter((bookmark: BookmarkedResource) => {
-        const matchesTitle = bookmark.title?.toLowerCase().includes(searchLower)
-        const matchesDescription = bookmark.description?.toLowerCase().includes(searchLower)
-        
+        const matchesTitle = bookmark.title?.toLowerCase().includes(searchLower);
+        const matchesDescription = bookmark.description?.toLowerCase().includes(searchLower);
+
         // SAFE: Handle tags search with proper array checking
-        const safeTags = ensureArray(bookmark.tags)
-        const matchesTags = safeTags.some((tag: any) => 
+        const safeTags = ensureArray(bookmark.tags);
+        const matchesTags = safeTags.some((tag: any) =>
           String(tag).toLowerCase().includes(searchLower)
-        )
-        
-        return matchesTitle || matchesDescription || matchesTags
-      })
+        );
+
+        return matchesTitle || matchesDescription || matchesTags;
+      });
     }
 
     // Category filter
-    if (categoryFilter !== "all" && categoryFilter) {
-      filtered = filtered.filter((bookmark: BookmarkedResource) => 
-        bookmark.category?.slug === categoryFilter
-      )
+    if (categoryFilter !== 'all' && categoryFilter) {
+      filtered = filtered.filter(
+        (bookmark: BookmarkedResource) => bookmark.category?.slug === categoryFilter
+      );
     }
 
     // Type filter
-    if (typeFilter !== "all" && typeFilter) {
-      filtered = filtered.filter((bookmark: BookmarkedResource) => bookmark.type === typeFilter)
+    if (typeFilter !== 'all' && typeFilter) {
+      filtered = filtered.filter((bookmark: BookmarkedResource) => bookmark.type === typeFilter);
     }
 
     // Sort
     filtered.sort((a: BookmarkedResource, b: BookmarkedResource) => {
       switch (sortBy) {
         case 'title':
-          return a.title.localeCompare(b.title)
+          return a.title.localeCompare(b.title);
         case 'rating':
-          return (Number(b.rating) || 0) - (Number(a.rating) || 0)
+          return (Number(b.rating) || 0) - (Number(a.rating) || 0);
         case 'type':
-          return a.type.localeCompare(b.type)
+          return a.type.localeCompare(b.type);
         case 'bookmarked_at':
         default:
-          return new Date(b.bookmarked_at).getTime() - new Date(a.bookmarked_at).getTime()
+          return new Date(b.bookmarked_at).getTime() - new Date(a.bookmarked_at).getTime();
       }
-    })
+    });
 
-    return filtered
-  }, [bookmarksData?.bookmarks, searchTerm, categoryFilter, typeFilter, sortBy, ensureArray])
+    return filtered;
+  }, [bookmarksData?.bookmarks, searchTerm, categoryFilter, typeFilter, sortBy, ensureArray]);
 
   // Get unique categories and types from bookmarks
   const availableCategories = useMemo(() => {
-    if (!bookmarksData?.bookmarks) return []
-    const categories = new Map()
+    if (!bookmarksData?.bookmarks) return [];
+    const categories = new Map();
     bookmarksData.bookmarks.forEach((bookmark: BookmarkedResource) => {
       if (bookmark.category) {
-        categories.set(bookmark.category.slug, bookmark.category)
+        categories.set(bookmark.category.slug, bookmark.category);
       }
-    })
-    return Array.from(categories.values()) as ResourceCategory[]
-  }, [bookmarksData?.bookmarks])
+    });
+    return Array.from(categories.values()) as ResourceCategory[];
+  }, [bookmarksData?.bookmarks]);
 
   const availableTypes = useMemo(() => {
-    if (!bookmarksData?.bookmarks) return []
-    const types = new Set(bookmarksData.bookmarks.map((bookmark: BookmarkedResource) => bookmark.type))
-    return Array.from(types)
-  }, [bookmarksData?.bookmarks])
+    if (!bookmarksData?.bookmarks) return [];
+    const types = new Set(
+      bookmarksData.bookmarks.map((bookmark: BookmarkedResource) => bookmark.type)
+    );
+    return Array.from(types);
+  }, [bookmarksData?.bookmarks]);
 
   // Get icon component safely
   const getIconComponent = useCallback((type: string) => {
@@ -225,18 +234,18 @@ export function BookmarkManagerComponent({
       audio: Headphones,
       exercise: Brain,
       tool: Heart,
-      worksheet: Download
-    }
-    return iconMap[type] || BookOpen
-  }, [])
+      worksheet: Download,
+    };
+    return iconMap[type] || BookOpen;
+  }, []);
 
-  // FIXED: BookmarkCard with safe tag handling
+  // FIXED: BookmarkCard with safe tag handling and proper keys
   const BookmarkCard = ({ bookmark }: { bookmark: BookmarkedResource }) => {
-    const IconComponent = getIconComponent(bookmark.type)
-    const isLoading = loadingStates[bookmark.id]
+    const IconComponent = getIconComponent(bookmark.type);
+    const isLoading = loadingStates[bookmark.id];
 
     // SAFE: Handle tags with proper array checking
-    const safeTags = ensureArray(bookmark.tags)
+    const safeTags = ensureArray(bookmark.tags);
 
     return (
       <Card className="hover:shadow-xl transition-all duration-300 border-0 shadow-md group cursor-pointer">
@@ -260,7 +269,9 @@ export function BookmarkManagerComponent({
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1">
                   <Star className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500 fill-current" />
-                  <span className="text-xs sm:text-sm font-medium">{(Number(bookmark.rating) || 0).toFixed(1)}</span>
+                  <span className="text-xs sm:text-sm font-medium">
+                    {(Number(bookmark.rating) || 0).toFixed(1)}
+                  </span>
                 </div>
                 <Button
                   variant="ghost"
@@ -280,7 +291,9 @@ export function BookmarkManagerComponent({
 
             {/* Content */}
             <div>
-              <h3 className="font-semibold text-sm sm:text-lg mb-2 line-clamp-2">{bookmark.title}</h3>
+              <h3 className="font-semibold text-sm sm:text-lg mb-2 line-clamp-2">
+                {bookmark.title}
+              </h3>
               <p className="text-gray-600 text-xs sm:text-sm leading-relaxed line-clamp-2 sm:line-clamp-3">
                 {bookmark.description}
               </p>
@@ -312,7 +325,7 @@ export function BookmarkManagerComponent({
             {/* Category */}
             {bookmark.category && (
               <div className="flex items-center space-x-2">
-                <div 
+                <div
                   className="w-3 h-3 rounded-full"
                   style={{ backgroundColor: bookmark.category.color }}
                 />
@@ -320,16 +333,20 @@ export function BookmarkManagerComponent({
               </div>
             )}
 
-            {/* FIXED: Tags with safe array handling */}
+            {/* FIXED: Tags with safe array handling and proper keys */}
             {safeTags.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {safeTags.slice(0, 2).map((tag: any, index: number) => (
-                  <Badge key={index} variant="secondary" className="text-xs">
+                  <Badge
+                    key={`tag-${bookmark.id}-${index}-${String(tag)}`}
+                    variant="secondary"
+                    className="text-xs"
+                  >
                     {String(tag)}
                   </Badge>
                 ))}
                 {safeTags.length > 2 && (
-                  <Badge variant="secondary" className="text-xs">
+                  <Badge key={`more-tags-${bookmark.id}`} variant="secondary" className="text-xs">
                     +{safeTags.length - 2}
                   </Badge>
                 )}
@@ -338,15 +355,21 @@ export function BookmarkManagerComponent({
 
             {/* Actions */}
             <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
-              <Button 
-                className="flex-1 text-xs sm:text-sm" 
+              <Button
+                className="flex-1 text-xs sm:text-sm"
                 size="sm"
                 onClick={(e) => handleResourceAccess(bookmark, e)}
                 disabled={!!isLoading}
               >
-                {bookmark.type === "video" && <Play className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
-                {bookmark.type === "worksheet" && <Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
-                {bookmark.type === "tool" && <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
+                {bookmark.type === 'video' && (
+                  <Play className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                )}
+                {bookmark.type === 'worksheet' && (
+                  <Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                )}
+                {bookmark.type === 'tool' && (
+                  <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                )}
                 {isLoading === 'accessing' ? (
                   <>
                     <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 animate-spin" />
@@ -360,16 +383,16 @@ export function BookmarkManagerComponent({
           </div>
         </CardContent>
       </Card>
-    )
-  }
+    );
+  };
 
-  // FIXED: BookmarkListItem with safe tag handling
+  // FIXED: BookmarkListItem with safe tag handling and proper keys
   const BookmarkListItem = ({ bookmark }: { bookmark: BookmarkedResource }) => {
-    const IconComponent = getIconComponent(bookmark.type)
-    const isLoading = loadingStates[bookmark.id]
-    
+    const IconComponent = getIconComponent(bookmark.type);
+    const isLoading = loadingStates[bookmark.id];
+
     // SAFE: Handle tags with proper array checking
-    const safeTags = ensureArray(bookmark.tags)
+    const safeTags = ensureArray(bookmark.tags);
 
     return (
       <Card className="hover:shadow-md transition-all duration-200 cursor-pointer">
@@ -400,7 +423,7 @@ export function BookmarkManagerComponent({
                     <span>{formatCount(bookmark.view_count)} views</span>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center space-x-2 mt-2 sm:mt-0 sm:ml-4 flex-shrink-0">
                   <Badge variant="outline" className="capitalize text-xs">
                     {getTypeLabel(bookmark.type)}
@@ -410,42 +433,55 @@ export function BookmarkManagerComponent({
                   </Badge>
                   <div className="flex items-center space-x-1">
                     <Star className="h-3 w-3 text-yellow-500 fill-current" />
-                    <span className="text-xs font-medium">{(Number(bookmark.rating) || 0).toFixed(1)}</span>
+                    <span className="text-xs font-medium">
+                      {(Number(bookmark.rating) || 0).toFixed(1)}
+                    </span>
                   </div>
                 </div>
               </div>
-              
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-3 space-y-2 sm:space-y-0" onClick={(e) => e.stopPropagation()}>
+
+              <div
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-3 space-y-2 sm:space-y-0"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <div className="flex items-center space-x-2">
                   {bookmark.category && (
                     <div className="flex items-center space-x-1">
-                      <div 
+                      <div
                         className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: bookmark.category.color }}
                       />
                       <span className="text-xs text-gray-600">{bookmark.category.name}</span>
                     </div>
                   )}
-                  
-                  {/* FIXED: Tags display with safe handling */}
+
+                  {/* FIXED: Tags display with safe handling and proper keys */}
                   {safeTags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {safeTags.slice(0, 3).map((tag: any, index: number) => (
-                        <Badge key={index} variant="outline" className="text-xs">
+                        <Badge
+                          key={`list-tag-${bookmark.id}-${index}-${String(tag)}`}
+                          variant="outline"
+                          className="text-xs"
+                        >
                           {String(tag)}
                         </Badge>
                       ))}
                       {safeTags.length > 3 && (
-                        <Badge variant="outline" className="text-xs">
+                        <Badge
+                          key={`list-more-tags-${bookmark.id}`}
+                          variant="outline"
+                          className="text-xs"
+                        >
                           +{safeTags.length - 3}
                         </Badge>
                       )}
                     </div>
                   )}
                 </div>
-                
+
                 <div className="flex items-center space-x-2">
-                  <Button 
+                  <Button
                     size="sm"
                     onClick={(e) => handleResourceAccess(bookmark, e)}
                     disabled={!!isLoading}
@@ -479,8 +515,8 @@ export function BookmarkManagerComponent({
           </div>
         </CardContent>
       </Card>
-    )
-  }
+    );
+  };
 
   if (isLoading) {
     return (
@@ -490,7 +526,7 @@ export function BookmarkManagerComponent({
           <p className="text-gray-600 text-sm sm:text-base">Loading your bookmarks...</p>
         </div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -508,7 +544,7 @@ export function BookmarkManagerComponent({
           </div>
         </CardContent>
       </Card>
-    )
+    );
   }
 
   return (
@@ -521,14 +557,9 @@ export function BookmarkManagerComponent({
             {bookmarksData?.bookmarks?.length || 0} saved resources
           </p>
         </div>
-        
-        <Button
-          variant="outline"
-          onClick={() => refetch()}
-          disabled={isLoading}
-          size="sm"
-        >
-          <RefreshCw className={cn("h-4 w-4 mr-2", isLoading && "animate-spin")} />
+
+        <Button variant="outline" onClick={() => refetch()} disabled={isLoading} size="sm">
+          <RefreshCw className={cn('h-4 w-4 mr-2', isLoading && 'animate-spin')} />
           Refresh
         </Button>
       </div>
@@ -558,9 +589,9 @@ export function BookmarkManagerComponent({
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
                     {availableCategories.map((category: ResourceCategory) => (
-                      <SelectItem key={category.id} value={category.slug}>
+                      <SelectItem key={`category-${category.id}`} value={category.slug}>
                         <div className="flex items-center space-x-2">
-                          <div 
+                          <div
                             className="w-3 h-3 rounded-full"
                             style={{ backgroundColor: category.color }}
                           />
@@ -581,7 +612,7 @@ export function BookmarkManagerComponent({
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
                     {availableTypes.map((type: string) => (
-                      <SelectItem key={type} value={type}>
+                      <SelectItem key={`type-${type}`} value={type}>
                         {getTypeLabel(type)}
                       </SelectItem>
                     ))}
@@ -608,16 +639,20 @@ export function BookmarkManagerComponent({
 
       {/* Bookmarks Grid/List */}
       {filteredBookmarks.length > 0 ? (
-        <div className={cn(
-          viewMode === 'grid' 
-            ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
-            : "space-y-3 sm:space-y-4"
-        )}>
-          {filteredBookmarks.map((bookmark: BookmarkedResource) => (
-            viewMode === 'grid' 
-              ? <BookmarkCard key={bookmark.id} bookmark={bookmark} />
-              : <BookmarkListItem key={bookmark.id} bookmark={bookmark} />
-          ))}
+        <div
+          className={cn(
+            viewMode === 'grid'
+              ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'
+              : 'space-y-3 sm:space-y-4'
+          )}
+        >
+          {filteredBookmarks.map((bookmark: BookmarkedResource) =>
+            viewMode === 'grid' ? (
+              <BookmarkCard key={`bookmark-card-${bookmark.id}`} bookmark={bookmark} />
+            ) : (
+              <BookmarkListItem key={`bookmark-list-${bookmark.id}`} bookmark={bookmark} />
+            )
+          )}
         </div>
       ) : (
         <Card>
@@ -625,24 +660,22 @@ export function BookmarkManagerComponent({
             <div className="text-center py-8 sm:py-12">
               <Bookmark className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-gray-300" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {searchTerm || categoryFilter !== "all" || typeFilter !== "all" 
-                  ? "No matching bookmarks found"
-                  : "No bookmarks yet"
-                }
+                {searchTerm || categoryFilter !== 'all' || typeFilter !== 'all'
+                  ? 'No matching bookmarks found'
+                  : 'No bookmarks yet'}
               </h3>
               <p className="text-gray-600 mb-4 text-sm sm:text-base">
-                {searchTerm || categoryFilter !== "all" || typeFilter !== "all"
-                  ? "Try adjusting your search or filters"
-                  : "Start bookmarking resources to access them quickly later"
-                }
+                {searchTerm || categoryFilter !== 'all' || typeFilter !== 'all'
+                  ? 'Try adjusting your search or filters'
+                  : 'Start bookmarking resources to access them quickly later'}
               </p>
-              {(searchTerm || categoryFilter !== "all" || typeFilter !== "all") && (
-                <Button 
+              {(searchTerm || categoryFilter !== 'all' || typeFilter !== 'all') && (
+                <Button
                   variant="outline"
                   onClick={() => {
-                    setSearchTerm("")
-                    setCategoryFilter("all")
-                    setTypeFilter("all")
+                    setSearchTerm('');
+                    setCategoryFilter('all');
+                    setTypeFilter('all');
                   }}
                 >
                   Clear Filters
@@ -653,5 +686,5 @@ export function BookmarkManagerComponent({
         </Card>
       )}
     </div>
-  )
+  );
 }
