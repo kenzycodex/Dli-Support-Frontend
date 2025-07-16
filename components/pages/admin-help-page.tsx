@@ -1,4 +1,4 @@
-// components/pages/admin-help-page.tsx - FIXED: No more freezing and proper suggestions
+// components/pages/admin-help-page.tsx - FIXED: Store-based without freezing
 
 "use client"
 
@@ -80,18 +80,23 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/contexts/AuthContext"
-import { 
-  useHelpCategories,
-  useAdminFAQManagement,
-  useHelpStats,
-  useFAQUtils,
-  useAdminFAQFilters,
-  useFAQs
-} from "@/hooks/use-help"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+
+// FIXED: Use the proper help store instead of hooks
+import useHelpStore, {
+  useHelpSelectors,
+  useHelpActions,
+  useHelpLoading,
+  useHelpErrors,
+  useHelpFilters,
+  useHelpStats,
+  useSuggestionManagement,
+  useHelpStoreInitialization,
+  type HelpFAQ,
+  type HelpSuggestion
+} from "@/stores/help-store"
 import type { FAQ, HelpCategory } from "@/services/help.service"
-import { useQueryClient } from '@tanstack/react-query'
 
 interface AdminHelpPageProps {
   onNavigate?: (page: string, params?: any) => void
@@ -99,7 +104,6 @@ interface AdminHelpPageProps {
 
 export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
   const { user } = useAuth()
-  const queryClient = useQueryClient()
   const [selectedTab, setSelectedTab] = useState("faqs")
   
   // Dialog states
@@ -110,7 +114,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
   const [showEditCategoryDialog, setShowEditCategoryDialog] = useState(false)
   const [showDeleteCategoryDialog, setShowDeleteCategoryDialog] = useState(false)
   
-  const [selectedFAQ, setSelectedFAQ] = useState<FAQ | null>(null)
+  const [selectedFAQ, setSelectedFAQ] = useState<HelpFAQ | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory | null>(null)
 
   // Form states
@@ -133,118 +137,90 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     sort_order: 0
   })
 
-  // FIXED: Use admin-specific filter hook and search state
-  const { filters, updateFilter, clearFilters, hasActiveFilters } = useAdminFAQFilters()
+  // FIXED: Use store-based hooks instead of react-query
+  const {
+    faqs,
+    categories,
+    suggestions,
+    stats,
+    selectedFAQsArray,
+    publishedFAQs,
+    draftFAQs,
+    featuredFAQs,
+    pendingSuggestions,
+    activeCategories,
+    totalFAQs,
+    publishedCount,
+    draftCount,
+    suggestionCount
+  } = useHelpSelectors()
+
+  const {
+    fetchFAQs,
+    fetchCategories,
+    fetchStats,
+    refreshAll,
+    createFAQ,
+    updateFAQ,
+    deleteFAQ,
+    togglePublishFAQ,
+    toggleFeatureFAQ,
+    createCategory,
+    updateCategory,
+    deleteCategory,
+    approveSuggestion,
+    rejectSuggestion,
+    invalidateCache
+  } = useHelpActions()
+
+  const loading = useHelpLoading()
+  const errors = useHelpErrors()
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useHelpFilters()
+  const { realTimeStats } = useHelpStats()
+  const { isApproving, isRejecting } = useSuggestionManagement()
+  const { initialize, isInitialized, needsInitialization } = useHelpStoreInitialization()
+
+  // Local search state
   const [searchTerm, setSearchTerm] = useState('')
 
-  // FIXED: Admin management hooks with proper cache invalidation
-  const { 
-    createFAQ, 
-    updateFAQ, 
-    deleteFAQ, 
-    createCategory, 
-    updateCategory, 
-    deleteCategory, 
-    canManage,
-    isAdmin
-  } = useAdminFAQManagement()
-  
-  const { getCacheStats } = useFAQUtils()
+  // Check admin permissions
+  const isAdmin = user?.role === 'admin'
 
-  // FIXED: Get categories using admin endpoint
-  const {
-    data: allCategories,
-    isLoading: categoriesLoading,
-    refetch: refetchCategories,
-    error: categoriesError
-  } = useHelpCategories({ 
-    includeInactive: true,
-    useAdminEndpoint: true,
-    enabled: isAdmin
-  })
-
-  // FIXED: Get FAQs using admin endpoint with search and filters
-  const {
-    data: faqsQueryData,
-    isLoading: faqsLoading,
-    error: faqsError,
-    refetch: refetchFAQs
-  } = useFAQs({
-    ...filters,
-    search: searchTerm,
-    include_drafts: true, // Admin sees all
-  }, {
-    enabled: isAdmin,
-    useAdminEndpoint: true
-  })
-
-  // FIXED: Get help stats
-  const {
-    data: helpStats,
-    isLoading: statsLoading,
-    error: statsError,
-    refetch: refetchStats
-  } = useHelpStats({ enabled: isAdmin })
-
-  // FIXED: Extract FAQs safely from response data
-  const safeFAQs = faqsQueryData?.faqs || []
-  const safeCategories = allCategories || []
-
-  // FIXED: Calculate admin stats from FAQ data
-  const adminStats = {
-    total_faqs: safeFAQs.length,
-    published_faqs: safeFAQs.filter(faq => faq.is_published).length,
-    draft_faqs: safeFAQs.filter(faq => !faq.is_published).length,
-    featured_faqs: safeFAQs.filter(faq => faq.is_featured).length,
-    categories_count: safeCategories.length,
-    active_categories: safeCategories.filter(cat => cat.is_active).length,
-    suggested_faqs: safeFAQs.filter(faq => !faq.is_published && faq.created_by).length
-  }
-
-  // FIXED: Filter suggestions properly
-  const suggestedFAQs = safeFAQs.filter(faq => 
-    !faq.is_published && 
-    faq.created_by && 
-    faq.created_by !== user?.id // Exclude self-created
-  )
+  // FIXED: Initialize store data on mount
+  useEffect(() => {
+    if (!isAdmin) return
+    
+    if (needsInitialization) {
+      console.log('🎯 AdminHelpPage: Initializing store data')
+      initialize(true)
+    }
+  }, [isAdmin, needsInitialization, initialize])
 
   // Check admin permissions with better error handling
   useEffect(() => {
     if (!user) return
     
-    if (user.role !== 'admin') {
+    if (!isAdmin) {
       toast.error('Access denied. Admin privileges required.')
       if (onNavigate) {
         onNavigate('help')
       }
     }
-  }, [user, onNavigate])
+  }, [user, isAdmin, onNavigate])
 
-  // FIXED: Handle refresh all data with proper cache invalidation
+  // FIXED: Handle refresh all data with store actions
   const handleRefreshAll = useCallback(async () => {
     try {
-      // FIXED: Invalidate all related queries first
-      queryClient.invalidateQueries({ queryKey: ['help'] })
-      
-      await Promise.allSettled([
-        refetchCategories(),
-        refetchFAQs(),
-        refetchStats()
-      ])
+      console.log('🔄 AdminHelpPage: Refreshing all data')
+      await refreshAll()
       toast.success('Data refreshed successfully')
     } catch (error) {
       console.error('Refresh failed:', error)
       toast.error('Failed to refresh some data')
     }
-  }, [queryClient, refetchCategories, refetchFAQs, refetchStats])
+  }, [refreshAll])
 
-  // FIXED: Enhanced CRUD operations with proper cache invalidation
-  const invalidateAllQueries = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['help'] })
-    queryClient.refetchQueries({ queryKey: ['help'] })
-  }, [queryClient])
-
-  // FAQ CRUD Operations with proper error handling and cache invalidation
+  // FIXED: FAQ CRUD operations using store actions
   const handleCreateFAQ = useCallback(async () => {
     if (!faqForm.question.trim() || !faqForm.answer.trim() || !faqForm.category_id) {
       toast.error('Please fill in all required fields')
@@ -252,34 +228,30 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
 
     try {
-      await createFAQ.mutateAsync({
+      const result = await createFAQ({
         ...faqForm,
         category_id: parseInt(faqForm.category_id)
       })
       
-      // FIXED: Close dialog and reset form immediately
-      setShowCreateFAQDialog(false)
-      setFAQForm({
-        category_id: "",
-        question: "",
-        answer: "",
-        tags: [],
-        is_published: false,
-        is_featured: false,
-        sort_order: 0
-      })
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success('FAQ created successfully!')
+      if (result) {
+        // Close dialog and reset form
+        setShowCreateFAQDialog(false)
+        setFAQForm({
+          category_id: "",
+          question: "",
+          answer: "",
+          tags: [],
+          is_published: false,
+          is_featured: false,
+          sort_order: 0
+        })
+      }
     } catch (error) {
       console.error('Create FAQ failed:', error)
     }
-  }, [faqForm, createFAQ, invalidateAllQueries])
+  }, [faqForm, createFAQ])
 
-  // FIXED: Handle edit FAQ with proper typing and error handling
-  const handleEditFAQ = useCallback((faq: FAQ) => {
+  const handleEditFAQ = useCallback((faq: HelpFAQ) => {
     if (!faq) {
       console.error('No FAQ provided for editing')
       return
@@ -305,47 +277,34 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
 
     try {
-      await updateFAQ.mutateAsync({
-        id: selectedFAQ.id,
-        data: {
-          ...faqForm,
-          category_id: parseInt(faqForm.category_id)
-        }
+      await updateFAQ(selectedFAQ.id, {
+        ...faqForm,
+        category_id: parseInt(faqForm.category_id)
       })
       
-      // FIXED: Close dialog and reset form immediately
+      // Close dialog and reset form
       setShowEditFAQDialog(false)
       setSelectedFAQ(null)
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success('FAQ updated successfully!')
     } catch (error) {
       console.error('Update FAQ failed:', error)
     }
-  }, [selectedFAQ, faqForm, updateFAQ, invalidateAllQueries])
+  }, [selectedFAQ, faqForm, updateFAQ])
 
   const handleDeleteFAQ = useCallback(async () => {
     if (!selectedFAQ) return
 
     try {
-      await deleteFAQ.mutateAsync(selectedFAQ.id)
+      await deleteFAQ(selectedFAQ.id)
       
-      // FIXED: Close dialog and reset state immediately
+      // Close dialog and reset state
       setShowDeleteFAQDialog(false)
       setSelectedFAQ(null)
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success('FAQ deleted successfully!')
     } catch (error) {
       console.error('Delete FAQ failed:', error)
     }
-  }, [selectedFAQ, deleteFAQ, invalidateAllQueries])
+  }, [selectedFAQ, deleteFAQ])
 
-  // Category CRUD Operations with proper error handling and cache invalidation
+  // FIXED: Category CRUD operations using store actions
   const handleCreateCategory = useCallback(async () => {
     if (!categoryForm.name.trim()) {
       toast.error('Please enter a category name')
@@ -353,27 +312,24 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
 
     try {
-      await createCategory.mutateAsync(categoryForm)
+      const result = await createCategory(categoryForm)
       
-      // FIXED: Close dialog and reset form immediately
-      setShowCreateCategoryDialog(false)
-      setCategoryForm({
-        name: "",
-        description: "",
-        icon: "HelpCircle",
-        color: "#3B82F6",
-        is_active: true,
-        sort_order: 0
-      })
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success('Category created successfully!')
+      if (result) {
+        // Close dialog and reset form
+        setShowCreateCategoryDialog(false)
+        setCategoryForm({
+          name: "",
+          description: "",
+          icon: "HelpCircle",
+          color: "#3B82F6",
+          is_active: true,
+          sort_order: 0
+        })
+      }
     } catch (error) {
       console.error('Create category failed:', error)
     }
-  }, [categoryForm, createCategory, invalidateAllQueries])
+  }, [categoryForm, createCategory])
 
   const handleEditCategory = useCallback((category: HelpCategory) => {
     if (!category) {
@@ -400,128 +356,83 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }
 
     try {
-      await updateCategory.mutateAsync({
-        id: selectedCategory.id,
-        data: categoryForm
-      })
+      await updateCategory(selectedCategory.id, categoryForm)
       
-      // FIXED: Close dialog and reset state immediately
+      // Close dialog and reset state
       setShowEditCategoryDialog(false)
       setSelectedCategory(null)
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success('Category updated successfully!')
     } catch (error) {
       console.error('Update category failed:', error)
     }
-  }, [selectedCategory, categoryForm, updateCategory, invalidateAllQueries])
+  }, [selectedCategory, categoryForm, updateCategory])
 
   const handleDeleteCategory = useCallback(async () => {
     if (!selectedCategory) return
 
     try {
-      await deleteCategory.mutateAsync(selectedCategory.id)
+      await deleteCategory(selectedCategory.id)
       
-      // FIXED: Close dialog and reset state immediately
+      // Close dialog and reset state
       setShowDeleteCategoryDialog(false)
       setSelectedCategory(null)
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success('Category deleted successfully!')
     } catch (error) {
       console.error('Delete category failed:', error)
     }
-  }, [selectedCategory, deleteCategory, invalidateAllQueries])
+  }, [selectedCategory, deleteCategory])
 
-  // FIXED: Quick actions with proper cache invalidation
-  const handleTogglePublish = useCallback(async (faq: FAQ) => {
+  // FIXED: Quick actions using store actions
+  const handleTogglePublish = useCallback(async (faq: HelpFAQ) => {
     if (!faq || !faq.id) {
       console.error('Invalid FAQ for toggle publish')
       return
     }
 
     try {
-      await updateFAQ.mutateAsync({
-        id: faq.id,
-        data: { is_published: !faq.is_published }
-      })
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success(`FAQ ${faq.is_published ? 'unpublished' : 'published'} successfully`)
+      await togglePublishFAQ(faq.id)
     } catch (error) {
       console.error('Toggle publish failed:', error)
     }
-  }, [updateFAQ, invalidateAllQueries])
+  }, [togglePublishFAQ])
 
-  const handleToggleFeature = useCallback(async (faq: FAQ) => {
+  const handleToggleFeature = useCallback(async (faq: HelpFAQ) => {
     if (!faq || !faq.id) {
       console.error('Invalid FAQ for toggle feature')
       return
     }
 
     try {
-      await updateFAQ.mutateAsync({
-        id: faq.id,
-        data: { is_featured: !faq.is_featured }
-      })
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success(`FAQ ${faq.is_featured ? 'unfeatured' : 'featured'} successfully`)
+      await toggleFeatureFAQ(faq.id)
     } catch (error) {
       console.error('Toggle feature failed:', error)
     }
-  }, [updateFAQ, invalidateAllQueries])
+  }, [toggleFeatureFAQ])
 
-  // FIXED: Suggestion approval with proper cache invalidation
-  const handleApproveSuggestion = useCallback(async (faq: FAQ) => {
+  // FIXED: Suggestion management using store actions
+  const handleApproveSuggestion = useCallback(async (faq: HelpFAQ) => {
     if (!faq || !faq.id) {
       console.error('Invalid FAQ for approval')
       return
     }
 
     try {
-      await updateFAQ.mutateAsync({
-        id: faq.id,
-        data: { 
-          is_published: true,
-          published_at: new Date().toISOString()
-        }
-      })
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success('FAQ suggestion approved and published!')
+      await approveSuggestion(faq.id)
     } catch (error) {
       console.error('Approve suggestion failed:', error)
     }
-  }, [updateFAQ, invalidateAllQueries])
+  }, [approveSuggestion])
 
-  const handleRejectSuggestion = useCallback(async (faq: FAQ) => {
+  const handleRejectSuggestion = useCallback(async (faq: HelpFAQ) => {
     if (!faq || !faq.id) {
       console.error('Invalid FAQ for rejection')
       return
     }
 
     try {
-      await deleteFAQ.mutateAsync(faq.id)
-      
-      // FIXED: Invalidate all queries to refresh data
-      invalidateAllQueries()
-      
-      toast.success('FAQ suggestion rejected and removed')
+      await rejectSuggestion(faq.id)
     } catch (error) {
       console.error('Reject suggestion failed:', error)
     }
-  }, [deleteFAQ, invalidateAllQueries])
+  }, [rejectSuggestion])
 
   // FIXED: Handle tag input with proper validation
   const handleAddTag = useCallback((tag: string) => {
@@ -541,30 +452,84 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     }))
   }, [])
 
-  // Navigation back to public help
+  // Navigation handlers
   const handleBackToHelp = useCallback(() => {
     if (onNavigate) {
       onNavigate('help')
     }
   }, [onNavigate])
 
-  // FIXED: Search and filter handlers
+  // FIXED: Search and filter handlers using store actions
   const handleSearchChange = useCallback((value: string) => {
     setSearchTerm(value)
-  }, [])
+    setFilters({ search: value }, true)
+  }, [setFilters])
 
   const handleFilterChange = useCallback((key: string, value: string) => {
-    updateFilter(key as any, value)
-  }, [updateFilter])
+    setFilters({ [key]: value === 'all' ? undefined : value }, true)
+  }, [setFilters])
 
   const handleClearFilters = useCallback(() => {
-    clearFilters()
+    clearFilters(true)
     setSearchTerm('')
   }, [clearFilters])
 
-  const cacheStats = getCacheStats()
+  // Apply client-side filtering for better UX
+  const filteredFAQs = faqs.filter(faq => {
+    // Search filter
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase()
+      const matchesSearch = 
+        faq.question.toLowerCase().includes(searchLower) ||
+        faq.answer.toLowerCase().includes(searchLower) ||
+        faq.tags?.some(tag => tag.toLowerCase().includes(searchLower))
+      
+      if (!matchesSearch) return false
+    }
+    
+    // Status filter
+    if (filters.status && filters.status !== 'all') {
+      switch (filters.status) {
+        case 'published':
+          if (!faq.is_published) return false
+          break
+        case 'unpublished':
+          if (faq.is_published) return false
+          break
+        case 'featured':
+          if (!faq.is_featured) return false
+          break
+      }
+    }
+    
+    // Category filter
+    if (filters.category && filters.category !== 'all') {
+      const category = categories.find(c => c.slug === filters.category)
+      if (category && faq.category_id !== category.id) return false
+    }
+    
+    return true
+  })
 
-  // FIXED: Better authorization check with loading state
+  // Get suggested FAQs properly
+  const suggestedFAQs = faqs.filter(faq => 
+    !faq.is_published && 
+    faq.created_by && 
+    faq.created_by !== user?.id
+  )
+
+  // Safe admin stats calculation
+  const adminStats = {
+    total_faqs: faqs.length,
+    published_faqs: publishedFAQs.length,
+    draft_faqs: draftFAQs.length,
+    featured_faqs: featuredFAQs.length,
+    categories_count: categories.length,
+    active_categories: activeCategories.length,
+    suggested_faqs: suggestedFAQs.length
+  }
+
+  // Authorization check with loading state
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -578,7 +543,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     )
   }
 
-  if (!isAdmin || !canManage || user?.role !== 'admin') {
+  if (!isAdmin) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Card className="max-w-md">
@@ -593,8 +558,8 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     )
   }
 
-  const isLoading = faqsLoading || categoriesLoading || statsLoading
-  const hasError = faqsError || categoriesError || statsError
+  const isLoading = loading.faqs || loading.categories || loading.stats
+  const hasError = errors.faqs || errors.categories || errors.stats
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -639,7 +604,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             </div>
           </div>
 
-          {/* FIXED: Quick Stats with safe data access */}
+          {/* Quick Stats */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
@@ -649,7 +614,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             </div>
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {isLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : safeCategories.length}
+                {isLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : categories.length}
               </div>
               <div className="text-sm text-blue-100">Categories</div>
             </div>
@@ -666,20 +631,20 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
               <div className="text-sm text-blue-100">Suggestions</div>
             </div>
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
-              <div className="text-2xl font-bold">{cacheStats.cacheSize}</div>
-              <div className="text-sm text-blue-100">Cache Entries</div>
+              <div className="text-2xl font-bold">{isInitialized ? '✓' : '...'}</div>
+              <div className="text-sm text-blue-100">Store Status</div>
             </div>
           </div>
         </div>
 
-        {/* FIXED: Error display */}
+        {/* Error display */}
         {hasError && (
           <Card className="border-red-200 bg-red-50">
             <CardContent className="p-4">
               <div className="flex items-center space-x-2">
                 <AlertTriangle className="h-5 w-5 text-red-600" />
                 <span className="text-red-800">
-                  {faqsError?.message || categoriesError?.message || statsError?.message || 'An error occurred while loading data'}
+                  {errors.faqs || errors.categories || errors.stats || 'An error occurred while loading data'}
                 </span>
                 <Button
                   variant="outline"
@@ -730,8 +695,12 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     <CardTitle>FAQ Management</CardTitle>
                     <CardDescription>Create, edit, and manage help articles</CardDescription>
                   </div>
-                  <Button onClick={() => setShowCreateFAQDialog(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
+                  <Button onClick={() => setShowCreateFAQDialog(true)} disabled={loading.create}>
+                    {loading.create ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-2" />
+                    )}
                     Create FAQ
                   </Button>
                 </div>
@@ -761,7 +730,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
-                      {safeCategories.map((category: HelpCategory) => (
+                      {categories.map((category: HelpCategory) => (
                         <SelectItem key={category.id} value={category.slug}>
                           <div className="flex items-center space-x-2">
                             <div 
@@ -772,6 +741,21 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                           </div>
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select 
+                    value={filters.status || 'all'} 
+                    onValueChange={(value) => handleFilterChange('status', value)}
+                  >
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="All Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="published">Published</SelectItem>
+                      <SelectItem value="unpublished">Unpublished</SelectItem>
+                      <SelectItem value="featured">Featured</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -789,7 +773,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     </SelectContent>
                   </Select>
 
-                  {hasActiveFilters && (
+                  {(hasActiveFilters || searchTerm) && (
                     <Button variant="outline" onClick={handleClearFilters}>
                       Clear Filters
                     </Button>
@@ -797,13 +781,13 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                 </div>
 
                 {/* FAQ Table */}
-                {isLoading ? (
+                {loading.faqs ? (
                   <div className="space-y-4">
                     {[...Array(5)].map((_, i) => (
                       <div key={i} className="h-16 bg-gray-200 rounded animate-pulse" />
                     ))}
                   </div>
-                ) : safeFAQs.length > 0 ? (
+                ) : filteredFAQs.length > 0 ? (
                   <div className="border rounded-lg overflow-hidden">
                     <Table>
                       <TableHeader>
@@ -817,7 +801,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {safeFAQs.map((faq: FAQ) => (
+                        {filteredFAQs.map((faq: HelpFAQ) => (
                           <TableRow key={faq.id}>
                             <TableCell>
                               <div className="space-y-1">
@@ -867,7 +851,6 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                       Featured
                                     </Badge>
                                   )}
-                                  {/* FIXED: Show suggestion indicator */}
                                   {!faq.is_published && faq.created_by && (
                                     <Badge className="bg-blue-100 text-blue-800">
                                       <MessageSquare className="h-3 w-3 mr-1" />
@@ -905,7 +888,10 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                     <Edit className="h-4 w-4 mr-2" />
                                     Edit
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleTogglePublish(faq)}>
+                                  <DropdownMenuItem 
+                                    onClick={() => handleTogglePublish(faq)}
+                                    disabled={loading.update}
+                                  >
                                     {faq.is_published ? (
                                       <>
                                         <XCircle className="h-4 w-4 mr-2" />
@@ -918,7 +904,10 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                       </>
                                     )}
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleToggleFeature(faq)}>
+                                  <DropdownMenuItem 
+                                    onClick={() => handleToggleFeature(faq)}
+                                    disabled={loading.update}
+                                  >
                                     {faq.is_featured ? (
                                       <>
                                         <Star className="h-4 w-4 mr-2" />
@@ -938,6 +927,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                       setShowDeleteFAQDialog(true)
                                     }}
                                     className="text-red-600"
+                                    disabled={loading.delete}
                                   >
                                     <Trash2 className="h-4 w-4 mr-2" />
                                     Delete
@@ -986,23 +976,27 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                     <CardTitle>Category Management</CardTitle>
                     <CardDescription>Organize your help content with categories</CardDescription>
                   </div>
-                  <Button onClick={() => setShowCreateCategoryDialog(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
+                  <Button onClick={() => setShowCreateCategoryDialog(true)} disabled={loading.create}>
+                    {loading.create ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-2" />
+                    )}
                     Create Category
                   </Button>
                 </div>
               </CardHeader>
               
               <CardContent className="p-6">
-                {isLoading ? (
+                {loading.categories ? (
                   <div className="space-y-4">
                     {[...Array(3)].map((_, i) => (
                       <div key={i} className="h-20 bg-gray-200 rounded animate-pulse" />
                     ))}
                   </div>
-                ) : safeCategories.length > 0 ? (
+                ) : categories.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {safeCategories.map((category: HelpCategory) => (
+                    {categories.map((category: HelpCategory) => (
                       <Card key={category.id} className="border-0 shadow-md hover:shadow-lg transition-shadow">
                         <CardContent className="p-6">
                           <div className="space-y-4">
@@ -1082,7 +1076,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             </Card>
           </TabsContent>
 
-          {/* FIXED: Content Suggestions Tab - Now properly displays suggested FAQs */}
+          {/* Content Suggestions Tab */}
           <TabsContent value="suggestions" className="space-y-6">
             <Card className="border-0 shadow-lg">
               <CardHeader className="bg-gradient-to-r from-orange-50 to-red-50 rounded-t-lg">
@@ -1098,7 +1092,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
               </CardHeader>
               
               <CardContent className="p-6">
-                {isLoading ? (
+                {loading.faqs ? (
                   <div className="space-y-4">
                     {[...Array(3)].map((_, i) => (
                       <div key={i} className="h-32 bg-gray-200 rounded animate-pulse" />
@@ -1106,7 +1100,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                   </div>
                 ) : suggestedFAQs.length > 0 ? (
                   <div className="space-y-6">
-                    {suggestedFAQs.map((faq: FAQ) => (
+                    {suggestedFAQs.map((faq: HelpFAQ) => (
                       <Card key={faq.id} className="border border-blue-200 bg-blue-50/30">
                         <CardContent className="p-6">
                           <div className="space-y-4">
@@ -1145,6 +1139,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                   size="sm"
                                   onClick={() => handleEditFAQ(faq)}
                                   className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                                  disabled={loading.update}
                                 >
                                   <Edit className="h-4 w-4 mr-1" />
                                   Edit
@@ -1154,9 +1149,9 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                   size="sm"
                                   onClick={() => handleApproveSuggestion(faq)}
                                   className="bg-green-600 hover:bg-green-700"
-                                  disabled={updateFAQ.isPending}
+                                  disabled={isApproving || loading.update}
                                 >
-                                  {updateFAQ.isPending ? (
+                                  {isApproving || loading.update ? (
                                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                                   ) : (
                                     <ThumbsUp className="h-4 w-4 mr-1" />
@@ -1168,9 +1163,9 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                                   size="sm"
                                   onClick={() => handleRejectSuggestion(faq)}
                                   className="border-red-200 text-red-700 hover:bg-red-50"
-                                  disabled={deleteFAQ.isPending}
+                                  disabled={isRejecting || loading.delete}
                                 >
-                                  {deleteFAQ.isPending ? (
+                                  {isRejecting || loading.delete ? (
                                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                                   ) : (
                                     <ThumbsDown className="h-4 w-4 mr-1" />
@@ -1327,7 +1322,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="space-y-4">
-                    {safeFAQs.slice(0, 5).map((faq: FAQ) => (
+                    {faqs.slice(0, 5).map((faq: HelpFAQ) => (
                       <div key={faq.id} className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="font-medium text-sm line-clamp-1">{faq.question}</div>
@@ -1340,7 +1335,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                         </div>
                       </div>
                     ))}
-                    {safeFAQs.length === 0 && (
+                    {faqs.length === 0 && (
                       <div className="text-center py-8 text-gray-500">
                         <BarChart3 className="h-8 w-8 mx-auto mb-2" />
                         <div>No FAQ data available</div>
@@ -1359,7 +1354,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="space-y-4">
-                    {safeCategories.slice(0, 5).map((category: HelpCategory) => (
+                    {categories.slice(0, 5).map((category: HelpCategory) => (
                       <div key={category.id} className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <div 
@@ -1373,7 +1368,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                         </div>
                       </div>
                     ))}
-                    {safeCategories.length === 0 && (
+                    {categories.length === 0 && (
                       <div className="text-center py-8 text-gray-500">
                         <Settings className="h-8 w-8 mx-auto mb-2" />
                         <div>No category data available</div>
@@ -1394,7 +1389,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
               </CardHeader>
               <CardContent className="p-6">
                 <div className="space-y-4">
-                  {safeFAQs.slice(0, 5).map((faq: FAQ) => (
+                  {faqs.slice(0, 5).map((faq: HelpFAQ) => (
                     <div key={faq.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center space-x-3">
                         <div className={cn(
@@ -1413,7 +1408,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                       </div>
                     </div>
                   ))}
-                  {safeFAQs.length === 0 && (
+                  {faqs.length === 0 && (
                     <div className="text-center py-8 text-gray-500">
                       <Calendar className="h-8 w-8 mx-auto mb-2" />
                       <div>No recent activity</div>
@@ -1425,16 +1420,16 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
           </TabsContent>
         </Tabs>
 
-        {/* Cache Performance Info */}
+        {/* Store Performance Info */}
         <Card className="border-dashed border-gray-300 bg-gray-50">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <Zap className="h-5 w-5 text-blue-600" />
                 <div className="text-sm">
-                  <span className="font-medium">Cache Performance:</span>
+                  <span className="font-medium">Store Performance:</span>
                   <span className="text-gray-600 ml-2">
-                    {cacheStats.cacheSize} entries, {Math.round(cacheStats.totalMemory / 1024)}KB memory
+                    {isInitialized ? 'Initialized' : 'Loading'}, {faqs.length} FAQs, {categories.length} categories
                   </span>
                 </div>
               </div>
@@ -1442,18 +1437,24 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  invalidateAllQueries()
-                  toast.success('Cache cleared and data refreshed')
+                  invalidateCache()
+                  handleRefreshAll()
                 }}
+                disabled={isLoading}
               >
-                Clear Cache
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Refresh Store
               </Button>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* FIXED: All Dialogs with proper form handling */}
+      {/* All Dialogs with proper form handling */}
       
       {/* Create FAQ Dialog */}
       <Dialog open={showCreateFAQDialog} onOpenChange={setShowCreateFAQDialog}>
@@ -1473,7 +1474,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {safeCategories.filter((cat: HelpCategory) => cat.is_active).map((category: HelpCategory) => (
+                  {categories.filter((cat: HelpCategory) => cat.is_active).map((category: HelpCategory) => (
                     <SelectItem key={category.id} value={category.id.toString()}>
                       <div className="flex items-center space-x-2">
                         <div 
@@ -1583,8 +1584,8 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <Button variant="outline" onClick={() => setShowCreateFAQDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreateFAQ} disabled={createFAQ.isPending}>
-              {createFAQ.isPending ? (
+            <Button onClick={handleCreateFAQ} disabled={loading.create}>
+              {loading.create ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Plus className="h-4 w-4 mr-2" />
@@ -1613,7 +1614,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {safeCategories.filter((cat: HelpCategory) => cat.is_active).map((category: HelpCategory) => (
+                  {categories.filter((cat: HelpCategory) => cat.is_active).map((category: HelpCategory) => (
                     <SelectItem key={category.id} value={category.id.toString()}>
                       <div className="flex items-center space-x-2">
                         <div 
@@ -1715,8 +1716,8 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <Button variant="outline" onClick={() => setShowEditFAQDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleUpdateFAQ} disabled={updateFAQ.isPending}>
-              {updateFAQ.isPending ? (
+            <Button onClick={handleUpdateFAQ} disabled={loading.update}>
+              {loading.update ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Edit className="h-4 w-4 mr-2" />
@@ -1744,9 +1745,9 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <AlertDialogAction
               onClick={handleDeleteFAQ}
               className="bg-red-600 hover:bg-red-700"
-              disabled={deleteFAQ.isPending}
+              disabled={loading.delete}
             >
-              {deleteFAQ.isPending ? (
+              {loading.delete ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Trash2 className="h-4 w-4 mr-2" />
@@ -1826,8 +1827,8 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <Button variant="outline" onClick={() => setShowCreateCategoryDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreateCategory} disabled={createCategory.isPending}>
-              {createCategory.isPending ? (
+            <Button onClick={handleCreateCategory} disabled={loading.create}>
+              {loading.create ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Plus className="h-4 w-4 mr-2" />
@@ -1907,8 +1908,8 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <Button variant="outline" onClick={() => setShowEditCategoryDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleUpdateCategory} disabled={updateCategory.isPending}>
-              {updateCategory.isPending ? (
+            <Button onClick={handleUpdateCategory} disabled={loading.update}>
+              {loading.update ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Edit className="h-4 w-4 mr-2" />
@@ -1943,9 +1944,9 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             <AlertDialogAction
               onClick={handleDeleteCategory}
               className="bg-red-600 hover:bg-red-700"
-              disabled={deleteCategory.isPending || (selectedCategory?.faqs_count || 0) > 0}
+              disabled={loading.delete || (selectedCategory?.faqs_count || 0) > 0}
             >
-              {deleteCategory.isPending ? (
+              {loading.delete ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Trash2 className="h-4 w-4 mr-2" />
