@@ -380,26 +380,26 @@ class ApiClient {
   // STANDARD HTTP METHODS - Keep your existing methods
 
   async get<T = any>(endpoint: string, options?: RequestInit): Promise<StandardizedApiResponse<T>> {
-    return this.makeRequest<T>(endpoint, "GET", undefined, options, 30000)
+    return this.makeRequest<T>(endpoint, "GET", undefined, options, 60000)
   }
 
   async post<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<StandardizedApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 50000
+    const timeout = data instanceof FormData ? 120000 : 60000
     return this.makeRequest<T>(endpoint, "POST", data, options, timeout)
   }
 
   async put<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<StandardizedApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 50000
+    const timeout = data instanceof FormData ? 120000 : 60000
     return this.makeRequest<T>(endpoint, "PUT", data, options, timeout)
   }
 
   async patch<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<StandardizedApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 50000
+    const timeout = data instanceof FormData ? 120000 : 60000
     return this.makeRequest<T>(endpoint, "PATCH", data, options, timeout)
   }
 
   async delete<T = any>(endpoint: string, data?: any): Promise<StandardizedApiResponse<T>> {
-    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 50000)
+    return this.makeRequest<T>(endpoint, "DELETE", data, undefined, 60000)
   }
 
   // FIXED: Enhanced file download with better error handling and fallbacks
