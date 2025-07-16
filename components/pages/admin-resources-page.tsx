@@ -1,4 +1,4 @@
-// components/pages/admin-resources-page.tsx (FIXED - All TypeScript errors resolved)
+// components/pages/admin-resources-page.tsx (CRITICAL FIXES - All issues resolved)
 "use client"
 
 import React, { useState, useCallback, useEffect } from "react"
@@ -87,6 +87,7 @@ import {
   useAdminResourceManagement,
   useResourceStats,
   useResourceUtils,
+  useResourcesDashboard,
 } from "@/hooks/use-resources"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -175,37 +176,37 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
   } = useAdminResourceManagement()
   const { getCacheStats } = useResourceUtils()
 
-  // Data fetching
+  // CRITICAL FIX: Use the enhanced dashboard hook for better data coordination
   const {
-    data: categories,
-    isLoading: categoriesLoading,
-    refetch: refetchCategories
-  } = useResourceCategories({ 
-    includeInactive: true,
-    enabled: true
-  })
+    categories,
+    featured,
+    popular,
+    topRated,
+    stats,
+    isLoading: dashboardLoading,
+    error: dashboardError,
+    hasData,
+    forceRefresh
+  } = useResourcesDashboard({ enabled: true })
 
+  // CRITICAL FIX: Use admin-specific resources query with include_drafts
   const {
     data: resourcesData,
     isLoading: resourcesLoading,
-    refetch: refetchResources
+    refetch: refetchResources,
+    error: resourcesError
   } = useResources({
     ...filters,
     search: searchTerm,
-    include_drafts: true
+    include_drafts: true // This is key for admin view
   }, {
     enabled: true
   })
 
-  const {
-    data: stats,
-    isLoading: statsLoading,
-    refetch: refetchStats
-  } = useResourceStats({ enabled: true })
-
   // Check admin permissions
   useEffect(() => {
-    if (user?.role !== 'admin') {
+    if (user && user.role !== 'admin') {
+      console.error('❌ AdminResourcesPage: Access denied - user is not admin')
       toast.error('Access denied. Admin privileges required.')
       if (onNavigate) {
         onNavigate('resources')
@@ -213,21 +214,22 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
     }
   }, [user, onNavigate])
 
-  // Handle refresh all data
+  // ENHANCED: Handle refresh all data with better error handling
   const handleRefreshAll = useCallback(async () => {
     try {
+      console.log('🔄 AdminResourcesPage: Refreshing all data...')
       await Promise.all([
-        refetchCategories(),
-        refetchResources(),
-        refetchStats()
+        forceRefresh(),
+        refetchResources()
       ])
       toast.success('Data refreshed successfully')
     } catch (error) {
+      console.error('❌ AdminResourcesPage: Refresh failed:', error)
       toast.error('Failed to refresh data')
     }
-  }, [refetchCategories, refetchResources, refetchStats])
+  }, [forceRefresh, refetchResources])
 
-  // Resource CRUD Operations
+  // ENHANCED: Resource CRUD Operations with better error handling
   const handleCreateResource = useCallback(async () => {
     if (!resourceForm.title.trim() || !resourceForm.description.trim() || !resourceForm.category_id || !resourceForm.external_url.trim()) {
       toast.error('Please fill in all required fields')
@@ -235,10 +237,13 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
     }
 
     try {
+      console.log('📝 AdminResourcesPage: Creating resource:', resourceForm.title)
+      
       await createResource.mutateAsync({
         ...resourceForm,
         category_id: parseInt(resourceForm.category_id)
       })
+      
       setShowCreateResourceDialog(false)
       setResourceForm({
         category_id: "",
@@ -258,13 +263,19 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
         is_published: false,
         is_featured: false
       })
-      refetchResources()
+      
+      // Force refresh to ensure new resource appears
+      await refetchResources()
+      toast.success('Resource created successfully!')
+      
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ AdminResourcesPage: Create resource failed:', error)
+      // Error handled by mutation, but we can add extra logging
     }
   }, [resourceForm, createResource, refetchResources])
 
   const handleEditResource = useCallback((resource: Resource) => {
+    console.log('✏️ AdminResourcesPage: Editing resource:', resource.id)
     setSelectedResource(resource)
     setResourceForm({
       category_id: resource.category_id.toString(),
@@ -294,6 +305,8 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
     }
 
     try {
+      console.log('📝 AdminResourcesPage: Updating resource:', selectedResource.id)
+      
       await updateResource.mutateAsync({
         id: selectedResource.id,
         data: {
@@ -301,11 +314,14 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
           category_id: parseInt(resourceForm.category_id)
         }
       })
+      
       setShowEditResourceDialog(false)
       setSelectedResource(null)
-      refetchResources()
+      await refetchResources()
+      toast.success('Resource updated successfully!')
+      
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ AdminResourcesPage: Update resource failed:', error)
     }
   }, [selectedResource, resourceForm, updateResource, refetchResources])
 
@@ -313,16 +329,20 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
     if (!selectedResource) return
 
     try {
+      console.log('🗑️ AdminResourcesPage: Deleting resource:', selectedResource.id)
+      
       await deleteResource.mutateAsync(selectedResource.id)
       setShowDeleteResourceDialog(false)
       setSelectedResource(null)
-      refetchResources()
+      await refetchResources()
+      toast.success('Resource deleted successfully!')
+      
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ AdminResourcesPage: Delete resource failed:', error)
     }
   }, [selectedResource, deleteResource, refetchResources])
 
-  // Category CRUD Operations
+  // Category CRUD Operations with better error handling
   const handleCreateCategory = useCallback(async () => {
     if (!categoryForm.name.trim()) {
       toast.error('Please enter a category name')
@@ -330,6 +350,8 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
     }
 
     try {
+      console.log('📁 AdminResourcesPage: Creating category:', categoryForm.name)
+      
       await createCategory.mutateAsync(categoryForm)
       setShowCreateCategoryDialog(false)
       setCategoryForm({
@@ -340,13 +362,18 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
         is_active: true,
         sort_order: 0
       })
-      refetchCategories()
+      
+      // Force refresh to show new category
+      await forceRefresh()
+      toast.success('Category created successfully!')
+      
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ AdminResourcesPage: Create category failed:', error)
     }
-  }, [categoryForm, createCategory, refetchCategories])
+  }, [categoryForm, createCategory, forceRefresh])
 
   const handleEditCategory = useCallback((category: ResourceCategory) => {
+    console.log('✏️ AdminResourcesPage: Editing category:', category.id)
     setSelectedCategory(category)
     setCategoryForm({
       name: category.name,
@@ -366,55 +393,72 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
     }
 
     try {
+      console.log('📁 AdminResourcesPage: Updating category:', selectedCategory.id)
+      
       await updateCategory.mutateAsync({
         id: selectedCategory.id,
         data: categoryForm
       })
+      
       setShowEditCategoryDialog(false)
       setSelectedCategory(null)
-      refetchCategories()
+      await forceRefresh()
+      toast.success('Category updated successfully!')
+      
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ AdminResourcesPage: Update category failed:', error)
     }
-  }, [selectedCategory, categoryForm, updateCategory, refetchCategories])
+  }, [selectedCategory, categoryForm, updateCategory, forceRefresh])
 
   const handleDeleteCategory = useCallback(async () => {
     if (!selectedCategory) return
 
     try {
+      console.log('🗑️ AdminResourcesPage: Deleting category:', selectedCategory.id)
+      
       await deleteCategory.mutateAsync(selectedCategory.id)
       setShowDeleteCategoryDialog(false)
       setSelectedCategory(null)
-      refetchCategories()
+      await forceRefresh()
+      toast.success('Category deleted successfully!')
+      
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ AdminResourcesPage: Delete category failed:', error)
     }
-  }, [selectedCategory, deleteCategory, refetchCategories])
+  }, [selectedCategory, deleteCategory, forceRefresh])
 
-  // Quick actions
+  // Quick actions with better error handling
   const handleTogglePublish = useCallback(async (resource: Resource) => {
     try {
+      console.log('📰 AdminResourcesPage: Toggling publish for resource:', resource.id)
+      
       await updateResource.mutateAsync({
         id: resource.id,
         data: { is_published: !resource.is_published }
       })
-      refetchResources()
+      
+      await refetchResources()
       toast.success(`Resource ${resource.is_published ? 'unpublished' : 'published'} successfully`)
+      
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ AdminResourcesPage: Toggle publish failed:', error)
     }
   }, [updateResource, refetchResources])
 
   const handleToggleFeature = useCallback(async (resource: Resource) => {
     try {
+      console.log('⭐ AdminResourcesPage: Toggling feature for resource:', resource.id)
+      
       await updateResource.mutateAsync({
         id: resource.id,
         data: { is_featured: !resource.is_featured }
       })
-      refetchResources()
+      
+      await refetchResources()
       toast.success(`Resource ${resource.is_featured ? 'unfeatured' : 'featured'} successfully`)
+      
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ AdminResourcesPage: Toggle feature failed:', error)
     }
   }, [updateResource, refetchResources])
 
@@ -457,6 +501,21 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
 
   const cacheStats = getCacheStats()
 
+  // CRITICAL FIX: Better permission and loading handling
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-6 text-center">
+            <Loader2 className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-spin" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Loading...</h3>
+            <p className="text-gray-600">Please wait while we verify your access.</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   if (!canManage || user?.role !== 'admin') {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -466,6 +525,21 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             <h3 className="text-lg font-medium text-gray-900 mb-2">Access Denied</h3>
             <p className="text-gray-600 mb-4">You need administrator privileges to access this page.</p>
             <Button onClick={handleBackToResources}>Back to Resources</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // CRITICAL FIX: Better loading state for initial load only
+  if (dashboardLoading && !hasData) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-6 text-center">
+            <Loader2 className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-spin" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Loading Admin Panel</h3>
+            <p className="text-gray-600">Fetching your dashboard data...</p>
           </CardContent>
         </Card>
       </div>
@@ -503,10 +577,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 variant="secondary"
                 size="sm"
                 onClick={handleRefreshAll}
-                disabled={categoriesLoading || resourcesLoading || statsLoading}
+                disabled={dashboardLoading || resourcesLoading}
                 className="bg-white/20 hover:bg-white/30 border-white/30"
               >
-                {(categoriesLoading || resourcesLoading || statsLoading) ? (
+                {(dashboardLoading || resourcesLoading) ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <RefreshCw className="h-4 w-4" />
@@ -515,24 +589,35 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             </div>
           </div>
 
-          {/* Quick Stats */}
+          {/* CRITICAL FIX: Quick Stats with proper fallbacks */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {statsLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : stats?.total_resources || 0}
+                {dashboardLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  `${stats?.total_resources || 0}`
+                )}
               </div>
               <div className="text-sm text-blue-100">Total Resources</div>
             </div>
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {categoriesLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : categories?.length || 0}
+                {dashboardLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  `${categories?.length || 0}`
+                )}
               </div>
               <div className="text-sm text-blue-100">Categories</div>
             </div>
             <div className="bg-white/10 rounded-lg p-4 backdrop-blur-sm border border-white/10">
               <div className="text-2xl font-bold">
-                {resourcesLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : 
-                  resourcesData?.resources.filter(resource => !resource.is_published).length || 0}
+                {resourcesLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  `${resourcesData?.resources?.filter(resource => !resource.is_published).length || 0}`
+                )}
               </div>
               <div className="text-sm text-blue-100">Unpublished</div>
             </div>
@@ -542,6 +627,27 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             </div>
           </div>
         </div>
+
+        {/* Error State */}
+        {(dashboardError || resourcesError) && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+                <div>
+                  <h4 className="font-medium text-red-800">Data Loading Error</h4>
+                  <p className="text-sm text-red-700">
+                    Some data couldn't be loaded. Please try refreshing.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleRefreshAll}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Main Content */}
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
@@ -631,12 +737,22 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   )}
                 </div>
 
-                {/* Resources Table */}
-                {resourcesLoading ? (
+                {/* CRITICAL FIX: Resources Table with better data handling */}
+                {resourcesLoading && !resourcesData ? (
                   <div className="space-y-4">
                     {[...Array(5)].map((_, i) => (
                       <div key={i} className="h-16 bg-gray-200 rounded animate-pulse" />
                     ))}
+                  </div>
+                ) : resourcesError ? (
+                  <div className="text-center py-12">
+                    <AlertTriangle className="h-16 w-16 mx-auto mb-4 text-red-300" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Failed to load resources</h3>
+                    <p className="text-gray-600 mb-4">Please try refreshing the page</p>
+                    <Button onClick={handleRefreshAll}>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Retry
+                    </Button>
                   </div>
                 ) : (
                   <div className="border rounded-lg overflow-hidden">
@@ -653,7 +769,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {resourcesData?.resources.map((resource) => {
+                        {resourcesData?.resources?.map((resource) => {
                           const IconComponent = getIconComponent(resource.type)
                           
                           return (
@@ -795,7 +911,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                       </TableBody>
                     </Table>
 
-                    {!resourcesData?.resources.length && (
+                    {!resourcesData?.resources?.length && (
                       <div className="text-center py-12">
                         <Target className="h-16 w-16 mx-auto mb-4 text-gray-300" />
                         <h3 className="text-lg font-medium text-gray-900 mb-2">No resources found</h3>
@@ -829,7 +945,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               </CardHeader>
               
               <CardContent className="p-6">
-                {categoriesLoading ? (
+                {dashboardLoading && !categories?.length ? (
                   <div className="space-y-4">
                     {[...Array(3)].map((_, i) => (
                       <div key={i} className="h-20 bg-gray-200 rounded animate-pulse" />
@@ -904,7 +1020,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   </div>
                 )}
 
-                {!categories?.length && !categoriesLoading && (
+                {!categories?.length && !dashboardLoading && (
                   <div className="text-center py-12">
                     <Settings className="h-16 w-16 mx-auto mb-4 text-gray-300" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No categories found</h3>
@@ -945,7 +1061,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                     </div>
                     <div>
                       <div className="text-2xl font-bold">
-                        {resourcesData?.resources.filter(resource => resource.is_published).length || 0}
+                        {resourcesData?.resources?.filter(resource => resource.is_published).length || 0}
                       </div>
                       <div className="text-sm text-gray-600">Published</div>
                     </div>
@@ -961,7 +1077,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                     </div>
                     <div>
                       <div className="text-2xl font-bold">
-                        {resourcesData?.resources.filter(resource => resource.is_featured).length || 0}
+                        {resourcesData?.resources?.filter(resource => resource.is_featured).length || 0}
                       </div>
                       <div className="text-sm text-gray-600">Featured</div>
                     </div>
@@ -977,7 +1093,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                     </div>
                     <div>
                       <div className="text-2xl font-bold">
-                        {resourcesData?.resources.filter(resource => !resource.is_published).length || 0}
+                        {resourcesData?.resources?.filter(resource => !resource.is_published).length || 0}
                       </div>
                       <div className="text-sm text-gray-600">Drafts</div>
                     </div>
@@ -997,7 +1113,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="space-y-4">
-                    {resourcesData?.resources.slice(0, 5).map((resource) => (
+                    {resourcesData?.resources?.slice(0, 5).map((resource) => (
                       <div key={resource.id} className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="font-medium text-sm line-clamp-1">{resource.title}</div>
@@ -1063,7 +1179,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               </CardHeader>
               <CardContent className="p-6">
                 <div className="space-y-4">
-                  {resourcesData?.resources.slice(0, 5).map((resource) => (
+                  {resourcesData?.resources?.slice(0, 5).map((resource) => (
                     <div key={resource.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center space-x-3">
                         <div className={cn(
@@ -1196,6 +1312,8 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
         </Card>
       </div>
 
+      {/* CRITICAL FIX: All Dialogs with proper form handling */}
+      
       {/* Create Resource Dialog */}
       <Dialog open={showCreateResourceDialog} onOpenChange={setShowCreateResourceDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1413,7 +1531,151 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Resource Dialog */}
+      {/* Create Category Dialog */}
+      <Dialog open={showCreateCategoryDialog} onOpenChange={setShowCreateCategoryDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Category</DialogTitle>
+            <DialogDescription>
+              Add a new category to organize your resources.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="category-name">Name *</Label>
+              <Input
+                id="category-name"
+                value={categoryForm.name}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Category name..."
+                maxLength={100}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="category-description">Description</Label>
+              <Textarea
+                id="category-description"
+                value={categoryForm.description}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Brief description..."
+                className="min-h-[80px] resize-none"
+                maxLength={500}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="category-color">Color</Label>
+                <Input
+                  id="category-color"
+                  type="color"
+                  value={categoryForm.color}
+                  onChange={(e) => setCategoryForm(prev => ({ ...prev, color: e.target.value }))}
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="category-sort">Sort Order</Label>
+                <Input
+                  id="category-sort"
+                  type="number"
+                  value={categoryForm.sort_order}
+                  onChange={(e) => setCategoryForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="category-active"
+                checked={categoryForm.is_active}
+                onCheckedChange={(checked) => setCategoryForm(prev => ({ ...prev, is_active: checked }))}
+              />
+              <Label htmlFor="category-active">Active</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateCategoryDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCategory} disabled={createCategory.isPending}>
+              {createCategory.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Create Category
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialogs */}
+      <AlertDialog open={showDeleteResourceDialog} onOpenChange={setShowDeleteResourceDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Resource</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this resource? This action cannot be undone.
+              <br />
+              <br />
+              <strong>Resource:</strong> {selectedResource?.title}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteResource}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteResource.isPending}
+            >
+              {deleteResource.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Delete Resource
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showDeleteCategoryDialog} onOpenChange={setShowDeleteCategoryDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Category</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this category? This action cannot be undone.
+              <br />
+              <br />
+              <strong>Category:</strong> {selectedCategory?.name}
+              <br />
+              <strong>Resources in this category:</strong> {selectedCategory?.resources_count || 0}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteCategory}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteCategory.isPending}
+            >
+              {deleteCategory.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Delete Category
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Resource Dialog - Similar to Create but with pre-filled data */}
       <Dialog open={showEditResourceDialog} onOpenChange={setShowEditResourceDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1576,7 +1838,12 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Label>Tags</Label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {resourceForm.tags.map((tag, index) => (
-                  <Badge key={index} variant="secondary" className="cursor-pointer" onClick={() => handleRemoveTag(tag)}>
+                  <Badge 
+                    key={index} 
+                    variant="secondary" 
+                    className="cursor-pointer hover:bg-red-100 hover:text-red-800" 
+                    onClick={() => handleRemoveTag(tag)}
+                  >
                     {tag} ×
                   </Badge>
                 ))}
@@ -1625,89 +1892,6 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Edit className="h-4 w-4 mr-2" />
               )}
               Update Resource
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create Category Dialog */}
-      <Dialog open={showCreateCategoryDialog} onOpenChange={setShowCreateCategoryDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create New Category</DialogTitle>
-            <DialogDescription>
-              Add a new category to organize your resources.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="category-name">Name *</Label>
-              <Input
-                id="category-name"
-                value={categoryForm.name}
-                onChange={(e) => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="Category name..."
-                maxLength={100}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="category-description">Description</Label>
-              <Textarea
-                id="category-description"
-                value={categoryForm.description}
-                onChange={(e) => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Brief description..."
-                className="min-h-[80px] resize-none"
-                maxLength={500}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="category-color">Color</Label>
-                <Input
-                  id="category-color"
-                  type="color"
-                  value={categoryForm.color}
-                  onChange={(e) => setCategoryForm(prev => ({ ...prev, color: e.target.value }))}
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="category-sort">Sort Order</Label>
-                <Input
-                  id="category-sort"
-                  type="number"
-                  value={categoryForm.sort_order}
-                  onChange={(e) => setCategoryForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
-                  min="0"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="category-active"
-                checked={categoryForm.is_active}
-                onCheckedChange={(checked) => setCategoryForm(prev => ({ ...prev, is_active: checked }))}
-              />
-              <Label htmlFor="category-active">Active</Label>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateCategoryDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateCategory} disabled={createCategory.isPending}>
-              {createCategory.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4 mr-2" />
-              )}
-              Create Category
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1795,68 +1979,6 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Delete Resource Confirmation Dialog */}
-      <AlertDialog open={showDeleteResourceDialog} onOpenChange={setShowDeleteResourceDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Resource</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this resource? This action cannot be undone.
-              <br />
-              <br />
-              <strong>Resource:</strong> {selectedResource?.title}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteResource}
-              className="bg-red-600 hover:bg-red-700"
-              disabled={deleteResource.isPending}
-            >
-              {deleteResource.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4 mr-2" />
-              )}
-              Delete Resource
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Delete Category Confirmation Dialog */}
-      <AlertDialog open={showDeleteCategoryDialog} onOpenChange={setShowDeleteCategoryDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Category</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this category? This action cannot be undone.
-              <br />
-              <br />
-              <strong>Category:</strong> {selectedCategory?.name}
-              <br />
-              <strong>Resources in this category:</strong> {selectedCategory?.resources_count || 0}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteCategory}
-              className="bg-red-600 hover:bg-red-700"
-              disabled={deleteCategory.isPending}
-            >
-              {deleteCategory.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4 mr-2" />
-              )}
-              Delete Category
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

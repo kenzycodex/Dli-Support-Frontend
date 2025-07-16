@@ -1,4 +1,4 @@
-// hooks/use-resources.ts (FIXED - Safe array access and enhanced error handling)
+// hooks/use-resources.ts (FIXED - All TypeScript errors resolved)
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
@@ -26,7 +26,8 @@ export const resourcesQueryKeys = {
   topRated: (limit?: number) => [...resourcesQueryKeys.all, 'top-rated', limit] as const,
 }
 
-// Enhanced hook for resource categories with ultra-stable caching
+// CRITICAL FIX: Enhanced hook for resource categories with proper typing
+
 export function useResourceCategories(options: {
   includeInactive?: boolean
   enabled?: boolean
@@ -36,17 +37,39 @@ export function useResourceCategories(options: {
 
   return useQuery({
     queryKey: resourcesQueryKeys.categories(user?.role),
-    queryFn: async () => {
-      const response = await resourcesService.getCategories({
-        include_inactive: includeInactive,
-        userRole: user?.role,
-        forceRefresh: false
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch resource categories')
+    queryFn: async (): Promise<ResourceCategory[]> => {
+      try {
+        console.log('🔍 useResourceCategories: Fetching categories...')
+        
+        const response = await resourcesService.getCategories({
+          include_inactive: includeInactive,
+          userRole: user?.role,
+          forceRefresh: false
+        })
+        
+        console.log('📡 useResourceCategories: Service response:', response)
+        
+        if (!response.success) {
+          console.error('❌ useResourceCategories: Service error:', response.message)
+          throw new Error(response.message || 'Failed to fetch resource categories')
+        }
+        
+        // SAFE ACCESS: Always return array, handle all possible response formats
+        let categories: ResourceCategory[] = []
+        if (response.data?.categories && Array.isArray(response.data.categories)) {
+          categories = response.data.categories
+        } else if (Array.isArray(response.data)) {
+          categories = response.data
+        } else {
+          console.warn('⚠️ useResourceCategories: Unexpected response format, returning empty array')
+        }
+        
+        console.log('✅ useResourceCategories: Processed categories:', categories.length)
+        return categories
+      } catch (error) {
+        console.error('❌ useResourceCategories: Error:', error)
+        throw error
       }
-      // SAFE ACCESS: Always return array, even if undefined
-      return response.data?.categories || []
     },
     staleTime: 20 * 60 * 1000, // 20 minutes - ultra stable
     gcTime: 40 * 60 * 1000, // 40 minutes
@@ -54,11 +77,16 @@ export function useResourceCategories(options: {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
-    refetchOnMount: false, // Critical: Don't refetch on mount if data exists
+    refetchOnMount: false,
+    retry: (failureCount, error) => {
+      if (failureCount >= 2) return false
+      if (error.message?.includes('403') || error.message?.includes('401')) return false
+      return true
+    },
   })
 }
 
-// CRITICAL FIX: Ultra-stable resources hook with enhanced error handling and safe data access
+// CRITICAL FIX: Enhanced resources hook with proper typing
 export function useResources(filters: ResourceFilters = {}, options: {
   enabled?: boolean
 } = {}) {
@@ -68,25 +96,77 @@ export function useResources(filters: ResourceFilters = {}, options: {
   return useQuery({
     queryKey: resourcesQueryKeys.resources(filters, user?.role),
     queryFn: async () => {
-      console.log('🔍 useResources: Starting fetch with filters:', filters)
-      
-      const response = await resourcesService.getResources({
-        ...filters,
-        userRole: user?.role,
-        forceRefresh: false
-      })
-      
-      console.log('📡 useResources: Service response:', response)
-      
-      if (!response.success) {
-        console.error('❌ useResources: Service returned error:', response)
-        throw new Error(response.message || 'Failed to fetch resources')
-      }
+      try {
+        console.log('🔍 useResources: Starting fetch with filters:', filters)
+        
+        const response = await resourcesService.getResources({
+          ...filters,
+          userRole: user?.role,
+          forceRefresh: false
+        })
+        
+        console.log('📡 useResources: Raw service response:', response)
+        
+        if (!response.success) {
+          console.error('❌ useResources: Service returned error:', response)
+          throw new Error(response.message || 'Failed to fetch resources')
+        }
 
-      // CRITICAL FIX: Ensure safe data structure with defaults
-      const data = response.data
-      if (!data) {
-        console.warn('⚠️ useResources: No data in successful response')
+        // CRITICAL FIX: Enhanced data processing with type safety
+        const data = response.data
+        if (!data) {
+          console.warn('⚠️ useResources: No data in successful response')
+          return {
+            resources: [],
+            featured_resources: [],
+            type_counts: {},
+            pagination: {
+              current_page: 1,
+              last_page: 1,
+              per_page: 0,
+              total: 0
+            }
+          }
+        }
+
+        // Direct resources structure (expected format)
+        if (data.resources && Array.isArray(data.resources)) {
+          console.log('✅ useResources: Found direct resources structure')
+          return {
+            resources: data.resources,
+            featured_resources: data.featured_resources || [],
+            type_counts: data.type_counts || {},
+            pagination: data.pagination || {
+              current_page: 1,
+              last_page: 1,
+              per_page: data.resources.length,
+              total: data.resources.length
+            }
+          }
+        }
+
+        // Fallback: Direct array
+        if (Array.isArray(data)) {
+          console.log('✅ useResources: Found direct array structure')
+          return {
+            resources: data,
+            featured_resources: data.filter((r: Resource) => r.is_featured) || [],
+            type_counts: {},
+            pagination: {
+              current_page: 1,
+              last_page: 1,
+              per_page: data.length,
+              total: data.length
+            }
+          }
+        }
+
+        console.warn('⚠️ useResources: Unknown response format:', {
+          type: typeof data,
+          keys: Object.keys(data),
+          sample: JSON.stringify(data).substring(0, 200)
+        })
+
         return {
           resources: [],
           featured_resources: [],
@@ -98,38 +178,20 @@ export function useResources(filters: ResourceFilters = {}, options: {
             total: 0
           }
         }
+
+      } catch (error) {
+        console.error('❌ useResources: Critical error:', error)
+        throw error
       }
-
-      // SAFE ACCESS: Use optional chaining and provide defaults
-      const safeData = {
-        resources: Array.isArray(data.resources) ? data.resources : [],
-        featured_resources: Array.isArray(data.featured_resources) ? data.featured_resources : [],
-        type_counts: data.type_counts || {},
-        pagination: data.pagination || {
-          current_page: 1,
-          last_page: 1,
-          per_page: Array.isArray(data.resources) ? data.resources.length : 0,
-          total: Array.isArray(data.resources) ? data.resources.length : 0
-        }
-      }
-
-      console.log('✅ useResources: Successfully processed data:', {
-        resourcesCount: safeData.resources.length,
-        featuredCount: safeData.featured_resources.length,
-        hasPagination: !!safeData.pagination
-      })
-
-      return safeData
     },
-    staleTime: 15 * 60 * 1000, // 15 minutes - longer for stability
+    staleTime: 15 * 60 * 1000, // 15 minutes
     gcTime: 30 * 60 * 1000, // 30 minutes
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
-    refetchOnMount: false, // Critical: Don't refetch on mount if data exists
+    refetchOnMount: false,
     retry: (failureCount, error) => {
-      // Retry logic for resource loading
       if (failureCount >= 3) return false
       if (error.message?.includes('403') || error.message?.includes('401')) return false
       return true
@@ -166,44 +228,7 @@ export function useResource(id: number, options: {
   })
 }
 
-// SAFE: Ultra-stable hook for user bookmarks
-export function useResourceBookmarks(page: number = 1, perPage: number = 20) {
-  const { user } = useAuth()
-
-  return useQuery({
-    queryKey: resourcesQueryKeys.bookmarks(page, user?.role),
-    queryFn: async () => {
-      const response = await resourcesService.getBookmarks(page, perPage, {
-        userRole: user?.role,
-        forceRefresh: false
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch bookmarks')
-      }
-      
-      // SAFE ACCESS: Ensure bookmarks is always an array
-      const data = response.data
-      return {
-        bookmarks: Array.isArray(data?.bookmarks) ? data.bookmarks : [],
-        pagination: data?.pagination || {
-          current_page: 1,
-          last_page: 1,
-          per_page: 0,
-          total: 0
-        }
-      }
-    },
-    staleTime: 10 * 60 * 1000, // 10 minutes - bookmarks can change
-    gcTime: 20 * 60 * 1000, // 20 minutes
-    enabled: !!user,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-  })
-}
-
-// Ultra-stable hook for resource statistics
+// CRITICAL FIX: Enhanced resource statistics hook with proper return type
 export function useResourceStats(options: {
   enabled?: boolean
 } = {}) {
@@ -213,18 +238,107 @@ export function useResourceStats(options: {
   return useQuery({
     queryKey: resourcesQueryKeys.stats(user?.role),
     queryFn: async () => {
-      const response = await resourcesService.getStats({
-        userRole: user?.role,
-        forceRefresh: false
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch resource statistics')
+      try {
+        console.log('🔍 useResourceStats: Fetching stats...')
+        
+        const response = await resourcesService.getStats({
+          userRole: user?.role,
+          forceRefresh: false
+        })
+        
+        console.log('📡 useResourceStats: Service response:', response)
+        
+        if (!response.success) {
+          console.error('❌ useResourceStats: Service error:', response.message)
+          // Return fallback stats instead of throwing
+          return {
+            total_resources: 0,
+            total_categories: 0,
+            most_popular_resource: null,
+            highest_rated_resource: null,
+            most_downloaded_resource: null,
+            resources_by_type: {},
+            resources_by_difficulty: {},
+            categories_with_counts: []
+          }
+        }
+        
+        // CRITICAL FIX: Handle the stats response correctly
+        // Backend now returns stats directly in data (not nested under stats)
+        const stats = response.data
+        
+        console.log('✅ useResourceStats: Processed stats:', stats)
+        return stats
+      } catch (error) {
+        console.error('❌ useResourceStats: Error:', error)
+        // Return fallback instead of throwing to prevent cascade errors
+        return {
+          total_resources: 0,
+          total_categories: 0,
+          most_popular_resource: null,
+          highest_rated_resource: null,
+          most_downloaded_resource: null,
+          resources_by_type: {},
+          resources_by_difficulty: {},
+          categories_with_counts: []
+        }
       }
-      return response.data?.stats
     },
-    staleTime: 30 * 60 * 1000, // 30 minutes - very long for stats
+    staleTime: 30 * 60 * 1000, // 30 minutes
     gcTime: 60 * 60 * 1000, // 60 minutes
     enabled: enabled && !!user,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
+    refetchOnMount: false,
+    retry: false, // Don't retry stats to prevent console spam
+  })
+}
+
+// CRITICAL FIX: Enhanced bookmarks hook with user tracking
+export function useResourceBookmarks(page: number = 1, perPage: number = 20) {
+  const { user } = useAuth()
+
+  return useQuery({
+    queryKey: resourcesQueryKeys.bookmarks(page, user?.role),
+    queryFn: async () => {
+      try {
+        console.log('🔍 useResourceBookmarks: Fetching bookmarks...')
+        
+        const response = await resourcesService.getBookmarks(page, perPage, {
+          userRole: user?.role,
+          forceRefresh: false
+        })
+        
+        console.log('📡 useResourceBookmarks: Service response:', response)
+        
+        if (!response.success) {
+          console.error('❌ useResourceBookmarks: Service error:', response.message)
+          throw new Error(response.message || 'Failed to fetch bookmarks')
+        }
+        
+        // SAFE ACCESS: Ensure bookmarks is always an array
+        const data = response.data
+        const result = {
+          bookmarks: Array.isArray(data?.bookmarks) ? data.bookmarks : [],
+          pagination: data?.pagination || {
+            current_page: 1,
+            last_page: 1,
+            per_page: 0,
+            total: 0
+          }
+        }
+        
+        console.log('✅ useResourceBookmarks: Processed bookmarks:', result.bookmarks.length)
+        return result
+      } catch (error) {
+        console.error('❌ useResourceBookmarks: Error:', error)
+        throw error
+      }
+    },
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    gcTime: 20 * 60 * 1000, // 20 minutes
+    enabled: !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
@@ -232,7 +346,7 @@ export function useResourceStats(options: {
   })
 }
 
-// SAFE: Ultra-stable hook for featured resources
+// SAFE: Enhanced featured resources with better error handling
 export function useFeaturedResources(limit: number = 3, options: {
   enabled?: boolean
 } = {}) {
@@ -241,28 +355,42 @@ export function useFeaturedResources(limit: number = 3, options: {
 
   return useQuery({
     queryKey: resourcesQueryKeys.featured(limit),
-    queryFn: async () => {
-      const response = await resourcesService.getFeaturedResources(limit, {
-        userRole: user?.role,
-        forceRefresh: false
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch featured resources')
+    queryFn: async (): Promise<Resource[]> => {
+      try {
+        console.log('🌟 useFeaturedResources: Fetching featured resources...')
+        
+        const response = await resourcesService.getFeaturedResources(limit, {
+          userRole: user?.role,
+          forceRefresh: false
+        })
+        
+        console.log('📡 useFeaturedResources: Service response:', response)
+        
+        if (!response.success) {
+          console.error('❌ useFeaturedResources: Service error:', response.message)
+          return []
+        }
+        
+        const featuredResources = Array.isArray(response.data) ? response.data : []
+        console.log('✅ useFeaturedResources: Processed resources:', featuredResources.length)
+        return featuredResources
+      } catch (error) {
+        console.error('❌ useFeaturedResources: Error:', error)
+        return [] // Return empty array instead of throwing
       }
-      // SAFE ACCESS: Always return array
-      return Array.isArray(response.data) ? response.data : []
     },
-    staleTime: 20 * 60 * 1000, // 20 minutes
-    gcTime: 40 * 60 * 1000, // 40 minutes
+    staleTime: 20 * 60 * 1000,
+    gcTime: 40 * 60 * 1000,
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false,
+    retry: false, // Don't retry to prevent console spam
   })
 }
 
-// SAFE: Ultra-stable hook for popular resources
+// SAFE: Enhanced popular resources
 export function usePopularResources(limit: number = 5, options: {
   enabled?: boolean
 } = {}) {
@@ -271,28 +399,42 @@ export function usePopularResources(limit: number = 5, options: {
 
   return useQuery({
     queryKey: resourcesQueryKeys.popular(limit),
-    queryFn: async () => {
-      const response = await resourcesService.getPopularResources(limit, {
-        userRole: user?.role,
-        forceRefresh: false
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch popular resources')
+    queryFn: async (): Promise<Resource[]> => {
+      try {
+        console.log('🔥 usePopularResources: Fetching popular resources...')
+        
+        const response = await resourcesService.getPopularResources(limit, {
+          userRole: user?.role,
+          forceRefresh: false
+        })
+        
+        console.log('📡 usePopularResources: Service response:', response)
+        
+        if (!response.success) {
+          console.error('❌ usePopularResources: Service error:', response.message)
+          return []
+        }
+        
+        const popularResources = Array.isArray(response.data) ? response.data : []
+        console.log('✅ usePopularResources: Processed resources:', popularResources.length)
+        return popularResources
+      } catch (error) {
+        console.error('❌ usePopularResources: Error:', error)
+        return []
       }
-      // SAFE ACCESS: Always return array
-      return Array.isArray(response.data) ? response.data : []
     },
-    staleTime: 20 * 60 * 1000, // 20 minutes
-    gcTime: 40 * 60 * 1000, // 40 minutes
+    staleTime: 20 * 60 * 1000,
+    gcTime: 40 * 60 * 1000,
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false,
+    retry: false,
   })
 }
 
-// SAFE: Ultra-stable hook for top rated resources
+// SAFE: Enhanced top rated resources
 export function useTopRatedResources(limit: number = 5, options: {
   enabled?: boolean
 } = {}) {
@@ -301,45 +443,72 @@ export function useTopRatedResources(limit: number = 5, options: {
 
   return useQuery({
     queryKey: resourcesQueryKeys.topRated(limit),
-    queryFn: async () => {
-      const response = await resourcesService.getTopRatedResources(limit, {
-        userRole: user?.role,
-        forceRefresh: false
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch top rated resources')
+    queryFn: async (): Promise<Resource[]> => {
+      try {
+        console.log('⭐ useTopRatedResources: Fetching top rated resources...')
+        
+        const response = await resourcesService.getTopRatedResources(limit, {
+          userRole: user?.role,
+          forceRefresh: false
+        })
+        
+        console.log('📡 useTopRatedResources: Service response:', response)
+        
+        if (!response.success) {
+          console.error('❌ useTopRatedResources: Service error:', response.message)
+          return []
+        }
+        
+        const topRatedResources = Array.isArray(response.data) ? response.data : []
+        console.log('✅ useTopRatedResources: Processed resources:', topRatedResources.length)
+        return topRatedResources
+      } catch (error) {
+        console.error('❌ useTopRatedResources: Error:', error)
+        return []
       }
-      // SAFE ACCESS: Always return array
-      return Array.isArray(response.data) ? response.data : []
     },
-    staleTime: 20 * 60 * 1000, // 20 minutes
-    gcTime: 40 * 60 * 1000, // 40 minutes
+    staleTime: 20 * 60 * 1000,
+    gcTime: 40 * 60 * 1000,
     enabled: enabled && !!user,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
     refetchOnMount: false,
+    retry: false,
   })
 }
 
-// FIXED: Enhanced hook for accessing resources (tracking usage) with proper error handling
+// ENHANCED: Resource access with proper error handling
 export function useResourceAccess() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (resourceId: number) => {
-      const response = await resourcesService.accessResource(resourceId, {
-        userRole: user?.role
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to access resource')
+      try {
+        console.log('🔗 useResourceAccess: Accessing resource:', resourceId)
+        
+        const response = await resourcesService.accessResource(resourceId, {
+          userRole: user?.role
+        })
+        
+        console.log('📡 useResourceAccess: Service response:', response)
+        
+        if (!response.success) {
+          throw new Error(response.message || 'Failed to access resource')
+        }
+        
+        return response.data
+      } catch (error) {
+        console.error('❌ useResourceAccess: Error:', error)
+        throw error
       }
-      return response.data
     },
     onSuccess: (data, resourceId) => {
+      console.log('✅ useResourceAccess: Success:', data)
+      
       if (data) {
-        // Update resource view/download counts in cache
+        // Update resource counts in cache
         queryClient.setQueryData(resourcesQueryKeys.resource(resourceId), (oldData: any) => {
           if (!oldData) return oldData
 
@@ -356,12 +525,13 @@ export function useResourceAccess() {
           }
         })
 
-        // Selectively invalidate only necessary queries - not all resources
+        // Selectively invalidate only necessary queries
         queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.popular() })
         queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.stats() })
       }
     },
     onError: (error: Error) => {
+      console.error('❌ useResourceAccess: Mutation error:', error)
       toast.error(error.message || 'Failed to access resource')
     },
   })
@@ -413,35 +583,66 @@ export function useResourceFeedback() {
   })
 }
 
-// FIXED: Enhanced hook for bookmarking resources
+// CRITICAL FIX: Enhanced bookmark state management with user-specific tracking
 export function useResourceBookmark() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (resourceId: number) => {
-      const response = await resourcesService.toggleBookmark(resourceId, {
-        userRole: user?.role
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to toggle bookmark')
+      try {
+        console.log('🔖 useResourceBookmark: Toggling bookmark for resource:', resourceId)
+        
+        const response = await resourcesService.toggleBookmark(resourceId, {
+          userRole: user?.role
+        })
+        
+        console.log('📡 useResourceBookmark: Service response:', response)
+        
+        if (!response.success) {
+          throw new Error(response.message || 'Failed to toggle bookmark')
+        }
+        
+        return { resourceId, bookmarked: response.data?.bookmarked }
+      } catch (error) {
+        console.error('❌ useResourceBookmark: Error:', error)
+        throw error
       }
-      return { resourceId, bookmarked: response.data?.bookmarked }
     },
     onSuccess: (data) => {
+      console.log('✅ useResourceBookmark: Success:', data)
+      
       // Invalidate bookmarks query to refresh the list
       queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.bookmarks() })
+      
+      // Update specific resource in cache if available
+      queryClient.setQueryData(
+        resourcesQueryKeys.resource(data.resourceId),
+        (oldData: any) => {
+          if (oldData?.resource) {
+            return {
+              ...oldData,
+              resource: {
+                ...oldData.resource,
+                is_bookmarked: data.bookmarked
+              }
+            }
+          }
+          return oldData
+        }
+      )
 
       const message = data.bookmarked ? 'Resource bookmarked!' : 'Bookmark removed'
       toast.success(message)
     },
     onError: (error: Error) => {
+      console.error('❌ useResourceBookmark: Mutation error:', error)
       toast.error(error.message || 'Failed to update bookmark')
     },
   })
 }
 
-// CRITICAL FIX: OPTIMIZED DASHBOARD HOOK - NO CONSTANT RELOADING with SAFE data access
+// CRITICAL FIX: Enhanced dashboard hook with better data coordination and proper types
 export function useResourcesDashboard(options: {
   enabled?: boolean
 } = {}) {
@@ -454,7 +655,7 @@ export function useResourcesDashboard(options: {
   const topRatedQuery = useTopRatedResources(5, { enabled })
   const statsQuery = useResourceStats({ enabled })
 
-  // Only show loading for initial load
+  // Enhanced loading state - only show loading for initial load
   const isLoading = (categoriesQuery.isLoading && !categoriesQuery.data) || 
                    (featuredQuery.isLoading && !featuredQuery.data) || 
                    (popularQuery.isLoading && !popularQuery.data) || 
@@ -468,6 +669,7 @@ export function useResourcesDashboard(options: {
                 statsQuery.error
 
   const refetch = useCallback(() => {
+    console.log('🔄 useResourcesDashboard: Refetching all data...')
     categoriesQuery.refetch()
     featuredQuery.refetch()
     popularQuery.refetch()
@@ -475,8 +677,8 @@ export function useResourcesDashboard(options: {
     statsQuery.refetch()
   }, [categoriesQuery, featuredQuery, popularQuery, topRatedQuery, statsQuery])
 
-  // Force refresh with cache clearing - only when explicitly requested
   const forceRefresh = useCallback(async () => {
+    console.log('🔄 useResourcesDashboard: Force refreshing with cache clear...')
     // Clear cache first
     resourcesService.clearCache()
     
@@ -490,19 +692,40 @@ export function useResourcesDashboard(options: {
     ])
   }, [categoriesQuery, featuredQuery, popularQuery, topRatedQuery, statsQuery])
 
-  // SAFE ACCESS: Always return arrays, never undefined
-  return {
-    categories: Array.isArray(categoriesQuery.data) ? categoriesQuery.data : [],
-    featured: Array.isArray(featuredQuery.data) ? featuredQuery.data : [],
-    popular: Array.isArray(popularQuery.data) ? popularQuery.data : [],
-    topRated: Array.isArray(topRatedQuery.data) ? topRatedQuery.data : [],
-    stats: statsQuery.data,
+  // CRITICAL FIX: Always return arrays with proper typing, never undefined
+  const result = {
+    categories: categoriesQuery.data || [],
+    featured: featuredQuery.data || [],
+    popular: popularQuery.data || [],
+    topRated: topRatedQuery.data || [],
+    stats: statsQuery.data || {
+      total_resources: 0,
+      total_categories: 0,
+      most_popular_resource: null,
+      highest_rated_resource: null,
+      most_downloaded_resource: null,
+      resources_by_type: {},
+      resources_by_difficulty: {},
+      categories_with_counts: []
+    },
     isLoading,
     error,
     refetch,
     forceRefresh,
     hasData: !!(categoriesQuery.data || featuredQuery.data || popularQuery.data || topRatedQuery.data),
   }
+
+  console.log('📊 useResourcesDashboard: Current state:', {
+    categoriesCount: result.categories.length,
+    featuredCount: result.featured.length,
+    popularCount: result.popular.length,
+    topRatedCount: result.topRated.length,
+    totalResources: result.stats.total_resources,
+    isLoading: result.isLoading,
+    hasData: result.hasData
+  })
+
+  return result
 }
 
 // OPTIMIZED resource filtering with stable state management
@@ -686,6 +909,8 @@ export function useRecentResourceSearches() {
       }
     }
   }, [user?.id])
+
+  // hooks/use-resources.ts (FINAL PART - All TypeScript errors resolved)
 
   return {
     recentSearches,

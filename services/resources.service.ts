@@ -1,4 +1,4 @@
-// services/resources.service.ts (FIXED - Enhanced response parsing like help service)
+// services/resources.service.ts (FIXED - Enhanced response parsing and proper interfaces)
 
 import { apiClient, type StandardizedApiResponse } from '@/lib/api'
 
@@ -99,12 +99,13 @@ export interface BookmarksResponse {
   }
 }
 
+// CRITICAL FIX: Updated ResourceStats interface to match backend response
 export interface ResourceStats {
   total_resources: number
   total_categories: number
-  most_popular_resource?: Pick<Resource, 'id' | 'title' | 'view_count' | 'type'>
-  highest_rated_resource?: Pick<Resource, 'id' | 'title' | 'rating' | 'type'>
-  most_downloaded_resource?: Pick<Resource, 'id' | 'title' | 'download_count' | 'type'>
+  most_popular_resource?: Pick<Resource, 'id' | 'title' | 'view_count' | 'type'> | null
+  highest_rated_resource?: Pick<Resource, 'id' | 'title' | 'rating' | 'type'> | null
+  most_downloaded_resource?: Pick<Resource, 'id' | 'title' | 'download_count' | 'type'> | null
   resources_by_type: Record<string, number>
   resources_by_difficulty: Record<string, number>
   categories_with_counts: Pick<ResourceCategory, 'id' | 'name' | 'slug' | 'color'>[]
@@ -597,10 +598,11 @@ class ResourcesService {
     }
   }
 
+  // CRITICAL FIX: Updated getStats method to return ResourceStats directly
   async getStats(options: {
     userRole?: string
     forceRefresh?: boolean
-  } = {}): Promise<StandardizedApiResponse<{ stats: ResourceStats }>> {
+  } = {}): Promise<StandardizedApiResponse<ResourceStats>> {
     const { userRole, forceRefresh = false } = options
     const cacheKey = this.getCacheKey('/resources/stats', { userRole })
 
@@ -615,7 +617,7 @@ class ResourcesService {
     }
 
     try {
-      const response = await apiClient.get<{ stats: ResourceStats }>('/resources/stats')
+      const response = await apiClient.get<ResourceStats>('/resources/stats')
 
       if (response.success) {
         this.setCache(cacheKey, response.data, this.STATS_TTL)
