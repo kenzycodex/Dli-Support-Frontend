@@ -596,7 +596,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 {dashboardLoading ? (
                   <Loader2 className="h-6 w-6 animate-spin" />
                 ) : (
-                  `${stats?.total_resources || 0}`
+                  `${resourcesData?.resources?.length || 0}`
                 )}
               </div>
               <div className="text-sm text-blue-100">Total Resources</div>
@@ -782,7 +782,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                                   </div>
                                   {resource.tags && resource.tags.length > 0 && (
                                     <div className="flex flex-wrap gap-1">
-                                      {resource.tags.slice(0, 2).map((tag, index) => (
+                                      {resource.tags.slice(0, 2).map((tag: string, index: number) => (
                                         <Badge key={index} variant="outline" className="text-xs">
                                           {tag}
                                         </Badge>
@@ -1476,7 +1476,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             <div className="space-y-2">
               <Label>Tags</Label>
               <div className="flex flex-wrap gap-2 mb-2">
-                {resourceForm.tags.map((tag, index) => (
+                {resourceForm.tags.map((tag: string, index: number) => (
                   <Badge key={index} variant="secondary" className="cursor-pointer" onClick={() => handleRemoveTag(tag)}>
                     {tag} ×
                   </Badge>

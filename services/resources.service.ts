@@ -38,6 +38,7 @@ export interface Resource {
   sort_order: number
   is_published: boolean
   is_featured: boolean
+  is_bookmarked: boolean
   created_by?: number
   updated_by?: number
   published_at?: string
