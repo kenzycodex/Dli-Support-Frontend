@@ -1,4 +1,4 @@
-// components/admin-help/dialogs/EditFAQDialog.tsx
+// components/admin-help/dialogs/EditFAQDialog.tsx - FIXED: Proper optional properties
 "use client"
 
 import { useCallback } from "react"
@@ -19,7 +19,17 @@ import {
 } from "@/components/ui/dialog"
 import { Edit, Loader2 } from "lucide-react"
 import type { HelpCategory } from "@/services/help.service"
-import { FAQFormData } from "@/types/admin-help"
+
+// FIXED: Interface with proper optional properties
+interface FAQFormData {
+  question: string;
+  answer: string;
+  category_id: string;
+  tags: string[];
+  is_published?: boolean;  // FIXED: Optional
+  is_featured?: boolean;   // FIXED: Optional
+  sort_order?: number;     // FIXED: Optional
+}
 
 interface EditFAQDialogProps {
   open: boolean
@@ -149,7 +159,7 @@ export function EditFAQDialog({
               <Input
                 id="edit-sort_order"
                 type="number"
-                value={formData.sort_order}
+                value={formData.sort_order || 0}
                 onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
                 min="0"
               />
@@ -158,7 +168,7 @@ export function EditFAQDialog({
               <div className="flex items-center space-x-2">
                 <Switch
                   id="edit-is_published"
-                  checked={formData.is_published}
+                  checked={formData.is_published || false}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_published: checked })}
                 />
                 <Label htmlFor="edit-is_published">Published</Label>
@@ -166,7 +176,7 @@ export function EditFAQDialog({
               <div className="flex items-center space-x-2">
                 <Switch
                   id="edit-is_featured"
-                  checked={formData.is_featured}
+                  checked={formData.is_featured || false}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_featured: checked })}
                 />
                 <Label htmlFor="edit-is_featured">Featured</Label>

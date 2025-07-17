@@ -1,4 +1,4 @@
-// components/admin-help/dialogs/EditCategoryDialog.tsx
+// components/admin-help/dialogs/EditCategoryDialog.tsx - FIXED: Proper optional properties
 "use client"
 
 import { Input } from "@/components/ui/input"
@@ -15,7 +15,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Edit, Loader2 } from "lucide-react"
-import { CategoryFormData } from "@/types/admin-help"
+
+// FIXED: Interface with proper optional properties
+interface CategoryFormData {
+  name: string;
+  description?: string;  // FIXED: Optional
+  icon?: string;         // FIXED: Optional
+  color?: string;        // FIXED: Optional
+  is_active?: boolean;   // FIXED: Optional
+  sort_order?: number;   // FIXED: Optional
+}
 
 interface EditCategoryDialogProps {
   open: boolean
@@ -60,7 +69,7 @@ export function EditCategoryDialog({
             <Label htmlFor="edit-category-description">Description</Label>
             <Textarea
               id="edit-category-description"
-              value={formData.description}
+              value={formData.description || ""}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Optional description..."
               maxLength={1000}
@@ -73,7 +82,7 @@ export function EditCategoryDialog({
               <Input
                 id="edit-category-color"
                 type="color"
-                value={formData.color}
+                value={formData.color || "#3B82F6"}
                 onChange={(e) => setFormData({ ...formData, color: e.target.value })}
               />
             </div>
@@ -82,7 +91,7 @@ export function EditCategoryDialog({
               <Input
                 id="edit-category-sort"
                 type="number"
-                value={formData.sort_order}
+                value={formData.sort_order || 0}
                 onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
                 min="0"
               />
@@ -92,7 +101,7 @@ export function EditCategoryDialog({
           <div className="flex items-center space-x-2">
             <Switch
               id="edit-category-active"
-              checked={formData.is_active}
+              checked={formData.is_active !== false}
               onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
             />
             <Label htmlFor="edit-category-active">Active</Label>

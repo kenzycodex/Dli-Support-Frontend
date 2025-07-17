@@ -1,4 +1,4 @@
-// components/admin-help/dialogs/CreateFAQDialog.tsx
+// components/admin-help/dialogs/CreateFAQDialog.tsx - FIXED: Proper optional properties
 'use client';
 
 import { useCallback } from 'react';
@@ -25,7 +25,17 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Loader2 } from 'lucide-react';
 import type { HelpCategory } from '@/services/help.service';
-import { FAQFormData } from '@/types/admin-help';
+
+// FIXED: Interface with proper optional properties
+interface FAQFormData {
+  question: string;
+  answer: string;
+  category_id: string;
+  tags: string[];
+  is_published?: boolean;  // FIXED: Optional
+  is_featured?: boolean;   // FIXED: Optional
+  sort_order?: number;     // FIXED: Optional
+}
 
 interface CreateFAQDialogProps {
   open: boolean;
@@ -163,7 +173,7 @@ export function CreateFAQDialog({
               <Input
                 id="sort_order"
                 type="number"
-                value={formData.sort_order}
+                value={formData.sort_order || 0}
                 onChange={(e) =>
                   setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })
                 }
@@ -174,7 +184,7 @@ export function CreateFAQDialog({
               <div className="flex items-center space-x-2">
                 <Switch
                   id="is_published"
-                  checked={formData.is_published}
+                  checked={formData.is_published || false}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_published: checked })}
                 />
                 <Label htmlFor="is_published">Publish immediately</Label>
@@ -182,7 +192,7 @@ export function CreateFAQDialog({
               <div className="flex items-center space-x-2">
                 <Switch
                   id="is_featured"
-                  checked={formData.is_featured}
+                  checked={formData.is_featured || false}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_featured: checked })}
                 />
                 <Label htmlFor="is_featured">Feature this FAQ</Label>
