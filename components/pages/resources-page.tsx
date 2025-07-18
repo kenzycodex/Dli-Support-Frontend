@@ -1,4 +1,4 @@
-// components/pages/resources-page.tsx (FIXED - Simple stats calculation and bookmark visual feedback)
+// components/pages/resources-page.tsx - FIXED: Following Help Center pattern, no freezing issues
 "use client"
 
 import React, { useState, useCallback, useMemo } from "react"
@@ -39,11 +39,19 @@ import {
   BarChart3,
   RefreshCw,
   Eye,
-  FileText
+  FileText,
+  AlertTriangle,
+  Search,
+  X
 } from "lucide-react"
 
-// Import hooks and components
-import { 
+// Import hooks following the help pattern
+import { useAuth } from "@/contexts/AuthContext"
+import { cn } from "@/lib/utils"
+import { toast } from 'sonner'
+
+// FIXED: Import the store-based hooks that match help pattern
+import {
   useResourcesDashboard,
   useResources,
   useResourceFilters,
@@ -53,26 +61,318 @@ import {
   useResourceAnalytics,
   useResourceUtils
 } from "@/hooks/use-resources"
+
+// Components
 import { ResourceRatingComponent } from "@/components/resources/resource-rating"
 import { BookmarkManagerComponent } from "@/components/resources/bookmark-manager"
 import { SearchWithSuggestions } from "@/components/common/search-with-suggestions"
-import { useAuth } from "@/contexts/AuthContext"
-import { cn } from "@/lib/utils"
-import type { Resource, ResourceCategory } from "@/services/resources.service"
-import { toast } from 'sonner'
+
+// Types
+import type { ResourceItem } from "@/stores/resources-store"
+import type { ResourceCategory } from "@/services/resources.service"
+
+// FIXED: Proper filter interface following help pattern
+interface ResourceFilters {
+  search?: string
+  category?: string
+  type?: string
+  difficulty?: string
+  sort_by?: string
+  page?: number
+  per_page?: number
+  featured?: boolean
+  include_drafts?: boolean
+}
 
 interface ResourcesPageProps {
   onNavigate?: (page: string, params?: any) => void
+}
+
+// FIXED: Resource Card component with proper event handling
+function ResourceCard({ 
+  resource, 
+  onResourceClick, 
+  onResourceAccess, 
+  onBookmarkToggle,
+  loadingStates,
+  getTypeIcon,
+  getTypeLabel,
+  getDifficultyColor,
+  formatDuration,
+  formatCount,
+  formatRatingDisplay
+}: {
+  resource: ResourceItem
+  onResourceClick: (resource: ResourceItem) => void
+  onResourceAccess: (resource: ResourceItem, e: React.MouseEvent) => void
+  onBookmarkToggle: (resource: ResourceItem, e: React.MouseEvent) => void
+  loadingStates: Record<number, string>
+  getTypeIcon: (type: string) => string
+  getTypeLabel: (type: string) => string
+  getDifficultyColor: (difficulty: string) => string
+  formatDuration: (duration?: string) => string
+  formatCount: (count: number | undefined | null) => string
+  formatRatingDisplay: (rating: any) => string
+}) {
+  const TypeIcon = useMemo(() => {
+    const iconName = getTypeIcon(resource.type)
+    const iconMap: Record<string, React.ComponentType<any>> = {
+      FileText,
+      Video,
+      Headphones,
+      Brain,
+      Heart,
+      Download,
+      BookOpen
+    }
+    return iconMap[iconName] || BookOpen
+  }, [resource.type, getTypeIcon])
+
+  const isLoading = loadingStates[resource.id]
+
+  return (
+    <Card className="hover:shadow-xl transition-all duration-300 border-0 shadow-md group cursor-pointer">
+      <CardContent className="p-4 sm:p-6" onClick={() => onResourceClick(resource)}>
+        <div className="space-y-3 sm:space-y-4">
+          {/* Header */}
+          <div className="flex items-start justify-between">
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <div className="p-2 bg-gray-100 rounded-lg group-hover:bg-gray-200 transition-colors">
+                <TypeIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+              </div>
+              <div className="flex flex-col space-y-1">
+                <Badge variant="outline" className="capitalize w-fit text-xs">
+                  {getTypeLabel(resource.type)}
+                </Badge>
+                {resource.is_featured && (
+                  <Badge className="bg-yellow-100 text-yellow-800 w-fit text-xs">Featured</Badge>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center space-x-1">
+              <Star className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500 fill-current" />
+              <span className="text-xs sm:text-sm font-medium">{formatRatingDisplay(resource.rating)}</span>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div>
+            <h3 className="font-semibold text-sm sm:text-lg mb-2 line-clamp-2">{resource.title}</h3>
+            <p className="text-gray-600 text-xs sm:text-sm leading-relaxed line-clamp-2 sm:line-clamp-3">
+              {resource.description}
+            </p>
+          </div>
+
+          {/* Metadata */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Badge className={getDifficultyColor(resource.difficulty)}>
+                {resource.difficulty}
+              </Badge>
+              <div className="flex items-center space-x-1 text-xs text-gray-500">
+                <Download className="h-3 w-3" />
+                <span>{formatCount(resource.download_count)}</span>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 text-xs text-gray-500">
+              <Clock className="h-3 w-3" />
+              <span>{formatDuration(resource.duration)}</span>
+              <span>•</span>
+              <span className="truncate">{resource.author_name}</span>
+            </div>
+          </div>
+
+          {/* Tags */}
+          <div className="flex flex-wrap gap-1">
+            {resource.tags?.slice(0, 2).map((tag: string) => (
+              <Badge key={tag} variant="secondary" className="text-xs">
+                {tag}
+              </Badge>
+            ))}
+            {resource.tags && resource.tags.length > 2 && (
+              <Badge variant="secondary" className="text-xs">
+                +{resource.tags.length - 2}
+              </Badge>
+            )}
+          </div>
+
+          {/* FIXED: Actions with proper event handling */}
+          <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
+            <Button 
+              className="flex-1 text-xs sm:text-sm" 
+              size="sm"
+              onClick={(e) => onResourceAccess(resource, e)}
+              disabled={!!isLoading}
+            >
+              {resource.type === "video" && <Play className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
+              {resource.type === "worksheet" && <Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
+              {resource.type === "tool" && <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
+              {isLoading === 'accessing' ? (
+                <>
+                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                'Access'
+              )}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={(e) => onBookmarkToggle(resource, e)}
+              disabled={!!isLoading}
+              className="px-2 sm:px-3"
+            >
+              {isLoading === 'bookmarking' ? (
+                <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
+              ) : (
+                <Bookmark className={cn(
+                  "h-3 w-3 sm:h-4 sm:w-4",
+                  resource.is_bookmarked ? "fill-current text-black" : "text-gray-500"
+                )} />
+              )}
+            </Button>
+            <Button variant="outline" size="sm" className="px-2 sm:px-3">
+              <Share className="h-3 w-3 sm:h-4 sm:w-4" />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// FIXED: Resource List Item with proper event handling
+function ResourceListItem({ 
+  resource, 
+  onResourceClick, 
+  onResourceAccess, 
+  onBookmarkToggle,
+  loadingStates,
+  getTypeIcon,
+  getTypeLabel,
+  getDifficultyColor,
+  formatDuration,
+  formatCount
+}: {
+  resource: ResourceItem
+  onResourceClick: (resource: ResourceItem) => void
+  onResourceAccess: (resource: ResourceItem, e: React.MouseEvent) => void
+  onBookmarkToggle: (resource: ResourceItem, e: React.MouseEvent) => void
+  loadingStates: Record<number, string>
+  getTypeIcon: (type: string) => string
+  getTypeLabel: (type: string) => string
+  getDifficultyColor: (difficulty: string) => string
+  formatDuration: (duration?: string) => string
+  formatCount: (count: number | undefined | null) => string
+}) {
+  const TypeIcon = useMemo(() => {
+    const iconName = getTypeIcon(resource.type)
+    const iconMap: Record<string, React.ComponentType<any>> = {
+      FileText,
+      Video,
+      Headphones,
+      Brain,
+      Heart,
+      Download,
+      BookOpen
+    }
+    return iconMap[iconName] || BookOpen
+  }, [resource.type, getTypeIcon])
+
+  const isLoading = loadingStates[resource.id]
+
+  return (
+    <Card className="hover:shadow-md transition-all duration-200 cursor-pointer">
+      <CardContent className="p-3 sm:p-4" onClick={() => onResourceClick(resource)}>
+        <div className="flex items-center space-x-3 sm:space-x-4">
+          {/* Icon */}
+          <div className="p-2 bg-gray-100 rounded-lg flex-shrink-0">
+            <TypeIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex-1 min-w-0">
+                <h3 className="font-medium text-sm sm:text-lg truncate">{resource.title}</h3>
+                <p className="text-gray-600 text-xs sm:text-sm line-clamp-1 sm:line-clamp-2 mt-1">
+                  {resource.description}
+                </p>
+              </div>
+              
+              <div className="flex items-center space-x-2 mt-2 sm:mt-0 sm:ml-4 flex-shrink-0">
+                <Badge variant="outline" className="capitalize text-xs">
+                  {getTypeLabel(resource.type)}
+                </Badge>
+                <Badge className={getDifficultyColor(resource.difficulty)}>
+                  {resource.difficulty}
+                </Badge>
+                <div className="flex items-center space-x-1">
+                  <Star className="h-3 w-3 text-yellow-500 fill-current" />
+                  <span className="text-xs font-medium">{resource.rating}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-3 space-y-2 sm:space-y-0">
+              <div className="flex items-center space-x-4 text-xs text-gray-500">
+                <div className="flex items-center space-x-1">
+                  <Clock className="h-3 w-3" />
+                  <span>{formatDuration(resource.duration)}</span>
+                </div>
+                <span>{formatCount(resource.view_count)} views</span>
+                <span className="truncate">{resource.author_name}</span>
+              </div>
+              
+              <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                <Button 
+                  size="sm"
+                  onClick={(e) => onResourceAccess(resource, e)}
+                  disabled={!!isLoading}
+                  className="text-xs"
+                >
+                  {isLoading === 'accessing' ? (
+                    <>
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    'Access'
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => onBookmarkToggle(resource, e)}
+                  disabled={!!isLoading}
+                >
+                  {isLoading === 'bookmarking' ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Bookmark className={cn(
+                      "h-3 w-3",
+                      resource.is_bookmarked ? "fill-current text-black" : "text-gray-500"
+                    )} />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
   const { user } = useAuth()
   const [selectedTab, setSelectedTab] = useState("browse")
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
+  const [selectedResource, setSelectedResource] = useState<ResourceItem | null>(null)
   const [loadingStates, setLoadingStates] = useState<Record<number, string>>({})
   
-  // Resource filtering and search
+  // FIXED: Use proper filter hooks following help pattern
   const { filters, updateFilter, clearFilters, hasActiveFilters } = useResourceFilters()
   const { 
     recentSearches, 
@@ -95,7 +395,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
     formatRatingDisplay
   } = useResourceUtils()
   
-  // Data fetching with stable caching
+  // FIXED: Data fetching with proper hook usage
   const {
     categories,
     featured,
@@ -105,19 +405,23 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
     isLoading: dashboardLoading,
     error: dashboardError,
     refetch: refetchDashboard,
-    hasData
-  } = useResourcesDashboard()
+    hasData,
+    forceRefresh
+  } = useResourcesDashboard({ enabled: true })
   
+  // FIXED: Resources query using the updated hook
   const {
-    data: resourcesData,
+    resources,
     isLoading: resourcesLoading,
     error: resourcesError,
-    refetch: refetchResources
-  } = useResources(filters)
+    refetch: refetchResources,
+    totalCount,
+    publishedCount
+  } = useResources(filters, { enabled: true })
 
-  // Mutations with individual loading states
-  const accessMutation = useResourceAccess()
-  const bookmarkMutation = useResourceBookmark()
+  // FIXED: Mutations with proper hook usage
+  const { access: accessResource, isLoading: accessLoading } = useResourceAccess()
+  const { toggle: toggleBookmark, isLoading: bookmarkLoading } = useResourceBookmark()
 
   // Role-based permissions
   const canManageResources = useMemo(() => user?.role === 'admin', [user?.role])
@@ -125,17 +429,14 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
     user?.role === 'counselor' || user?.role === 'admin', [user?.role]
   )
 
-  // FIXED: Simple calculation for total resources
-  const totalResourcesCount = useMemo(() => {
-    return resourcesData?.resources?.length || 0
-  }, [resourcesData?.resources])
-
-  // Enhanced refresh - only when explicitly requested
+  // FIXED: Enhanced refresh - only when explicitly requested
   const handleRefresh = useCallback(async () => {
     try {
+      console.log('🔄 ResourcesPage: Manual refresh triggered')
       await Promise.all([refetchDashboard(), refetchResources()])
       toast.success('Resources refreshed successfully')
     } catch (error) {
+      console.error('❌ ResourcesPage: Refresh failed:', error)
       toast.error('Failed to refresh resources')
     }
   }, [refetchDashboard, refetchResources])
@@ -152,9 +453,9 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
     
     if (query.trim()) {
       addRecentSearch(query)
-      trackResourceSearch(query, resourcesData?.resources?.length || 0)
+      trackResourceSearch(query, resources?.length || 0)
     }
-  }, [updateFilter, addRecentSearch, trackResourceSearch, resourcesData])
+  }, [updateFilter, addRecentSearch, trackResourceSearch, resources])
 
   const handleCategorySelect = useCallback((categorySlug: string) => {
     const category = categories.find((c: ResourceCategory) => c.slug === categorySlug)
@@ -165,7 +466,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
   }, [categories, updateFilter, trackResourceCategoryClick])
 
   // FIXED: Handle resource access with proper loading state
-  const handleResourceAccess = useCallback(async (resource: Resource, event: React.MouseEvent) => {
+  const handleResourceAccess = useCallback(async (resource: ResourceItem, event: React.MouseEvent) => {
     event.stopPropagation()
     event.preventDefault()
     
@@ -175,7 +476,8 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
     try {
       trackResourceView(resource.id, resource.title, resource.type)
       
-      const result = await accessMutation.mutateAsync(resource.id)
+      // FIXED: Use the returned function directly
+      const result = await accessResource(resource.id)
       
       if (result && result.url) {
         trackResourceAccess(resource.id, resource.title, resource.type, result.action)
@@ -188,6 +490,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
         }
       }
     } catch (error) {
+      console.error('❌ ResourcesPage: Resource access failed:', error)
       toast.error('Failed to access resource')
     } finally {
       // Clear loading state for this resource
@@ -197,10 +500,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
         return newStates
       })
     }
-  }, [accessMutation, trackResourceView, trackResourceAccess])
+  }, [accessResource, trackResourceView, trackResourceAccess])
 
   // FIXED: Handle bookmark toggle with proper loading state
-  const handleBookmarkToggle = useCallback(async (resource: Resource, event: React.MouseEvent) => {
+  const handleBookmarkToggle = useCallback(async (resource: ResourceItem, event: React.MouseEvent) => {
     event.stopPropagation()
     event.preventDefault()
     
@@ -208,9 +511,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
     setLoadingStates(prev => ({ ...prev, [resource.id]: 'bookmarking' }))
     
     try {
-      await bookmarkMutation.mutateAsync(resource.id)
+      // FIXED: Use the returned function directly
+      await toggleBookmark(resource.id)
     } catch (error) {
-      // Error handling is done in the mutation
+      console.error('❌ ResourcesPage: Bookmark toggle failed:', error)
     } finally {
       // Clear loading state for this resource
       setLoadingStates(prev => {
@@ -219,241 +523,12 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
         return newStates
       })
     }
-  }, [bookmarkMutation])
+  }, [toggleBookmark])
 
-  const handleResourceClick = useCallback((resource: Resource) => {
+  const handleResourceClick = useCallback((resource: ResourceItem) => {
     setSelectedResource(resource)
     trackResourceView(resource.id, resource.title, resource.type)
   }, [trackResourceView])
-
-  const ResourceCard = ({ resource }: { resource: Resource }) => {
-    const TypeIcon = useMemo(() => {
-      const iconName = getTypeIcon(resource.type)
-      const iconMap: Record<string, React.ComponentType<any>> = {
-        FileText,
-        Video,
-        Headphones,
-        Brain,
-        Heart,
-        Download,
-        BookOpen
-      }
-      return iconMap[iconName] || BookOpen
-    }, [resource.type])
-
-    const isLoading = loadingStates[resource.id]
-
-    return (
-      <Card className="hover:shadow-xl transition-all duration-300 border-0 shadow-md group cursor-pointer">
-        <CardContent className="p-4 sm:p-6" onClick={() => handleResourceClick(resource)}>
-          <div className="space-y-3 sm:space-y-4">
-            {/* Header */}
-            <div className="flex items-start justify-between">
-              <div className="flex items-center space-x-2 sm:space-x-3">
-                <div className="p-2 bg-gray-100 rounded-lg group-hover:bg-gray-200 transition-colors">
-                  <TypeIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
-                </div>
-                <div className="flex flex-col space-y-1">
-                  <Badge variant="outline" className="capitalize w-fit text-xs">
-                    {getTypeLabel(resource.type)}
-                  </Badge>
-                  {resource.is_featured && (
-                    <Badge className="bg-yellow-100 text-yellow-800 w-fit text-xs">Featured</Badge>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center space-x-1">
-                <Star className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500 fill-current" />
-                <span className="text-xs sm:text-sm font-medium">{formatRatingDisplay(resource.rating)}</span>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div>
-              <h3 className="font-semibold text-sm sm:text-lg mb-2 line-clamp-2">{resource.title}</h3>
-              <p className="text-gray-600 text-xs sm:text-sm leading-relaxed line-clamp-2 sm:line-clamp-3">
-                {resource.description}
-              </p>
-            </div>
-
-            {/* Metadata */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Badge className={getDifficultyColor(resource.difficulty)}>
-                  {resource.difficulty}
-                </Badge>
-                <div className="flex items-center space-x-1 text-xs text-gray-500">
-                  <Download className="h-3 w-3" />
-                  <span>{formatCount(resource.download_count)}</span>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2 text-xs text-gray-500">
-                <Clock className="h-3 w-3" />
-                <span>{formatDuration(resource.duration)}</span>
-                <span>•</span>
-                <span className="truncate">{resource.author_name}</span>
-              </div>
-            </div>
-
-            {/* Tags */}
-            <div className="flex flex-wrap gap-1">
-              {resource.tags?.slice(0, 2).map((tag: string) => (
-                <Badge key={tag} variant="secondary" className="text-xs">
-                  {tag}
-                </Badge>
-              ))}
-              {resource.tags && resource.tags.length > 2 && (
-                <Badge variant="secondary" className="text-xs">
-                  +{resource.tags.length - 2}
-                </Badge>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="flex space-x-2">
-              <Button 
-                className="flex-1 text-xs sm:text-sm" 
-                size="sm"
-                onClick={(e) => handleResourceAccess(resource, e)}
-                disabled={!!isLoading}
-              >
-                {resource.type === "video" && <Play className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
-                {resource.type === "worksheet" && <Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
-                {resource.type === "tool" && <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />}
-                {isLoading === 'accessing' ? (
-                  <>
-                    <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  'Access'
-                )}
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={(e) => handleBookmarkToggle(resource, e)}
-                disabled={!!isLoading}
-                className="px-2 sm:px-3"
-              >
-                {isLoading === 'bookmarking' ? (
-                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-                ) : (
-                  <Bookmark className={cn(
-                    "h-3 w-3 sm:h-4 sm:w-4",
-                    resource.is_bookmarked ? "fill-current text-black" : "text-gray-500"
-                  )} />
-                )}
-              </Button>
-              <Button variant="outline" size="sm" className="px-2 sm:px-3">
-                <Share className="h-3 w-3 sm:h-4 sm:w-4" />
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  const ResourceListItem = ({ resource }: { resource: Resource }) => {
-    const TypeIcon = useMemo(() => {
-      const iconName = getTypeIcon(resource.type)
-      const iconMap: Record<string, React.ComponentType<any>> = {
-        FileText,
-        Video,
-        Headphones,
-        Brain,
-        Heart,
-        Download,
-        BookOpen
-      }
-      return iconMap[iconName] || BookOpen
-    }, [resource.type])
-
-    const isLoading = loadingStates[resource.id]
-
-    return (
-      <Card className="hover:shadow-md transition-all duration-200 cursor-pointer">
-        <CardContent className="p-3 sm:p-4" onClick={() => handleResourceClick(resource)}>
-          <div className="flex items-center space-x-3 sm:space-x-4">
-            {/* Icon */}
-            <div className="p-2 bg-gray-100 rounded-lg flex-shrink-0">
-              <TypeIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-sm sm:text-lg truncate">{resource.title}</h3>
-                  <p className="text-gray-600 text-xs sm:text-sm line-clamp-1 sm:line-clamp-2 mt-1">
-                    {resource.description}
-                  </p>
-                </div>
-                
-                <div className="flex items-center space-x-2 mt-2 sm:mt-0 sm:ml-4 flex-shrink-0">
-                  <Badge variant="outline" className="capitalize text-xs">
-                    {getTypeLabel(resource.type)}
-                  </Badge>
-                  <Badge className={getDifficultyColor(resource.difficulty)}>
-                    {resource.difficulty}
-                  </Badge>
-                  <div className="flex items-center space-x-1">
-                    <Star className="h-3 w-3 text-yellow-500 fill-current" />
-                    <span className="text-xs font-medium">{resource.rating}</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-3 space-y-2 sm:space-y-0">
-                <div className="flex items-center space-x-4 text-xs text-gray-500">
-                  <div className="flex items-center space-x-1">
-                    <Clock className="h-3 w-3" />
-                    <span>{formatDuration(resource.duration)}</span>
-                  </div>
-                  <span>{formatCount(resource.view_count)} views</span>
-                  <span className="truncate">{resource.author_name}</span>
-                </div>
-                
-                <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                  <Button 
-                    size="sm"
-                    onClick={(e) => handleResourceAccess(resource, e)}
-                    disabled={!!isLoading}
-                    className="text-xs"
-                  >
-                    {isLoading === 'accessing' ? (
-                      <>
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                        Loading...
-                      </>
-                    ) : (
-                      'Access'
-                    )}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => handleBookmarkToggle(resource, e)}
-                    disabled={!!isLoading}
-                  >
-                    {isLoading === 'bookmarking' ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Bookmark className={cn(
-                        "h-3 w-3",
-                        resource.is_bookmarked ? "fill-current text-black" : "text-gray-500"
-                      )} />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
 
   // Loading skeleton for initial load only
   if (dashboardLoading && !hasData) {
@@ -559,11 +634,11 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             </div>
           </div>
           
-          {/* FIXED: Stats Grid - Using simple calculation */}
+          {/* FIXED: Stats Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mt-6">
             <div className="bg-white/10 rounded-lg p-3 sm:p-4 backdrop-blur-sm border border-white/10">
               <div className="text-xl sm:text-2xl font-bold">
-                {totalResourcesCount}
+                {totalCount || 0}
               </div>
               <div className="text-xs sm:text-sm text-indigo-100">Total Resources</div>
             </div>
@@ -580,6 +655,27 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
           </div>
         </div>
       </div>
+
+      {/* Error State */}
+      {(dashboardError || resourcesError) && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <div>
+                <h4 className="font-medium text-red-800">Data Loading Error</h4>
+                <p className="text-sm text-red-700">
+                  Some data couldn't be loaded. Please try refreshing.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleRefresh}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Featured Resources - STABLE */}
       {featured.length > 0 && (
@@ -605,8 +701,21 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {featured.map((resource: Resource) => (
-                <ResourceCard key={resource.id} resource={resource} />
+              {featured.map((resource: ResourceItem) => (
+                <ResourceCard 
+                  key={resource.id} 
+                  resource={resource}
+                  onResourceClick={handleResourceClick}
+                  onResourceAccess={handleResourceAccess}
+                  onBookmarkToggle={handleBookmarkToggle}
+                  loadingStates={loadingStates}
+                  getTypeIcon={getTypeIcon}
+                  getTypeLabel={getTypeLabel}
+                  getDifficultyColor={getDifficultyColor}
+                  formatDuration={formatDuration}
+                  formatCount={formatCount}
+                  formatRatingDisplay={formatRatingDisplay}
+                />
               ))}
             </div>
           </CardContent>
@@ -622,7 +731,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             onSearch={handleSearch}
             placeholder="Search resources..."
             recentSearches={recentSearches}
-            popularSearches={popular.map((r: Resource) => r.title)}
+            popularSearches={popular.map((r: ResourceItem) => r.title)}
             onRecentSearchRemove={removeRecentSearch}
             onClearRecentSearches={clearRecentSearches}
             isLoading={resourcesLoading}
@@ -729,6 +838,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                   
                   {hasActiveFilters && (
                     <Button variant="outline" onClick={clearFilters} size="sm">
+                      <X className="h-4 w-4 mr-2" />
                       Clear Filters
                     </Button>
                   )}
@@ -741,14 +851,14 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
           <div className="space-y-4 sm:space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
               <h2 className="text-xl sm:text-2xl font-bold">All Resources</h2>
-              {resourcesData && (
+              {resources && (
                 <Badge variant="secondary" className="text-sm sm:text-lg px-2 sm:px-3 py-1">
-                  {resourcesData.resources.length} resources found
+                  {resources.length} resources found
                 </Badge>
               )}
             </div>
 
-            {resourcesLoading && !resourcesData ? (
+            {resourcesLoading && !resources ? (
               <div className="space-y-4">
                 {[...Array(6)].map((_, i) => (
                   <div key={i} className="animate-pulse">
@@ -770,16 +880,41 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                   </div>
                 </CardContent>
               </Card>
-            ) : resourcesData && resourcesData.resources.length > 0 ? (
+            ) : resources && resources.length > 0 ? (
               <div className={cn(
                 viewMode === 'grid' 
                   ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
                   : "space-y-3 sm:space-y-4"
               )}>
-                {resourcesData.resources.map((resource: Resource) => (
+                {resources.map((resource: ResourceItem) => (
                   viewMode === 'grid' 
-                    ? <ResourceCard key={resource.id} resource={resource} />
-                    : <ResourceListItem key={resource.id} resource={resource} />
+                    ? <ResourceCard 
+                        key={resource.id} 
+                        resource={resource}
+                        onResourceClick={handleResourceClick}
+                        onResourceAccess={handleResourceAccess}
+                        onBookmarkToggle={handleBookmarkToggle}
+                        loadingStates={loadingStates}
+                        getTypeIcon={getTypeIcon}
+                        getTypeLabel={getTypeLabel}
+                        getDifficultyColor={getDifficultyColor}
+                        formatDuration={formatDuration}
+                        formatCount={formatCount}
+                        formatRatingDisplay={formatRatingDisplay}
+                      />
+                    : <ResourceListItem 
+                        key={resource.id} 
+                        resource={resource}
+                        onResourceClick={handleResourceClick}
+                        onResourceAccess={handleResourceAccess}
+                        onBookmarkToggle={handleBookmarkToggle}
+                        loadingStates={loadingStates}
+                        getTypeIcon={getTypeIcon}
+                        getTypeLabel={getTypeLabel}
+                        getDifficultyColor={getDifficultyColor}
+                        formatDuration={formatDuration}
+                        formatCount={formatCount}
+                      />
                 ))}
               </div>
             ) : (
@@ -819,8 +954,21 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             </CardHeader>
             <CardContent className="p-4 sm:p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                {topRated.map((resource: Resource) => (
-                  <ResourceCard key={resource.id} resource={resource} />
+                {topRated.map((resource: ResourceItem) => (
+                  <ResourceCard 
+                    key={resource.id} 
+                    resource={resource}
+                    onResourceClick={handleResourceClick}
+                    onResourceAccess={handleResourceAccess}
+                    onBookmarkToggle={handleBookmarkToggle}
+                    loadingStates={loadingStates}
+                    getTypeIcon={getTypeIcon}
+                    getTypeLabel={getTypeLabel}
+                    getDifficultyColor={getDifficultyColor}
+                    formatDuration={formatDuration}
+                    formatCount={formatCount}
+                    formatRatingDisplay={formatRatingDisplay}
+                  />
                 ))}
               </div>
             </CardContent>
@@ -837,8 +985,21 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             </CardHeader>
             <CardContent className="p-4 sm:p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                {popular.map((resource: Resource) => (
-                  <ResourceCard key={resource.id} resource={resource} />
+                {popular.map((resource: ResourceItem) => (
+                  <ResourceCard 
+                    key={resource.id} 
+                    resource={resource}
+                    onResourceClick={handleResourceClick}
+                    onResourceAccess={handleResourceAccess}
+                    onBookmarkToggle={handleBookmarkToggle}
+                    loadingStates={loadingStates}
+                    getTypeIcon={getTypeIcon}
+                    getTypeLabel={getTypeLabel}
+                    getDifficultyColor={getDifficultyColor}
+                    formatDuration={formatDuration}
+                    formatCount={formatCount}
+                    formatRatingDisplay={formatRatingDisplay}
+                  />
                 ))}
               </div>
             </CardContent>

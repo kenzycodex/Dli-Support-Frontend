@@ -1,648 +1,651 @@
-// hooks/use-resources.ts (FIXED - All TypeScript errors resolved)
+// hooks/use-resources.ts - FIXED: API validation issues and pagination
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAuth } from '@/contexts/AuthContext'
-import {
-  resourcesService,
-  type Resource,
-  type ResourceCategory,
-  type ResourceFilters,
-} from '@/services/resources.service'
-import { useCallback, useMemo, useState } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import useResourcesStore, {
+  useResourcesSelectors,
+  useResourcesActions,
+  useResourcesLoading,
+  useResourcesErrors,
+  useResourcesFilters,
+  useResourcesStats,
+  type ResourceItem,
+  type ResourceBookmark,
+} from '@/stores/resources-store';
+import type { Resource, ResourceCategory, ResourceFilters } from '@/services/resources.service';
+import { resourcesService } from '@/services/resources.service';
 import { toast } from 'sonner'
 
-// Ultra-stable query keys for consistent caching
-export const resourcesQueryKeys = {
-  all: ['resources'] as const,
-  categories: (userRole?: string) => [...resourcesQueryKeys.all, 'categories', userRole] as const,
-  resources: (filters?: ResourceFilters, userRole?: string) => 
-    [...resourcesQueryKeys.all, 'resources', JSON.stringify(filters), userRole] as const,
-  resource: (id: number) => [...resourcesQueryKeys.all, 'resource', id] as const,
-  bookmarks: (page?: number, userRole?: string) => 
-    [...resourcesQueryKeys.all, 'bookmarks', page, userRole] as const,
-  stats: (userRole?: string) => [...resourcesQueryKeys.all, 'stats', userRole] as const,
-  featured: (limit?: number) => [...resourcesQueryKeys.all, 'featured', limit] as const,
-  popular: (limit?: number) => [...resourcesQueryKeys.all, 'popular', limit] as const,
-  topRated: (limit?: number) => [...resourcesQueryKeys.all, 'top-rated', limit] as const,
-}
+// =============================================================================
+// MAIN RESOURCE HOOKS - Complete store-based implementation
+// =============================================================================
 
-// CRITICAL FIX: Enhanced hook for resource categories with proper typing
-
+/**
+ * Enhanced hook for resource categories with store integration
+ */
 export function useResourceCategories(options: {
   includeInactive?: boolean
   enabled?: boolean
 } = {}) {
   const { user } = useAuth()
   const { includeInactive = false, enabled = true } = options
+  const { categories } = useResourcesSelectors()
+  const { fetchCategories } = useResourcesActions()
+  const loading = useResourcesLoading()
+  const errors = useResourcesErrors()
 
-  return useQuery({
-    queryKey: resourcesQueryKeys.categories(user?.role),
-    queryFn: async (): Promise<ResourceCategory[]> => {
-      try {
-        console.log('🔍 useResourceCategories: Fetching categories...')
-        
-        const response = await resourcesService.getCategories({
-          include_inactive: includeInactive,
-          userRole: user?.role,
-          forceRefresh: false
-        })
-        
-        console.log('📡 useResourceCategories: Service response:', response)
-        
-        if (!response.success) {
-          console.error('❌ useResourceCategories: Service error:', response.message)
-          throw new Error(response.message || 'Failed to fetch resource categories')
-        }
-        
-        // SAFE ACCESS: Always return array, handle all possible response formats
-        let categories: ResourceCategory[] = []
-        if (response.data?.categories && Array.isArray(response.data.categories)) {
-          categories = response.data.categories
-        } else if (Array.isArray(response.data)) {
-          categories = response.data
-        } else {
-          console.warn('⚠️ useResourceCategories: Unexpected response format, returning empty array')
-        }
-        
-        console.log('✅ useResourceCategories: Processed categories:', categories.length)
-        return categories
-      } catch (error) {
-        console.error('❌ useResourceCategories: Error:', error)
-        throw error
-      }
-    },
-    staleTime: 20 * 60 * 1000, // 20 minutes - ultra stable
-    gcTime: 40 * 60 * 1000, // 40 minutes
-    enabled: enabled && !!user,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-    retry: (failureCount, error) => {
-      if (failureCount >= 2) return false
-      if (error.message?.includes('403') || error.message?.includes('401')) return false
-      return true
-    },
-  })
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  const initialize = useCallback(async () => {
+    if (!enabled || !user || isInitialized) return
+
+    try {
+      console.log('🔍 useResourceCategories: Initializing categories...')
+      await fetchCategories(includeInactive)
+      setIsInitialized(true)
+      console.log('✅ useResourceCategories: Categories initialized successfully')
+    } catch (error) {
+      console.error('❌ useResourceCategories: Failed to initialize:', error)
+    }
+  }, [enabled, user, isInitialized, fetchCategories, includeInactive])
+
+  useEffect(() => {
+    initialize()
+  }, [initialize])
+
+  const refetch = useCallback(() => {
+    console.log('🔄 useResourceCategories: Refetching categories...')
+    return fetchCategories(includeInactive)
+  }, [fetchCategories, includeInactive])
+
+  return {
+    categories: categories || [],
+    isLoading: loading.categories && !isInitialized,
+    error: errors.categories,
+    isInitialized,
+    refetch,
+    // Additional computed data
+    activeCategories: categories?.filter(c => c.is_active) || [],
+    categoriesCount: categories?.length || 0,
+  }
 }
 
-// CRITICAL FIX: Enhanced resources hook with proper typing
+/**
+ * FIXED: Enhanced resources hook with proper error handling and no invalid params
+ */
 export function useResources(filters: ResourceFilters = {}, options: {
   enabled?: boolean
+  autoFetch?: boolean
 } = {}) {
   const { user } = useAuth()
-  const { enabled = true } = options
+  const { enabled = true, autoFetch = true } = options
+  const { resources } = useResourcesSelectors()
+  const { fetchResources, setFilters } = useResourcesActions()
+  const { filters: currentFilters } = useResourcesFilters()
+  const loading = useResourcesLoading()
+  const errors = useResourcesErrors()
 
-  return useQuery({
-    queryKey: resourcesQueryKeys.resources(filters, user?.role),
-    queryFn: async () => {
-      try {
-        console.log('🔍 useResources: Starting fetch with filters:', filters)
-        
-        const response = await resourcesService.getResources({
-          ...filters,
-          userRole: user?.role,
-          forceRefresh: false
-        })
-        
-        console.log('📡 useResources: Raw service response:', response)
-        
-        if (!response.success) {
-          console.error('❌ useResources: Service returned error:', response)
-          throw new Error(response.message || 'Failed to fetch resources')
-        }
+  const [isInitialized, setIsInitialized] = useState(false)
 
-        // CRITICAL FIX: Enhanced data processing with type safety
-        const data = response.data
-        if (!data) {
-          console.warn('⚠️ useResources: No data in successful response')
-          return {
-            resources: [],
-            featured_resources: [],
-            type_counts: {},
-            pagination: {
-              current_page: 1,
-              last_page: 1,
-              per_page: 0,
-              total: 0
-            }
-          }
-        }
+  // FIXED: Clean filters to avoid API validation errors
+  const cleanFilters = useCallback((rawFilters: ResourceFilters) => {
+    const cleaned: ResourceFilters = {}
+    
+    // Only add valid, non-empty filters
+    if (rawFilters.search && rawFilters.search.trim()) {
+      cleaned.search = rawFilters.search.trim()
+    }
+    if (rawFilters.category && rawFilters.category !== 'all') {
+      cleaned.category = rawFilters.category
+    }
+    if (rawFilters.type && rawFilters.type !== 'all') {
+      cleaned.type = rawFilters.type
+    }
+    if (rawFilters.difficulty && rawFilters.difficulty !== 'all') {
+      cleaned.difficulty = rawFilters.difficulty
+    }
+    if (rawFilters.sort_by && rawFilters.sort_by !== 'featured') {
+      cleaned.sort_by = rawFilters.sort_by
+    }
+    if (rawFilters.page && rawFilters.page > 1) {
+      cleaned.page = rawFilters.page
+    }
+    if (rawFilters.per_page && rawFilters.per_page !== 15) {
+      cleaned.per_page = rawFilters.per_page
+    }
+    // FIXED: Only add include_drafts for admin users
+    if (rawFilters.include_drafts && user?.role === 'admin') {
+      cleaned.include_drafts = rawFilters.include_drafts
+    }
 
-        // Direct resources structure (expected format)
-        if (data.resources && Array.isArray(data.resources)) {
-          console.log('✅ useResources: Found direct resources structure')
-          return {
-            resources: data.resources,
-            featured_resources: data.featured_resources || [],
-            type_counts: data.type_counts || {},
-            pagination: data.pagination || {
-              current_page: 1,
-              last_page: 1,
-              per_page: data.resources.length,
-              total: data.resources.length
-            }
-          }
-        }
+    return cleaned
+  }, [user?.role])
 
-        // Fallback: Direct array
-        if (Array.isArray(data)) {
-          console.log('✅ useResources: Found direct array structure')
-          return {
-            resources: data,
-            featured_resources: data.filter((r: Resource) => r.is_featured) || [],
-            type_counts: {},
-            pagination: {
-              current_page: 1,
-              last_page: 1,
-              per_page: data.length,
-              total: data.length
-            }
-          }
-        }
+  // Merge filters and fetch resources
+  const fetchWithFilters = useCallback(async (newFilters: ResourceFilters = {}) => {
+    if (!enabled || !user) return
 
-        console.warn('⚠️ useResources: Unknown response format:', {
-          type: typeof data,
-          keys: Object.keys(data),
-          sample: JSON.stringify(data).substring(0, 200)
-        })
+    try {
+      console.log('🔍 useResources: Fetching with filters:', newFilters)
+      const mergedFilters = { ...filters, ...newFilters }
+      const cleanedFilters = cleanFilters(mergedFilters)
+      
+      setFilters(cleanedFilters, false) // Don't auto-fetch here
+      await fetchResources(cleanedFilters)
+      if (!isInitialized) setIsInitialized(true)
+      console.log('✅ useResources: Resources fetched successfully')
+    } catch (error) {
+      console.error('❌ useResources: Failed to fetch:', error)
+    }
+  }, [enabled, user, filters, cleanFilters, setFilters, fetchResources, isInitialized])
 
-        return {
-          resources: [],
-          featured_resources: [],
-          type_counts: {},
-          pagination: {
-            current_page: 1,
-            last_page: 1,
-            per_page: 0,
-            total: 0
-          }
-        }
+  // Initialize on mount if autoFetch is enabled
+  useEffect(() => {
+    if (!isInitialized && autoFetch) {
+      fetchWithFilters(filters)
+    }
+  }, [isInitialized, autoFetch, fetchWithFilters, filters])
 
-      } catch (error) {
-        console.error('❌ useResources: Critical error:', error)
-        throw error
-      }
+  const refetch = useCallback(() => {
+    console.log('🔄 useResources: Refetching resources...')
+    const cleanedFilters = cleanFilters(currentFilters)
+    return fetchResources(cleanedFilters)
+  }, [fetchResources, currentFilters, cleanFilters])
+
+  // Computed data
+  const computedData = useMemo(() => {
+    const publishedResources = resources?.filter(r => r.is_published) || []
+    const featuredResources = resources?.filter(r => r.is_featured) || []
+    const draftResources = resources?.filter(r => !r.is_published) || []
+
+    return {
+      publishedResources,
+      featuredResources,
+      draftResources,
+      totalCount: resources?.length || 0,
+      publishedCount: publishedResources.length,
+      featuredCount: featuredResources.length,
+      draftCount: draftResources.length,
+    }
+  }, [resources])
+
+  // FIXED: Return pagination data with defaults
+  return {
+    resources: resources || [],
+    // FIXED: Add pagination with safe defaults
+    pagination: {
+      current_page: currentFilters.page || 1,
+      last_page: Math.ceil((resources?.length || 0) / (currentFilters.per_page || 15)),
+      per_page: currentFilters.per_page || 15,
+      total: resources?.length || 0
     },
-    staleTime: 15 * 60 * 1000, // 15 minutes
-    gcTime: 30 * 60 * 1000, // 30 minutes
-    enabled: enabled && !!user,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-    retry: (failureCount, error) => {
-      if (failureCount >= 3) return false
-      if (error.message?.includes('403') || error.message?.includes('401')) return false
-      return true
-    },
-  })
+    filters: currentFilters,
+    isLoading: loading.resources && !isInitialized,
+    error: errors.resources,
+    isInitialized,
+    fetchWithFilters,
+    refetch,
+    // Additional computed data
+    ...computedData,
+  }
 }
 
-// Enhanced hook for single resource with smart caching
+/**
+ * Enhanced hook for single resource with smart caching
+ */
 export function useResource(id: number, options: {
   enabled?: boolean
 } = {}) {
   const { user } = useAuth()
   const { enabled = true } = options
+  const { resources } = useResourcesSelectors()
+  const { fetchResources, setCurrentResource } = useResourcesActions()
+  
+  // Find resource in store first
+  const resource = useMemo(() => {
+    const found = resources.find(r => r.id === id) || null
+    if (found) {
+      setCurrentResource(found)
+    }
+    return found
+  }, [resources, id, setCurrentResource])
 
-  return useQuery({
-    queryKey: resourcesQueryKeys.resource(id),
-    queryFn: async () => {
-      const response = await resourcesService.getResource(id, {
-        userRole: user?.role,
-        forceRefresh: false
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch resource')
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch resource if not in store
+  useEffect(() => {
+    if (!enabled || !user || !id || resource) return
+
+    const fetchResource = async () => {
+      setIsLoading(true)
+      setError(null)
+      
+      try {
+        console.log('🔍 useResource: Resource not in store, fetching...', id)
+        // Try to fetch all resources to populate store
+        await fetchResources({ page: 1, per_page: 50 })
+        console.log('✅ useResource: Resources fetched for single resource lookup')
+      } catch (err: any) {
+        console.error('❌ useResource: Failed to fetch:', err)
+        setError(err.message || 'Failed to fetch resource')
+      } finally {
+        setIsLoading(false)
       }
-      return response.data
-    },
-    enabled: enabled && !!id && !!user,
-    staleTime: 20 * 60 * 1000, // 20 minutes
-    gcTime: 40 * 60 * 1000, // 40 minutes
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-  })
+    }
+
+    fetchResource()
+  }, [enabled, user, id, resource, fetchResources])
+
+  const refetch = useCallback(() => {
+    console.log('🔄 useResource: Refetching resource data...')
+    return fetchResources() // Refresh all resources
+  }, [fetchResources])
+
+  return {
+    resource,
+    isLoading: isLoading && !resource,
+    error,
+    refetch,
+    // Additional computed data
+    isBookmarked: resource?.is_bookmarked || false,
+    isFeatured: resource?.is_featured || false,
+    isPublished: resource?.is_published || false,
+  }
 }
 
-// CRITICAL FIX: Enhanced resource statistics hook with proper return type
+/**
+ * Enhanced resource statistics hook with store integration
+ */
 export function useResourceStats(options: {
   enabled?: boolean
 } = {}) {
   const { user } = useAuth()
   const { enabled = true } = options
+  const { stats } = useResourcesStats()
+  const { fetchStats } = useResourcesActions()
+  const loading = useResourcesLoading()
+  const errors = useResourcesErrors()
 
-  return useQuery({
-    queryKey: resourcesQueryKeys.stats(user?.role),
-    queryFn: async () => {
-      try {
-        console.log('🔍 useResourceStats: Fetching stats...')
-        
-        const response = await resourcesService.getStats({
-          userRole: user?.role,
-          forceRefresh: false
-        })
-        
-        console.log('📡 useResourceStats: Service response:', response)
-        
-        if (!response.success) {
-          console.error('❌ useResourceStats: Service error:', response.message)
-          // Return fallback stats instead of throwing
-          return {
-            total_resources: 0,
-            total_categories: 0,
-            most_popular_resource: null,
-            highest_rated_resource: null,
-            most_downloaded_resource: null,
-            resources_by_type: {},
-            resources_by_difficulty: {},
-            categories_with_counts: []
-          }
-        }
-        
-        // CRITICAL FIX: Handle the stats response correctly
-        // Backend now returns stats directly in data (not nested under stats)
-        const stats = response.data
-        
-        console.log('✅ useResourceStats: Processed stats:', stats)
-        return stats
-      } catch (error) {
-        console.error('❌ useResourceStats: Error:', error)
-        // Return fallback instead of throwing to prevent cascade errors
-        return {
-          total_resources: 0,
-          total_categories: 0,
-          most_popular_resource: null,
-          highest_rated_resource: null,
-          most_downloaded_resource: null,
-          resources_by_type: {},
-          resources_by_difficulty: {},
-          categories_with_counts: []
-        }
-      }
-    },
-    staleTime: 30 * 60 * 1000, // 30 minutes
-    gcTime: 60 * 60 * 1000, // 60 minutes
-    enabled: enabled && !!user,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-    retry: false, // Don't retry stats to prevent console spam
-  })
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  const initialize = useCallback(async () => {
+    if (!enabled || !user || isInitialized) return
+
+    try {
+      console.log('📊 useResourceStats: Initializing stats...')
+      await fetchStats()
+      setIsInitialized(true)
+      console.log('✅ useResourceStats: Stats initialized successfully')
+    } catch (error) {
+      console.error('❌ useResourceStats: Failed to initialize:', error)
+    }
+  }, [enabled, user, isInitialized, fetchStats])
+
+  useEffect(() => {
+    initialize()
+  }, [initialize])
+
+  const refetch = useCallback(() => {
+    console.log('🔄 useResourceStats: Refetching stats...')
+    return fetchStats()
+  }, [fetchStats])
+
+  // Safe stats with defaults
+  const safeStats = useMemo(() => ({
+    total_resources: stats?.total_resources || 0,
+    published_resources: stats?.published_resources || 0,
+    draft_resources: stats?.draft_resources || 0,
+    featured_resources: stats?.featured_resources || 0,
+    categories_count: stats?.categories_count || 0,
+    active_categories: stats?.active_categories || 0,
+    total_views: stats?.total_views || 0,
+    total_downloads: stats?.total_downloads || 0,
+    average_rating: stats?.average_rating || 0,
+  }), [stats])
+
+  return {
+    stats: safeStats,
+    isLoading: loading.stats && !isInitialized,
+    error: errors.stats,
+    isInitialized,
+    refetch,
+    // Additional computed data
+    hasData: isInitialized && !loading.stats,
+  }
 }
 
-// CRITICAL FIX: Enhanced bookmarks hook with user tracking
+/**
+ * Enhanced bookmarks hook with store integration
+ */
 export function useResourceBookmarks(page: number = 1, perPage: number = 20) {
   const { user } = useAuth()
+  const { bookmarks } = useResourcesSelectors()
+  const { fetchBookmarks } = useResourcesActions()
+  const loading = useResourcesLoading()
+  const errors = useResourcesErrors()
 
-  return useQuery({
-    queryKey: resourcesQueryKeys.bookmarks(page, user?.role),
-    queryFn: async () => {
-      try {
-        console.log('🔍 useResourceBookmarks: Fetching bookmarks...')
-        
-        const response = await resourcesService.getBookmarks(page, perPage, {
-          userRole: user?.role,
-          forceRefresh: false
-        })
-        
-        console.log('📡 useResourceBookmarks: Service response:', response)
-        
-        if (!response.success) {
-          console.error('❌ useResourceBookmarks: Service error:', response.message)
-          throw new Error(response.message || 'Failed to fetch bookmarks')
-        }
-        
-        // SAFE ACCESS: Ensure bookmarks is always an array
-        const data = response.data
-        const result = {
-          bookmarks: Array.isArray(data?.bookmarks) ? data.bookmarks : [],
-          pagination: data?.pagination || {
-            current_page: 1,
-            last_page: 1,
-            per_page: 0,
-            total: 0
-          }
-        }
-        
-        console.log('✅ useResourceBookmarks: Processed bookmarks:', result.bookmarks.length)
-        return result
-      } catch (error) {
-        console.error('❌ useResourceBookmarks: Error:', error)
-        throw error
-      }
-    },
-    staleTime: 10 * 60 * 1000, // 10 minutes
-    gcTime: 20 * 60 * 1000, // 20 minutes
-    enabled: !!user,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-  })
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  const initialize = useCallback(async () => {
+    if (!user || isInitialized) return
+
+    try {
+      console.log('🔖 useResourceBookmarks: Initializing bookmarks...')
+      await fetchBookmarks(page, perPage)
+      setIsInitialized(true)
+      console.log('✅ useResourceBookmarks: Bookmarks initialized successfully')
+    } catch (error) {
+      console.error('❌ useResourceBookmarks: Failed to initialize:', error)
+    }
+  }, [user, isInitialized, fetchBookmarks, page, perPage])
+
+  useEffect(() => {
+    initialize()
+  }, [initialize])
+
+  const refetch = useCallback(() => {
+    console.log('🔄 useResourceBookmarks: Refetching bookmarks...')
+    return fetchBookmarks(page, perPage)
+  }, [fetchBookmarks, page, perPage])
+
+  return {
+    bookmarks: bookmarks || [],
+    isLoading: loading.bookmarks && !isInitialized,
+    error: errors.bookmarks,
+    isInitialized,
+    refetch,
+    // Additional computed data
+    bookmarksCount: bookmarks?.length || 0,
+    hasBookmarks: (bookmarks?.length || 0) > 0,
+  }
 }
 
-// SAFE: Enhanced featured resources with better error handling
+/**
+ * FIXED: Featured resources hook - no invalid featured=true parameter
+ */
 export function useFeaturedResources(limit: number = 3, options: {
   enabled?: boolean
 } = {}) {
   const { user } = useAuth()
   const { enabled = true } = options
+  const { resources } = useResourcesSelectors()
+  const { fetchResources } = useResourcesActions()
 
-  return useQuery({
-    queryKey: resourcesQueryKeys.featured(limit),
-    queryFn: async (): Promise<Resource[]> => {
-      try {
-        console.log('🌟 useFeaturedResources: Fetching featured resources...')
-        
-        const response = await resourcesService.getFeaturedResources(limit, {
-          userRole: user?.role,
-          forceRefresh: false
-        })
-        
-        console.log('📡 useFeaturedResources: Service response:', response)
-        
-        if (!response.success) {
-          console.error('❌ useFeaturedResources: Service error:', response.message)
-          return []
-        }
-        
-        const featuredResources = Array.isArray(response.data) ? response.data : []
-        console.log('✅ useFeaturedResources: Processed resources:', featuredResources.length)
-        return featuredResources
-      } catch (error) {
-        console.error('❌ useFeaturedResources: Error:', error)
-        return [] // Return empty array instead of throwing
-      }
-    },
-    staleTime: 20 * 60 * 1000,
-    gcTime: 40 * 60 * 1000,
-    enabled: enabled && !!user,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-    retry: false, // Don't retry to prevent console spam
-  })
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  // Get featured resources from existing data instead of making special API calls
+  const featuredResources = useMemo(() => {
+    return resources?.filter(r => r.is_featured && r.is_published) || []
+  }, [resources])
+
+  const fetchFeatured = useCallback(async () => {
+    if (!enabled || !user || isInitialized) return
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      console.log('🌟 useFeaturedResources: Fetching featured resources...')
+      // FIXED: Just fetch regular resources, then filter for featured ones
+      await fetchResources({ per_page: limit * 3 }) // Fetch more to ensure we get featured ones
+      setIsInitialized(true)
+      console.log('✅ useFeaturedResources: Featured resources fetched successfully')
+    } catch (err: any) {
+      console.error('❌ useFeaturedResources: Failed to fetch:', err)
+      setError(err.message || 'Failed to fetch featured resources')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [enabled, user, isInitialized, fetchResources, limit])
+
+  useEffect(() => {
+    fetchFeatured()
+  }, [fetchFeatured])
+
+  const limitedFeatured = useMemo(() => {
+    return featuredResources.slice(0, limit)
+  }, [featuredResources, limit])
+
+  return {
+    featured: limitedFeatured,
+    isLoading,
+    error,
+    isInitialized,
+    refetch: fetchFeatured,
+    // Additional computed data
+    featuredCount: limitedFeatured.length,
+    hasFeatured: limitedFeatured.length > 0,
+  }
 }
 
-// SAFE: Enhanced popular resources
+/**
+ * FIXED: Popular resources hook - use proper sort parameter
+ */
 export function usePopularResources(limit: number = 5, options: {
   enabled?: boolean
 } = {}) {
   const { user } = useAuth()
   const { enabled = true } = options
+  const { resources } = useResourcesSelectors()
+  const { fetchResources } = useResourcesActions()
 
-  return useQuery({
-    queryKey: resourcesQueryKeys.popular(limit),
-    queryFn: async (): Promise<Resource[]> => {
-      try {
-        console.log('🔥 usePopularResources: Fetching popular resources...')
-        
-        const response = await resourcesService.getPopularResources(limit, {
-          userRole: user?.role,
-          forceRefresh: false
-        })
-        
-        console.log('📡 usePopularResources: Service response:', response)
-        
-        if (!response.success) {
-          console.error('❌ usePopularResources: Service error:', response.message)
-          return []
-        }
-        
-        const popularResources = Array.isArray(response.data) ? response.data : []
-        console.log('✅ usePopularResources: Processed resources:', popularResources.length)
-        return popularResources
-      } catch (error) {
-        console.error('❌ usePopularResources: Error:', error)
-        return []
-      }
-    },
-    staleTime: 20 * 60 * 1000,
-    gcTime: 40 * 60 * 1000,
-    enabled: enabled && !!user,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-    retry: false,
-  })
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  // Get popular resources from store (sorted by views)
+  const popularResources = useMemo(() => {
+    return [...(resources || [])]
+      .filter(r => r.is_published)
+      .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
+      .slice(0, limit)
+  }, [resources, limit])
+
+  const fetchPopular = useCallback(async () => {
+    if (!enabled || !user || isInitialized) return
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      console.log('🔥 usePopularResources: Fetching popular resources...')
+      // FIXED: Use 'popular' as sort parameter to match allowed types
+      await fetchResources({ sort_by: 'popular', per_page: limit * 2 })
+      setIsInitialized(true)
+      console.log('✅ usePopularResources: Popular resources fetched successfully')
+    } catch (err: any) {
+      console.error('❌ usePopularResources: Failed to fetch:', err)
+      setError(err.message || 'Failed to fetch popular resources')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [enabled, user, isInitialized, fetchResources, limit])
+
+  useEffect(() => {
+    fetchPopular()
+  }, [fetchPopular])
+
+  return {
+    popular: popularResources,
+    isLoading,
+    error,
+    isInitialized,
+    refetch: fetchPopular,
+    // Additional computed data
+    popularCount: popularResources.length,
+    hasPopular: popularResources.length > 0,
+  }
 }
 
-// SAFE: Enhanced top rated resources
+/**
+ * FIXED: Top rated resources hook - cleaner API calls
+ */
 export function useTopRatedResources(limit: number = 5, options: {
   enabled?: boolean
 } = {}) {
   const { user } = useAuth()
   const { enabled = true } = options
+  const { resources } = useResourcesSelectors()
+  const { fetchResources } = useResourcesActions()
 
-  return useQuery({
-    queryKey: resourcesQueryKeys.topRated(limit),
-    queryFn: async (): Promise<Resource[]> => {
-      try {
-        console.log('⭐ useTopRatedResources: Fetching top rated resources...')
-        
-        const response = await resourcesService.getTopRatedResources(limit, {
-          userRole: user?.role,
-          forceRefresh: false
-        })
-        
-        console.log('📡 useTopRatedResources: Service response:', response)
-        
-        if (!response.success) {
-          console.error('❌ useTopRatedResources: Service error:', response.message)
-          return []
-        }
-        
-        const topRatedResources = Array.isArray(response.data) ? response.data : []
-        console.log('✅ useTopRatedResources: Processed resources:', topRatedResources.length)
-        return topRatedResources
-      } catch (error) {
-        console.error('❌ useTopRatedResources: Error:', error)
-        return []
-      }
-    },
-    staleTime: 20 * 60 * 1000,
-    gcTime: 40 * 60 * 1000,
-    enabled: enabled && !!user,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    refetchOnMount: false,
-    retry: false,
-  })
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  // Get top rated resources from store
+  const topRatedResources = useMemo(() => {
+    return [...(resources || [])]
+      .filter(r => r.is_published && r.rating > 0)
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+      .slice(0, limit)
+  }, [resources, limit])
+
+  const fetchTopRated = useCallback(async () => {
+    if (!enabled || !user || isInitialized) return
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      console.log('⭐ useTopRatedResources: Fetching top rated resources...')
+      // FIXED: Use clean parameters only
+      await fetchResources({ sort_by: 'rating', per_page: limit * 2 })
+      setIsInitialized(true)
+      console.log('✅ useTopRatedResources: Top rated resources fetched successfully')
+    } catch (err: any) {
+      console.error('❌ useTopRatedResources: Failed to fetch:', err)
+      setError(err.message || 'Failed to fetch top rated resources')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [enabled, user, isInitialized, fetchResources, limit])
+
+  useEffect(() => {
+    fetchTopRated()
+  }, [fetchTopRated])
+
+  return {
+    topRated: topRatedResources,
+    isLoading,
+    error,
+    isInitialized,
+    refetch: fetchTopRated,
+    // Additional computed data
+    topRatedCount: topRatedResources.length,
+    hasTopRated: topRatedResources.length > 0,
+  }
 }
 
-// ENHANCED: Resource access with proper error handling
+// =============================================================================
+// RESOURCE INTERACTION HOOKS - Complete store integration
+// =============================================================================
+
+/**
+ * Enhanced resource access hook with store integration
+ */
 export function useResourceAccess() {
   const { user } = useAuth()
-  const queryClient = useQueryClient()
+  const { accessResource } = useResourcesActions()
+  const loading = useResourcesLoading()
 
-  return useMutation({
-    mutationFn: async (resourceId: number) => {
-      try {
-        console.log('🔗 useResourceAccess: Accessing resource:', resourceId)
-        
-        const response = await resourcesService.accessResource(resourceId, {
-          userRole: user?.role
-        })
-        
-        console.log('📡 useResourceAccess: Service response:', response)
-        
-        if (!response.success) {
-          throw new Error(response.message || 'Failed to access resource')
-        }
-        
-        return response.data
-      } catch (error) {
-        console.error('❌ useResourceAccess: Error:', error)
-        throw error
-      }
-    },
-    onSuccess: (data, resourceId) => {
-      console.log('✅ useResourceAccess: Success:', data)
-      
-      if (data) {
-        // Update resource counts in cache
-        queryClient.setQueryData(resourcesQueryKeys.resource(resourceId), (oldData: any) => {
-          if (!oldData) return oldData
+  const access = useCallback(async (resourceId: number) => {
+    if (!user) {
+      toast.error('Please log in to access resources')
+      return null
+    }
 
-          const updatedResource = { ...oldData.resource }
-          if (data.action === 'download') {
-            updatedResource.download_count = (updatedResource.download_count || 0) + 1
-          } else {
-            updatedResource.view_count = (updatedResource.view_count || 0) + 1
-          }
+    try {
+      console.log('🔗 useResourceAccess: Accessing resource:', resourceId)
+      const result = await accessResource(resourceId)
+      console.log('✅ useResourceAccess: Resource accessed successfully')
+      return result
+    } catch (error: any) {
+      console.error('❌ useResourceAccess: Access failed:', error)
+      return null
+    }
+  }, [user, accessResource])
 
-          return {
-            ...oldData,
-            resource: updatedResource,
-          }
-        })
-
-        // Selectively invalidate only necessary queries
-        queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.popular() })
-        queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.stats() })
-      }
-    },
-    onError: (error: Error) => {
-      console.error('❌ useResourceAccess: Mutation error:', error)
-      toast.error(error.message || 'Failed to access resource')
-    },
-  })
+  return {
+    access,
+    isLoading: loading.access,
+  }
 }
 
-// FIXED: Enhanced hook for resource feedback/rating
+/**
+ * Enhanced resource feedback hook with store integration
+ */
 export function useResourceFeedback() {
   const { user } = useAuth()
-  const queryClient = useQueryClient()
+  const { provideFeedback } = useResourcesActions()
+  const loading = useResourcesLoading()
 
-  return useMutation({
-    mutationFn: async ({
-      resourceId,
-      feedback,
-    }: {
-      resourceId: number
-      feedback: { rating: number; comment?: string; is_recommended?: boolean }
-    }) => {
-      const response = await resourcesService.provideFeedback(resourceId, feedback, {
-        userRole: user?.role
-      })
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to submit feedback')
-      }
-      return response.data
-    },
-    onSuccess: (data, variables) => {
-      // Update the resource in cache with new feedback
-      queryClient.setQueryData(
-        resourcesQueryKeys.resource(variables.resourceId),
-        (oldData: any) => {
-          if (!oldData) return oldData
+  const submitFeedback = useCallback(async (
+    resourceId: number,
+    feedback: { rating: number; comment?: string; is_recommended?: boolean }
+  ) => {
+    if (!user) {
+      toast.error('Please log in to provide feedback')
+      return false
+    }
 
-          return {
-            ...oldData,
-            user_feedback: data?.feedback,
-          }
-        }
-      )
+    try {
+      console.log('📝 useResourceFeedback: Submitting feedback for resource:', resourceId)
+      await provideFeedback(resourceId, feedback)
+      console.log('✅ useResourceFeedback: Feedback submitted successfully')
+      return true
+    } catch (error: any) {
+      console.error('❌ useResourceFeedback: Feedback failed:', error)
+      return false
+    }
+  }, [user, provideFeedback])
 
-      // Selectively invalidate only necessary queries
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.topRated() })
-
-      toast.success('Thank you for your feedback!')
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to submit feedback')
-    },
-  })
+  return {
+    submitFeedback,
+    isLoading: loading.feedback,
+  }
 }
 
-// CRITICAL FIX: Enhanced bookmark state management with user-specific tracking
+/**
+ * Enhanced bookmark management hook with store integration
+ */
 export function useResourceBookmark() {
   const { user } = useAuth()
-  const queryClient = useQueryClient()
+  const { toggleBookmark } = useResourcesActions()
+  const loading = useResourcesLoading()
 
-  return useMutation({
-    mutationFn: async (resourceId: number) => {
-      try {
-        console.log('🔖 useResourceBookmark: Toggling bookmark for resource:', resourceId)
-        
-        const response = await resourcesService.toggleBookmark(resourceId, {
-          userRole: user?.role
-        })
-        
-        console.log('📡 useResourceBookmark: Service response:', response)
-        
-        if (!response.success) {
-          throw new Error(response.message || 'Failed to toggle bookmark')
-        }
-        
-        return { resourceId, bookmarked: response.data?.bookmarked }
-      } catch (error) {
-        console.error('❌ useResourceBookmark: Error:', error)
-        throw error
-      }
-    },
-    onSuccess: (data) => {
-      console.log('✅ useResourceBookmark: Success:', data)
-      
-      // Invalidate bookmarks query to refresh the list
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.bookmarks() })
-      
-      // Update specific resource in cache if available
-      queryClient.setQueryData(
-        resourcesQueryKeys.resource(data.resourceId),
-        (oldData: any) => {
-          if (oldData?.resource) {
-            return {
-              ...oldData,
-              resource: {
-                ...oldData.resource,
-                is_bookmarked: data.bookmarked
-              }
-            }
-          }
-          return oldData
-        }
-      )
+  const toggle = useCallback(async (resourceId: number) => {
+    if (!user) {
+      toast.error('Please log in to bookmark resources')
+      return false
+    }
 
-      const message = data.bookmarked ? 'Resource bookmarked!' : 'Bookmark removed'
-      toast.success(message)
-    },
-    onError: (error: Error) => {
-      console.error('❌ useResourceBookmark: Mutation error:', error)
-      toast.error(error.message || 'Failed to update bookmark')
-    },
-  })
+    try {
+      console.log('🔖 useResourceBookmark: Toggling bookmark for resource:', resourceId)
+      await toggleBookmark(resourceId)
+      console.log('✅ useResourceBookmark: Bookmark toggled successfully')
+      return true
+    } catch (error: any) {
+      console.error('❌ useResourceBookmark: Bookmark toggle failed:', error)
+      return false
+    }
+  }, [user, toggleBookmark])
+
+  return {
+    toggle,
+    isLoading: loading.bookmark,
+  }
 }
 
-// CRITICAL FIX: Enhanced dashboard hook with better data coordination and proper types
+// =============================================================================
+// DASHBOARD AND AGGREGATED DATA HOOKS
+// =============================================================================
+
+/**
+ * FIXED: Complete dashboard hook with optimized data coordination
+ */
 export function useResourcesDashboard(options: {
   enabled?: boolean
 } = {}) {
@@ -656,11 +659,11 @@ export function useResourcesDashboard(options: {
   const statsQuery = useResourceStats({ enabled })
 
   // Enhanced loading state - only show loading for initial load
-  const isLoading = (categoriesQuery.isLoading && !categoriesQuery.data) || 
-                   (featuredQuery.isLoading && !featuredQuery.data) || 
-                   (popularQuery.isLoading && !popularQuery.data) || 
-                   (topRatedQuery.isLoading && !topRatedQuery.data) ||
-                   (statsQuery.isLoading && !statsQuery.data)
+  const isLoading = (categoriesQuery.isLoading && !categoriesQuery.categories.length) || 
+                   (featuredQuery.isLoading && !featuredQuery.featured.length) || 
+                   (popularQuery.isLoading && !popularQuery.popular.length) || 
+                   (topRatedQuery.isLoading && !topRatedQuery.topRated.length) ||
+                   (statsQuery.isLoading && !statsQuery.stats)
 
   const error = categoriesQuery.error || 
                 featuredQuery.error || 
@@ -669,7 +672,7 @@ export function useResourcesDashboard(options: {
                 statsQuery.error
 
   const refetch = useCallback(() => {
-    console.log('🔄 useResourcesDashboard: Refetching all data...')
+    console.log('🔄 useResourcesDashboard: Refetching all dashboard data...')
     categoriesQuery.refetch()
     featuredQuery.refetch()
     popularQuery.refetch()
@@ -692,27 +695,35 @@ export function useResourcesDashboard(options: {
     ])
   }, [categoriesQuery, featuredQuery, popularQuery, topRatedQuery, statsQuery])
 
-  // CRITICAL FIX: Always return arrays with proper typing, never undefined
+  // Comprehensive dashboard data
   const result = {
-    categories: categoriesQuery.data || [],
-    featured: featuredQuery.data || [],
-    popular: popularQuery.data || [],
-    topRated: topRatedQuery.data || [],
-    stats: statsQuery.data || {
-      total_resources: 0,
-      total_categories: 0,
-      most_popular_resource: null,
-      highest_rated_resource: null,
-      most_downloaded_resource: null,
-      resources_by_type: {},
-      resources_by_difficulty: {},
-      categories_with_counts: []
-    },
+    categories: categoriesQuery.categories,
+    featured: featuredQuery.featured,
+    popular: popularQuery.popular,
+    topRated: topRatedQuery.topRated,
+    stats: statsQuery.stats,
     isLoading,
     error,
     refetch,
     forceRefresh,
-    hasData: !!(categoriesQuery.data || featuredQuery.data || popularQuery.data || topRatedQuery.data),
+    hasData: !!(categoriesQuery.categories.length || featuredQuery.featured.length || 
+                popularQuery.popular.length || topRatedQuery.topRated.length),
+    // Individual loading states for granular control
+    loadingStates: {
+      categories: categoriesQuery.isLoading,
+      featured: featuredQuery.isLoading,
+      popular: popularQuery.isLoading,
+      topRated: topRatedQuery.isLoading,
+      stats: statsQuery.isLoading,
+    },
+    // Individual initialization states
+    initializationStates: {
+      categories: categoriesQuery.isInitialized,
+      featured: featuredQuery.isInitialized,
+      popular: popularQuery.isInitialized,
+      topRated: topRatedQuery.isInitialized,
+      stats: statsQuery.isInitialized,
+    },
   }
 
   console.log('📊 useResourcesDashboard: Current state:', {
@@ -728,25 +739,37 @@ export function useResourcesDashboard(options: {
   return result
 }
 
-// OPTIMIZED resource filtering with stable state management
+/**
+ * Enhanced resource filtering with stable state management
+ */
 export function useResourceFilters(initialFilters: ResourceFilters = {}) {
   const [filters, setFilters] = useState<ResourceFilters>(initialFilters)
+  const { setFilters: setStoreFilters, clearFilters: clearStoreFilters } = useResourcesActions()
 
   const updateFilter = useCallback((key: keyof ResourceFilters, value: any) => {
-    setFilters((prev) => ({
-      ...prev,
+    const newFilters = {
+      ...filters,
       [key]: value,
       page: key !== 'page' ? 1 : value, // Reset page when filtering, except when updating page itself
-    }))
-  }, [])
+    }
+    setFilters(newFilters)
+    setStoreFilters(newFilters, false) // Update store but don't auto-fetch
+  }, [filters, setStoreFilters])
 
   const clearFilters = useCallback(() => {
     setFilters(initialFilters)
-  }, [initialFilters])
+    clearStoreFilters(false) // Clear store filters but don't auto-fetch
+  }, [initialFilters, clearStoreFilters])
 
   const resetPagination = useCallback(() => {
-    setFilters((prev) => ({ ...prev, page: 1 }))
-  }, [])
+    const newFilters = { ...filters, page: 1 }
+    setFilters(newFilters)
+    setStoreFilters(newFilters, false)
+  }, [filters, setStoreFilters])
+
+  const applyFilters = useCallback(() => {
+    setStoreFilters(filters, true) // Apply filters and auto-fetch
+  }, [filters, setStoreFilters])
 
   return {
     filters,
@@ -754,13 +777,225 @@ export function useResourceFilters(initialFilters: ResourceFilters = {}) {
     clearFilters,
     resetPagination,
     setFilters,
-    hasActiveFilters: Object.values(filters).some(value => 
-      value !== undefined && value !== null && value !== '' && value !== 'all'
-    ),
+    applyFilters,
+    hasActiveFilters: Object.entries(filters).some(([key, value]) => {
+      if (['page', 'per_page'].includes(key)) return false
+      return value !== undefined && value !== null && value !== '' && value !== 'all'
+    }),
   }
 }
 
-// Hook for resource analytics tracking
+// =============================================================================
+// ADMIN HOOKS - Complete store integration
+// =============================================================================
+
+/**
+ * Complete admin resource management hook with store integration
+ */
+export function useAdminResourceManagement() {
+  const { user } = useAuth()
+  const { 
+    createResource, 
+    updateResource, 
+    deleteResource, 
+    togglePublishResource, 
+    toggleFeatureResource,
+    createCategory,
+    updateCategory,
+    deleteCategory,
+    refreshAll 
+  } = useResourcesActions()
+  const loading = useResourcesLoading()
+  const errors = useResourcesErrors()
+
+  const canManage = useMemo(() => {
+    return resourcesService.canManageResources(user?.role || '') || user?.role === 'admin'
+  }, [user?.role])
+
+  // Resource operations
+  const handleCreateResource = useCallback(async (data: Partial<Resource>) => {
+    if (!canManage) {
+      toast.error('You do not have permission to create resources')
+      return null
+    }
+
+    try {
+      console.log('➕ useAdminResourceManagement: Creating resource...')
+      const result = await createResource(data)
+      if (result) {
+        console.log('✅ useAdminResourceManagement: Resource created successfully')
+        // Refresh stats after creation
+        setTimeout(() => refreshAll(), 1000)
+      }
+      return result
+    } catch (error: any) {
+      console.error('❌ useAdminResourceManagement: Create failed:', error)
+      return null
+    }
+  }, [canManage, createResource, refreshAll])
+
+  const handleUpdateResource = useCallback(async (id: number, data: Partial<Resource>) => {
+    if (!canManage) {
+      toast.error('You do not have permission to update resources')
+      return false
+    }
+
+    try {
+      console.log('✏️ useAdminResourceManagement: Updating resource:', id)
+      await updateResource(id, data)
+      console.log('✅ useAdminResourceManagement: Resource updated successfully')
+      return true
+    } catch (error: any) {
+      console.error('❌ useAdminResourceManagement: Update failed:', error)
+      return false
+    }
+  }, [canManage, updateResource])
+
+  const handleDeleteResource = useCallback(async (id: number) => {
+    if (!canManage) {
+      toast.error('You do not have permission to delete resources')
+      return false
+    }
+
+    try {
+      console.log('🗑️ useAdminResourceManagement: Deleting resource:', id)
+      await deleteResource(id)
+      console.log('✅ useAdminResourceManagement: Resource deleted successfully')
+      // Refresh stats after deletion
+      setTimeout(() => refreshAll(), 1000)
+      return true
+    } catch (error: any) {
+      console.error('❌ useAdminResourceManagement: Delete failed:', error)
+      return false
+    }
+  }, [canManage, deleteResource, refreshAll])
+
+  const handleTogglePublish = useCallback(async (id: number) => {
+    if (!canManage) {
+      toast.error('You do not have permission to publish resources')
+      return false
+    }
+
+    try {
+      console.log('📢 useAdminResourceManagement: Toggling publish for resource:', id)
+      await togglePublishResource(id)
+      console.log('✅ useAdminResourceManagement: Publish status toggled successfully')
+      return true
+    } catch (error: any) {
+      console.error('❌ useAdminResourceManagement: Toggle publish failed:', error)
+      return false
+    }
+  }, [canManage, togglePublishResource])
+
+  const handleToggleFeature = useCallback(async (id: number) => {
+    if (!canManage) {
+      toast.error('You do not have permission to feature resources')
+      return false
+    }
+
+    try {
+      console.log('⭐ useAdminResourceManagement: Toggling feature for resource:', id)
+      await toggleFeatureResource(id)
+      console.log('✅ useAdminResourceManagement: Feature status toggled successfully')
+      return true
+    } catch (error: any) {
+      console.error('❌ useAdminResourceManagement: Toggle feature failed:', error)
+      return false
+    }
+  }, [canManage, toggleFeatureResource])
+
+  // Category operations
+  const handleCreateCategory = useCallback(async (data: Partial<ResourceCategory>) => {
+    if (!canManage) {
+      toast.error('You do not have permission to create categories')
+      return null
+    }
+
+    try {
+      console.log('➕ useAdminResourceManagement: Creating category...')
+      const result = await createCategory(data)
+      if (result) {
+        console.log('✅ useAdminResourceManagement: Category created successfully')
+      }
+      return result
+    } catch (error: any) {
+      console.error('❌ useAdminResourceManagement: Category create failed:', error)
+      return null
+    }
+  }, [canManage, createCategory])
+
+  const handleUpdateCategory = useCallback(async (id: number, data: Partial<ResourceCategory>) => {
+    if (!canManage) {
+      toast.error('You do not have permission to update categories')
+      return false
+    }
+
+    try {
+      console.log('✏️ useAdminResourceManagement: Updating category:', id)
+      await updateCategory(id, data)
+      console.log('✅ useAdminResourceManagement: Category updated successfully')
+      return true
+    } catch (error: any) {
+      console.error('❌ useAdminResourceManagement: Category update failed:', error)
+      return false
+    }
+  }, [canManage, updateCategory])
+
+  const handleDeleteCategory = useCallback(async (id: number) => {
+    if (!canManage) {
+      toast.error('You do not have permission to delete categories')
+      return false
+    }
+
+    try {
+      console.log('🗑️ useAdminResourceManagement: Deleting category:', id)
+      await deleteCategory(id)
+      console.log('✅ useAdminResourceManagement: Category deleted successfully')
+      return true
+    } catch (error: any) {
+      console.error('❌ useAdminResourceManagement: Category delete failed:', error)
+      return false
+    }
+  }, [canManage, deleteCategory])
+
+  return {
+    // Resource operations
+    createResource: handleCreateResource,
+    updateResource: handleUpdateResource,
+    deleteResource: handleDeleteResource,
+    togglePublish: handleTogglePublish,
+    toggleFeature: handleToggleFeature,
+    
+    // Category operations
+    createCategory: handleCreateCategory,
+    updateCategory: handleUpdateCategory,
+    deleteCategory: handleDeleteCategory,
+    
+    // Loading states
+    isCreating: loading.create,
+    isUpdating: loading.update,
+    isDeleting: loading.delete,
+    
+    // Error states
+    createError: errors.create,
+    updateError: errors.update,
+    deleteError: errors.delete,
+    
+    // Permissions
+    canManage,
+    
+    // Utility
+    refreshAll,
+  }
+}
+
+// =============================================================================
+// UTILITY AND ANALYTICS HOOKS
+// =============================================================================
+
+/**
+ * Hook for resource analytics tracking with store integration
+ */
 export function useResourceAnalytics() {
   const trackResourceView = useCallback((resourceId: number, title: string, type: string) => {
     if (typeof window !== 'undefined' && (window as any).gtag) {
@@ -773,6 +1008,7 @@ export function useResourceAnalytics() {
         },
       })
     }
+    console.log('📊 Analytics: Resource view tracked:', { resourceId, title, type })
   }, [])
 
   const trackResourceAccess = useCallback(
@@ -788,6 +1024,7 @@ export function useResourceAnalytics() {
           },
         })
       }
+      console.log('📊 Analytics: Resource access tracked:', { resourceId, title, type, action })
     },
     []
   )
@@ -803,6 +1040,7 @@ export function useResourceAnalytics() {
         },
       })
     }
+    console.log('📊 Analytics: Resource rating tracked:', { resourceId, title, rating })
   }, [])
 
   const trackResourceBookmark = useCallback(
@@ -817,6 +1055,7 @@ export function useResourceAnalytics() {
           },
         })
       }
+      console.log('📊 Analytics: Resource bookmark tracked:', { resourceId, title, bookmarked })
     },
     []
   )
@@ -829,6 +1068,7 @@ export function useResourceAnalytics() {
         value: resultsCount,
       })
     }
+    console.log('📊 Analytics: Resource search tracked:', { query, resultsCount })
   }, [])
 
   const trackResourceCategoryClick = useCallback((categorySlug: string, categoryName: string) => {
@@ -839,6 +1079,7 @@ export function useResourceAnalytics() {
         value: categorySlug,
       })
     }
+    console.log('📊 Analytics: Resource category click tracked:', { categorySlug, categoryName })
   }, [])
 
   return {
@@ -851,7 +1092,9 @@ export function useResourceAnalytics() {
   }
 }
 
-// Hook for recent resource searches with optimized persistence (local storage)
+/**
+ * Hook for recent resource searches with optimized persistence
+ */
 export function useRecentResourceSearches() {
   const { user } = useAuth()
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
@@ -910,150 +1153,18 @@ export function useRecentResourceSearches() {
     }
   }, [user?.id])
 
-  // hooks/use-resources.ts (FINAL PART - All TypeScript errors resolved)
-
   return {
     recentSearches,
     addRecentSearch,
     removeRecentSearch,
     clearRecentSearches,
+    hasRecentSearches: recentSearches.length > 0,
   }
 }
 
-// Admin-specific hooks for resource management
-export function useAdminResourceManagement() {
-  const { user } = useAuth()
-  const queryClient = useQueryClient()
-
-  // Create Resource mutation
-  const createResource = useMutation({
-    mutationFn: async (resourceData: Partial<Resource>) => {
-      const response = await resourcesService.createResource(resourceData, user?.role)
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to create resource')
-      }
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.all })
-      toast.success('Resource created successfully!')
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to create resource')
-    }
-  })
-
-  // Update Resource mutation
-  const updateResource = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<Resource> }) => {
-      const response = await resourcesService.updateResource(id, data, user?.role)
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to update resource')
-      }
-      return response.data
-    },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.all })
-      queryClient.setQueryData(resourcesQueryKeys.resource(variables.id), (oldData: any) => ({
-        ...oldData,
-        resource: data?.resource
-      }))
-      toast.success('Resource updated successfully!')
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update resource')
-    }
-  })
-
-  // Delete Resource mutation
-  const deleteResource = useMutation({
-    mutationFn: async (id: number) => {
-      const response = await resourcesService.deleteResource(id, user?.role)
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to delete resource')
-      }
-      return response.data
-    },
-    onSuccess: (data, id) => {
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.all })
-      queryClient.removeQueries({ queryKey: resourcesQueryKeys.resource(id) })
-
-      toast.success('Resource deleted successfully!')
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete resource')
-    }
-  })
-
-  // Create Category mutation
-  const createCategory = useMutation({
-    mutationFn: async (categoryData: Partial<ResourceCategory>) => {
-      const response = await resourcesService.createCategory(categoryData, user?.role)
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to create category')
-      }
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.categories() })
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.stats() })
-      toast.success('Category created successfully!')
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to create category')
-    }
-  })
-
-  // Update Category mutation
-  const updateCategory = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<ResourceCategory> }) => {
-      const response = await resourcesService.updateCategory(id, data, user?.role)
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to update category')
-      }
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.categories() })
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.stats() })
-      toast.success('Category updated successfully!')
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update category')
-    }
-  })
-
-  // Delete Category mutation
-  const deleteCategory = useMutation({
-    mutationFn: async (id: number) => {
-      const response = await resourcesService.deleteCategory(id, user?.role)
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to delete category')
-      }
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.categories() })
-      queryClient.invalidateQueries({ queryKey: resourcesQueryKeys.stats() })
-      toast.success('Category deleted successfully!')
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete category')
-    }
-  })
-
-  return {
-    createResource,
-    updateResource,
-    deleteResource,
-    createCategory,
-    updateCategory,
-    deleteCategory,
-    canManage: resourcesService.canManageResources(user?.role || '') || user?.role === 'admin',
-  }
-}
-
-// SAFE: Utility hook for resource formatting and utils
+/**
+ * Utility hook for resource formatting and helpers
+ */
 export function useResourceUtils() {
   const getTypeIcon = useCallback((type: string) => {
     return resourcesService.getTypeIcon(type)
@@ -1076,8 +1187,7 @@ export function useResourceUtils() {
   }, [])
 
   const formatCount = useCallback((count: number | undefined | null) => {
-    const safeCount = Number(count) || 0
-    return resourcesService.formatCount(safeCount)
+    return resourcesService.formatCount(count)
   }, [])
 
   const calculateRatingPercentage = useCallback((rating: number) => {
@@ -1089,35 +1199,16 @@ export function useResourceUtils() {
   }, [])
 
   const formatTimeAgo = useCallback((dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60))
-    
-    if (diffInMinutes < 1) return 'Just now'
-    if (diffInMinutes < 60) return `${diffInMinutes}m ago`
-    
-    const diffInHours = Math.floor(diffInMinutes / 60)
-    if (diffInHours < 24) return `${diffInHours}h ago`
-    
-    const diffInDays = Math.floor(diffInHours / 24)
-    if (diffInDays < 7) return `${diffInDays}d ago`
-    
-    const diffInWeeks = Math.floor(diffInDays / 7)
-    if (diffInWeeks < 4) return `${diffInWeeks}w ago`
-    
-    return date.toLocaleDateString()
+    return resourcesService.formatTimeAgo(dateString)
   }, [])
 
-  // Safe rating formatters
   const formatRating = useCallback((rating: any): number => {
-    const numRating = Number(rating)
-    if (isNaN(numRating)) return 0
-    return Math.max(0, Math.min(5, numRating))
+    return resourcesService.formatRating(rating)
   }, [])
 
   const formatRatingDisplay = useCallback((rating: any): string => {
-    return formatRating(rating).toFixed(1)
-  }, [formatRating])
+    return resourcesService.formatRatingDisplay(rating)
+  }, [])
 
   const getCacheStats = useCallback(() => {
     return resourcesService.getCacheStats()
@@ -1129,6 +1220,14 @@ export function useResourceUtils() {
 
   const getAvailableDifficulties = useCallback(() => {
     return resourcesService.getAvailableDifficulties()
+  }, [])
+
+  const validateResourceData = useCallback((data: Partial<Resource>) => {
+    return resourcesService.validateResourceData(data)
+  }, [])
+
+  const validateCategoryData = useCallback((data: Partial<ResourceCategory>) => {
+    return resourcesService.validateCategoryData(data)
   }, [])
 
   return {
@@ -1146,5 +1245,100 @@ export function useResourceUtils() {
     getCacheStats,
     getAvailableTypes,
     getAvailableDifficulties,
+    validateResourceData,
+    validateCategoryData,
+  }
+}
+
+/**
+ * Advanced search hook with store integration and search analytics
+ */
+export function useResourceSearch() {
+  const { user } = useAuth()
+  const { fetchResources } = useResourcesActions()
+  const { resources } = useResourcesSelectors()
+  const { addRecentSearch } = useRecentResourceSearches()
+  const { trackResourceSearch } = useResourceAnalytics()
+  
+  const [searchState, setSearchState] = useState({
+    query: '',
+    isSearching: false,
+    searchResults: [] as ResourceItem[],
+    error: null as string | null,
+  })
+
+  const search = useCallback(async (
+    query: string, 
+    filters: Omit<ResourceFilters, 'search'> = {}
+  ) => {
+    if (!query.trim() || query.length < 2) {
+      setSearchState(prev => ({ ...prev, searchResults: [], error: null }))
+      return []
+    }
+
+    setSearchState(prev => ({ 
+      ...prev, 
+      query, 
+      isSearching: true, 
+      error: null 
+    }))
+
+    try {
+      console.log('🔍 useResourceSearch: Searching for:', query)
+      
+      await fetchResources({ 
+        search: query, 
+        ...filters,
+        page: 1 // Reset to first page for new search
+      })
+      
+      // Get search results from store
+      const searchResults = resources.filter(resource => 
+        resource.title.toLowerCase().includes(query.toLowerCase()) ||
+        resource.description.toLowerCase().includes(query.toLowerCase()) ||
+        resource.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
+      )
+      
+      setSearchState(prev => ({ 
+        ...prev, 
+        searchResults, 
+        isSearching: false 
+      }))
+      
+      // Track search and add to recent searches
+      trackResourceSearch(query, searchResults.length)
+      addRecentSearch(query)
+      
+      console.log('✅ useResourceSearch: Search completed:', {
+        query,
+        resultsCount: searchResults.length
+      })
+      
+      return searchResults
+    } catch (error: any) {
+      console.error('❌ useResourceSearch: Search failed:', error)
+      setSearchState(prev => ({ 
+        ...prev, 
+        isSearching: false, 
+        error: error.message || 'Search failed'
+      }))
+      return []
+    }
+  }, [fetchResources, resources, trackResourceSearch, addRecentSearch])
+
+  const clearSearch = useCallback(() => {
+    setSearchState({
+      query: '',
+      isSearching: false,
+      searchResults: [],
+      error: null,
+    })
+  }, [])
+
+  return {
+    ...searchState,
+    search,
+    clearSearch,
+    hasResults: searchState.searchResults.length > 0,
   }
 }

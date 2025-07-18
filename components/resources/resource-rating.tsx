@@ -1,4 +1,4 @@
-// components/resources/resource-rating.tsx (FIXED - TypeScript errors resolved)
+// components/resources/resource-rating.tsx - FIXED: Following Help Center pattern, no freezing issues
 "use client"
 
 import React, { useState, useCallback } from "react"
@@ -24,14 +24,16 @@ import {
   Loader2
 } from "lucide-react"
 
+// FIXED: Import the corrected hooks
 import { useResourceFeedback, useResourceUtils } from "@/hooks/use-resources"
 import { useAuth } from "@/contexts/AuthContext"
 import { cn } from "@/lib/utils"
-import type { Resource, ResourceFeedback } from "@/services/resources.service"
+import type { ResourceItem } from "@/stores/resources-store"
+import type { ResourceFeedback } from "@/services/resources.service"
 import { toast } from "sonner"
 
 interface ResourceRatingProps {
-  resource: Resource
+  resource: ResourceItem
   showStats?: boolean
   compact?: boolean
   userFeedback?: ResourceFeedback
@@ -49,7 +51,8 @@ export function ResourceRatingComponent({
   const [comment, setComment] = useState(userFeedback?.comment || "")
   const [isRecommended, setIsRecommended] = useState(userFeedback?.is_recommended ?? true)
 
-  const feedbackMutation = useResourceFeedback()
+  // FIXED: Use the corrected hooks with proper destructuring
+  const { submitFeedback, isLoading: feedbackLoading } = useResourceFeedback()
   const { calculateRatingPercentage, formatCount } = useResourceUtils()
 
   const handleSubmitRating = useCallback(async () => {
@@ -59,21 +62,22 @@ export function ResourceRatingComponent({
     }
 
     try {
-      await feedbackMutation.mutateAsync({
-        resourceId: resource.id,
-        feedback: {
-          rating: selectedRating,
-          comment: comment.trim() || undefined,
-          is_recommended: isRecommended
-        }
+      // FIXED: Use the returned function directly
+      const success = await submitFeedback(resource.id, {
+        rating: selectedRating,
+        comment: comment.trim() || undefined,
+        is_recommended: isRecommended
       })
       
-      setShowRatingDialog(false)
-      toast.success('Thank you for your feedback!')
+      if (success) {
+        setShowRatingDialog(false)
+        toast.success('Thank you for your feedback!')
+      }
     } catch (error) {
-      // Error handled by mutation
+      console.error('❌ ResourceRating: Submit feedback failed:', error)
+      // Error handling is done in the mutation hook
     }
-  }, [selectedRating, comment, isRecommended, resource.id, feedbackMutation])
+  }, [selectedRating, comment, isRecommended, resource.id, submitFeedback])
 
   const renderStars = (rating: number, interactive: boolean = false, size: 'sm' | 'md' | 'lg' = 'md') => {
     const starSize = size === 'sm' ? 'h-3 w-3' : size === 'lg' ? 'h-6 w-6' : 'h-4 w-4'
@@ -320,16 +324,16 @@ export function ResourceRatingComponent({
             <Button
               variant="outline"
               onClick={() => setShowRatingDialog(false)}
-              disabled={feedbackMutation.isPending}
+              disabled={feedbackLoading}
             >
               Cancel
             </Button>
             <Button
               onClick={handleSubmitRating}
-              disabled={!selectedRating || feedbackMutation.isPending}
+              disabled={!selectedRating || feedbackLoading}
               className="bg-blue-600 hover:bg-blue-700"
             >
-              {feedbackMutation.isPending ? (
+              {feedbackLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Submitting...
