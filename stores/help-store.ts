@@ -1,4 +1,4 @@
-// stores/help-store.ts - CORRECTED: Simplified like ticket store
+// stores/help-store.ts - FIXED: Proper FAQ update handling
 
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
@@ -132,7 +132,6 @@ const defaultFilters: FAQFilters = {
   page: 1,
   per_page: 20,
   sort_by: 'newest',
-  include_drafts: true,
   status: 'all'
 }
 
@@ -155,6 +154,25 @@ const generateFAQSlug = (faq: FAQ): string => {
 
 const isFAQSuggestion = (faq: FAQ): boolean => {
   return !faq.is_published && !!faq.created_by
+}
+
+// FIXED: Validation helpers
+const validateFAQData = (data: Partial<FAQ>): { valid: boolean; errors: string[] } => {
+  const errors: string[] = []
+
+  if (data.question !== undefined && (!data.question?.trim() || data.question.length < 10)) {
+    errors.push('Question must be at least 10 characters long')
+  }
+
+  if (data.answer !== undefined && (!data.answer?.trim() || data.answer.length < 20)) {
+    errors.push('Answer must be at least 20 characters long')
+  }
+
+  if (data.category_id !== undefined && !data.category_id) {
+    errors.push('Category is required')
+  }
+
+  return { valid: errors.length === 0, errors }
 }
 
 // CORRECTED: Simple store like ticket store
@@ -284,7 +302,7 @@ export const useHelpStore = create<HelpState>()(
           }))
           
           try {
-            const response = await helpService.getCategories(includeInactive)
+            const response = await helpService.getCategories({ include_inactive: includeInactive })
             
             if (response.success && response.data) {
               set((state) => ({
@@ -368,6 +386,17 @@ export const useHelpStore = create<HelpState>()(
         
         // SIMPLIFIED: Create FAQ like tickets
         createFAQ: async (data: Partial<FAQ>) => {
+          // FIXED: Validate data before API call
+          const validation = validateFAQData(data)
+          if (!validation.valid) {
+            const errorMessage = validation.errors.join(', ')
+            set((state) => ({
+              errors: { ...state.errors, create: errorMessage }
+            }))
+            toast.error(errorMessage)
+            return null
+          }
+
           set((state) => ({
             loading: { ...state.loading, create: true },
             errors: { ...state.errors, create: null },
@@ -408,8 +437,19 @@ export const useHelpStore = create<HelpState>()(
           }
         },
         
-        // SIMPLIFIED: Update FAQ like tickets
+        // FIXED: Update FAQ with proper validation and error handling
         updateFAQ: async (id: number, data: Partial<FAQ>) => {
+          // FIXED: Validate data before API call
+          const validation = validateFAQData(data)
+          if (!validation.valid) {
+            const errorMessage = validation.errors.join(', ')
+            set((state) => ({
+              errors: { ...state.errors, update: errorMessage }
+            }))
+            toast.error(errorMessage)
+            throw new Error(errorMessage) // Throw to stop execution
+          }
+
           set((state) => ({
             loading: { ...state.loading, update: true },
             errors: { ...state.errors, update: null },
@@ -418,7 +458,28 @@ export const useHelpStore = create<HelpState>()(
           try {
             console.log('🎯 HelpStore: Updating FAQ:', id, data)
             
-            const response = await helpService.updateFAQ(id, data)
+            // FIXED: Find the existing FAQ first
+            const currentState = get()
+            const existingFAQ = currentState.faqs.find(f => f.id === id)
+            
+            if (!existingFAQ) {
+              throw new Error(`FAQ with ID ${id} not found`)
+            }
+
+            // FIXED: Prepare complete update data with defaults
+            const updateData = {
+              question: data.question || existingFAQ.question,
+              answer: data.answer || existingFAQ.answer,
+              category_id: data.category_id || existingFAQ.category_id,
+              tags: data.tags !== undefined ? data.tags : existingFAQ.tags,
+              is_published: data.is_published !== undefined ? data.is_published : existingFAQ.is_published,
+              is_featured: data.is_featured !== undefined ? data.is_featured : existingFAQ.is_featured,
+              sort_order: data.sort_order !== undefined ? data.sort_order : existingFAQ.sort_order,
+            }
+
+            console.log('🔧 HelpStore: Prepared update data:', updateData)
+            
+            const response = await helpService.updateFAQ(id, updateData)
             
             if (response.success && response.data?.faq) {
               const updatedFAQ: HelpFAQ = {
@@ -451,6 +512,7 @@ export const useHelpStore = create<HelpState>()(
               errors: { ...state.errors, update: error.message || 'Failed to update FAQ' },
             }))
             toast.error(error.message || 'Failed to update FAQ')
+            throw error // Re-throw for calling code to handle
           }
         },
         
@@ -496,32 +558,50 @@ export const useHelpStore = create<HelpState>()(
           }
         },
         
-        // Toggle publish
+        // FIXED: Toggle publish with proper error handling
         togglePublishFAQ: async (id: number) => {
           try {
             const state = get()
             const faq = state.faqs.find(f => f.id === id)
-            if (!faq) return
+            if (!faq) {
+              throw new Error(`FAQ with ID ${id} not found`)
+            }
             
+            console.log('🎯 HelpStore: Toggling publish for FAQ:', id, 'current state:', faq.is_published)
+            
+            // FIXED: Only toggle the publish status - don't change other fields
             await get().actions.updateFAQ(id, { 
               is_published: !faq.is_published,
               published_at: !faq.is_published ? new Date().toISOString() : faq.published_at
             })
+            
+            console.log('✅ HelpStore: Publish toggled successfully')
           } catch (error: any) {
-            console.error('Failed to toggle publish:', error)
+            console.error('❌ HelpStore: Failed to toggle publish:', error)
+            throw error // Re-throw for UI to handle
           }
         },
         
-        // Toggle feature
+        // FIXED: Toggle feature with proper error handling
         toggleFeatureFAQ: async (id: number) => {
           try {
             const state = get()
             const faq = state.faqs.find(f => f.id === id)
-            if (!faq) return
+            if (!faq) {
+              throw new Error(`FAQ with ID ${id} not found`)
+            }
             
-            await get().actions.updateFAQ(id, { is_featured: !faq.is_featured })
+            console.log('🎯 HelpStore: Toggling feature for FAQ:', id, 'current state:', faq.is_featured)
+            
+            // FIXED: Only toggle the feature status - don't change other fields
+            await get().actions.updateFAQ(id, { 
+              is_featured: !faq.is_featured 
+            })
+            
+            console.log('✅ HelpStore: Feature toggled successfully')
           } catch (error: any) {
-            console.error('Failed to toggle feature:', error)
+            console.error('❌ HelpStore: Failed to toggle feature:', error)
+            throw error // Re-throw for UI to handle
           }
         },
         

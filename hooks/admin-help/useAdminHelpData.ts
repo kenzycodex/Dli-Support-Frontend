@@ -191,7 +191,11 @@ export function useAdminHelpData() {
         setFilters({ category: categoryId }, true);
       },
       filterByStatus: (status: 'all' | 'published' | 'unpublished' | 'featured') => {
-        setFilters({ status }, true);
+        if (status === 'featured') {
+          setFilters({ status: undefined, featured: true }, true);
+        } else {
+          setFilters({ status, featured: undefined }, true);
+        }
       },
       searchFAQs: (search: string) => {
         setFilters({ search }, true);

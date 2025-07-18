@@ -1,11 +1,11 @@
-// components/help/faq-feedback.tsx (NEW - FAQ Feedback Component)
-"use client"
+// components/help/faq-feedback.tsx (SIMPLIFIED - Removed useFAQAnalytics)
+'use client';
 
-import { useState, useCallback } from "react"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent } from "@/components/ui/card"
+import { useState, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -13,7 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from '@/components/ui/dialog';
 import {
   ThumbsUp,
   ThumbsDown,
@@ -23,87 +23,104 @@ import {
   Eye,
   Loader2,
   CheckCircle,
-  XCircle
-} from "lucide-react"
-import { cn } from "@/lib/utils"
-import { useFAQFeedback, useFAQAnalytics, useFAQUtils } from "@/hooks/use-help"
-import { useAuth } from "@/contexts/AuthContext"
-import type { FAQ } from "@/services/help.service"
+  XCircle,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useFAQFeedback, useFAQUtils } from '@/hooks/use-help';
+import { useAuth } from '@/contexts/AuthContext';
+import type { FAQ } from '@/services/help.service';
 
 interface FAQFeedbackProps {
-  faq: FAQ
-  showStats?: boolean
-  compact?: boolean
-  className?: string
+  faq: FAQ;
+  showStats?: boolean;
+  compact?: boolean;
+  className?: string;
 }
 
-export function FAQFeedbackComponent({ 
-  faq, 
-  showStats = true, 
+export function FAQFeedbackComponent({
+  faq,
+  showStats = true,
   compact = false,
-  className 
+  className,
 }: FAQFeedbackProps) {
-  const { user } = useAuth()
-  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false)
-  const [feedbackType, setFeedbackType] = useState<'helpful' | 'not_helpful'>('helpful')
-  const [comment, setComment] = useState('')
-  const [hasSubmittedFeedback, setHasSubmittedFeedback] = useState(false)
+  const { user } = useAuth();
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
+  const [feedbackType, setFeedbackType] = useState<'helpful' | 'not_helpful'>('helpful');
+  const [comment, setComment] = useState('');
+  const [hasSubmittedFeedback, setHasSubmittedFeedback] = useState(false);
 
-  const faqFeedback = useFAQFeedback()
-  const { trackFAQFeedback } = useFAQAnalytics()
-  const { calculateHelpfulnessRate, getHelpfulnessColor, getHelpfulnessLabel } = useFAQUtils()
+  const faqFeedback = useFAQFeedback();
+  const { calculateHelpfulnessRate, getHelpfulnessColor, getHelpfulnessLabel } = useFAQUtils();
 
   // Calculate helpfulness statistics
-  const helpfulnessRate = calculateHelpfulnessRate(faq.helpful_count, faq.not_helpful_count)
-  const totalFeedback = faq.helpful_count + faq.not_helpful_count
-  const helpfulnessColor = getHelpfulnessColor(helpfulnessRate)
-  const helpfulnessLabel = getHelpfulnessLabel(helpfulnessRate)
+  const helpfulnessRate = calculateHelpfulnessRate(faq.helpful_count, faq.not_helpful_count);
+  const totalFeedback = faq.helpful_count + faq.not_helpful_count;
+  const helpfulnessColor = getHelpfulnessColor(helpfulnessRate);
+  const helpfulnessLabel = getHelpfulnessLabel(helpfulnessRate);
+
+  // Simple analytics tracking function (no external hook needed)
+  const trackFAQFeedback = useCallback(
+    (faqId: number, isHelpful: boolean, question: string) => {
+      // Simple console logging for analytics - can be replaced with actual analytics service
+      console.log('📊 FAQ Feedback Analytics:', {
+        faqId,
+        isHelpful,
+        question: question.substring(0, 50) + '...',
+        timestamp: new Date().toISOString(),
+        userId: user?.id,
+      });
+    },
+    [user?.id]
+  );
 
   // Handle feedback button click
-  const handleFeedbackClick = useCallback((isHelpful: boolean) => {
-    if (!user) {
-      // Could trigger login modal here
-      return
-    }
+  const handleFeedbackClick = useCallback(
+    (isHelpful: boolean) => {
+      if (!user) {
+        // Could trigger login modal here
+        return;
+      }
 
-    setFeedbackType(isHelpful ? 'helpful' : 'not_helpful')
-    setShowFeedbackDialog(true)
-  }, [user])
+      setFeedbackType(isHelpful ? 'helpful' : 'not_helpful');
+      setShowFeedbackDialog(true);
+    },
+    [user]
+  );
 
   // Submit feedback
   const handleSubmitFeedback = useCallback(async () => {
-    if (!user) return
+    if (!user) return;
 
     try {
       await faqFeedback.mutateAsync({
         faqId: faq.id,
         feedback: {
           is_helpful: feedbackType === 'helpful',
-          comment: comment.trim() || undefined
-        }
-      })
+          comment: comment.trim() || undefined,
+        },
+      });
 
       // Track analytics
-      trackFAQFeedback(faq.id, feedbackType === 'helpful', faq.question)
+      trackFAQFeedback(faq.id, feedbackType === 'helpful', faq.question);
 
-      setHasSubmittedFeedback(true)
-      setShowFeedbackDialog(false)
-      setComment('')
+      setHasSubmittedFeedback(true);
+      setShowFeedbackDialog(false);
+      setComment('');
     } catch (error) {
       // Error is handled by the mutation
-      console.error('Feedback submission error:', error)
+      console.error('Feedback submission error:', error);
     }
-  }, [user, faq.id, faq.question, feedbackType, comment, faqFeedback, trackFAQFeedback])
+  }, [user, faq.id, faq.question, feedbackType, comment, faqFeedback, trackFAQFeedback]);
 
   // Close dialog
   const handleCloseDialog = useCallback(() => {
-    setShowFeedbackDialog(false)
-    setComment('')
-  }, [])
+    setShowFeedbackDialog(false);
+    setComment('');
+  }, []);
 
   if (compact) {
     return (
-      <div className={cn("flex items-center space-x-4", className)}>
+      <div className={cn('flex items-center space-x-4', className)}>
         {/* Compact feedback buttons */}
         <div className="flex items-center space-x-2">
           <Button
@@ -116,7 +133,7 @@ export function FAQFeedbackComponent({
             <ThumbsUp className="h-4 w-4" />
             <span className="ml-1 text-xs">{faq.helpful_count}</span>
           </Button>
-          
+
           <Button
             variant="ghost"
             size="sm"
@@ -148,16 +165,16 @@ export function FAQFeedbackComponent({
           faqQuestion={faq.question}
         />
       </div>
-    )
+    );
   }
 
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className={cn('space-y-4', className)}>
       {/* Main feedback section */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <span className="text-sm font-medium text-gray-700">Was this helpful?</span>
-          
+
           {hasSubmittedFeedback ? (
             <div className="flex items-center space-x-2 text-green-600">
               <CheckCircle className="h-4 w-4" />
@@ -182,7 +199,7 @@ export function FAQFeedbackComponent({
                   {faq.helpful_count}
                 </Badge>
               </Button>
-              
+
               <Button
                 variant="outline"
                 size="sm"
@@ -226,7 +243,7 @@ export function FAQFeedbackComponent({
               {/* Helpfulness Rate */}
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-white rounded-lg">
-                  <TrendingUp className={cn("h-5 w-5", helpfulnessColor)} />
+                  <TrendingUp className={cn('h-5 w-5', helpfulnessColor)} />
                 </div>
                 <div>
                   <div className="text-lg font-semibold">{helpfulnessRate}%</div>
@@ -246,6 +263,17 @@ export function FAQFeedbackComponent({
                   </div>
                 </div>
               </div>
+
+              {/* View Count (if available) */}
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-white rounded-lg">
+                  <Eye className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <div className="text-lg font-semibold">{faq.view_count || 0}</div>
+                  <div className="text-xs text-gray-600">views</div>
+                </div>
+              </div>
             </div>
 
             {/* Helpfulness breakdown */}
@@ -257,14 +285,14 @@ export function FAQFeedbackComponent({
                 </div>
                 <div className="flex h-2 bg-gray-200 rounded-full overflow-hidden">
                   {faq.helpful_count > 0 && (
-                    <div 
-                      className="bg-green-500" 
+                    <div
+                      className="bg-green-500"
                       style={{ width: `${(faq.helpful_count / totalFeedback) * 100}%` }}
                     />
                   )}
                   {faq.not_helpful_count > 0 && (
-                    <div 
-                      className="bg-red-500" 
+                    <div
+                      className="bg-red-500"
                       style={{ width: `${(faq.not_helpful_count / totalFeedback) * 100}%` }}
                     />
                   )}
@@ -297,19 +325,19 @@ export function FAQFeedbackComponent({
         faqQuestion={faq.question}
       />
     </div>
-  )
+  );
 }
 
 // Feedback Dialog Component
 interface FeedbackDialogProps {
-  isOpen: boolean
-  onClose: () => void
-  onSubmit: () => void
-  feedbackType: 'helpful' | 'not_helpful'
-  comment: string
-  onCommentChange: (comment: string) => void
-  isLoading: boolean
-  faqQuestion: string
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: () => void;
+  feedbackType: 'helpful' | 'not_helpful';
+  comment: string;
+  onCommentChange: (comment: string) => void;
+  isLoading: boolean;
+  faqQuestion: string;
 }
 
 function FeedbackDialog({
@@ -320,9 +348,9 @@ function FeedbackDialog({
   comment,
   onCommentChange,
   isLoading,
-  faqQuestion
+  faqQuestion,
 }: FeedbackDialogProps) {
-  const isHelpful = feedbackType === 'helpful'
+  const isHelpful = feedbackType === 'helpful';
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -334,15 +362,12 @@ function FeedbackDialog({
             ) : (
               <ThumbsDown className="h-5 w-5 text-red-600" />
             )}
-            <span>
-              {isHelpful ? 'Great!' : 'Sorry to hear that'}
-            </span>
+            <span>{isHelpful ? 'Great!' : 'Sorry to hear that'}</span>
           </DialogTitle>
           <DialogDescription>
-            {isHelpful 
+            {isHelpful
               ? "We're glad this FAQ was helpful. Any additional comments?"
-              : "Help us improve this FAQ. What could be better?"
-            }
+              : 'Help us improve this FAQ. What could be better?'}
           </DialogDescription>
         </DialogHeader>
 
@@ -362,16 +387,14 @@ function FeedbackDialog({
               value={comment}
               onChange={(e) => onCommentChange(e.target.value)}
               placeholder={
-                isHelpful 
-                  ? "Any additional thoughts or suggestions..."
-                  : "Please tell us what was unclear or missing..."
+                isHelpful
+                  ? 'Any additional thoughts or suggestions...'
+                  : 'Please tell us what was unclear or missing...'
               }
               className="min-h-[80px] resize-none"
               maxLength={500}
             />
-            <div className="text-xs text-gray-500 text-right">
-              {comment.length}/500 characters
-            </div>
+            <div className="text-xs text-gray-500 text-right">{comment.length}/500 characters</div>
           </div>
         </div>
 
@@ -379,13 +402,11 @@ function FeedbackDialog({
           <Button variant="outline" onClick={onClose} disabled={isLoading}>
             Cancel
           </Button>
-          <Button 
-            onClick={onSubmit} 
+          <Button
+            onClick={onSubmit}
             disabled={isLoading}
             className={cn(
-              isHelpful 
-                ? "bg-green-600 hover:bg-green-700" 
-                : "bg-blue-600 hover:bg-blue-700"
+              isHelpful ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'
             )}
           >
             {isLoading ? (
@@ -400,5 +421,5 @@ function FeedbackDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

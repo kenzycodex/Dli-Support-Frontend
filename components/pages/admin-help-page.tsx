@@ -1,4 +1,4 @@
-// components/pages/admin-help-page.tsx - FIXED: HTML nesting issues in dialogs
+// components/pages/admin-help-page.tsx - FIXED: No auto-refresh issues
 
 'use client';
 
@@ -46,26 +46,36 @@ import { EditCategoryDialog } from '@/components/admin-help/dialogs/EditCategory
 
 // Types
 import type { HelpFAQ } from '@/stores/help-store';
-import type { HelpCategory } from '@/services/help.service';
+import type { HelpCategory, FAQFilters } from '@/services/help.service';
 
-// Form data interfaces with proper optional properties
+// Filter options interface
+interface FilterOptions {
+  search?: string;
+  status?: 'all' | 'published' | 'unpublished' | 'featured';
+  category?: string;
+  sort_by?: 'featured' | 'helpful' | 'views' | 'newest';
+  page?: number;
+  per_page?: number;
+}
+
+// Form data interfaces
 interface FAQFormData {
   question: string;
   answer: string;
   category_id: string;
-  tags: string[]; // Required array
-  is_published?: boolean; // Optional
-  is_featured?: boolean; // Optional
-  sort_order?: number; // Optional
+  tags: string[];
+  is_published?: boolean;
+  is_featured?: boolean;
+  sort_order?: number;
 }
 
 interface CategoryFormData {
   name: string;
-  description?: string; // Optional
-  icon?: string; // Optional
-  color?: string; // Optional
-  sort_order?: number; // Optional
-  is_active?: boolean; // Optional
+  description?: string;
+  icon?: string;
+  color?: string;
+  sort_order?: number;
+  is_active?: boolean;
 }
 
 // Dialog states
@@ -113,28 +123,36 @@ function AdminHelpErrorFallback({ error, retry }: { error: Error; retry: () => v
 export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
   const { user } = useAuth();
 
-  // Simple tab state
+  // Tab state
   const [selectedTab, setSelectedTab] = useState<TabType>('faqs');
 
   // Use the simplified hook
   const {
     faqs,
     categories,
-    suggestedFAQs,
+    suggestions,
     adminStats,
     loading,
     errors,
     isLoading,
     hasError,
-    filters,
+    isInitialized,
     actions,
     enhancedActions,
     helpers,
-    isInitialized,
-    hasActiveFilters,
   } = useAdminHelpData();
 
-  // Simple dialog states
+  // Local filter state
+  const [filters, setFilters] = useState<FilterOptions>({
+    search: '',
+    status: 'all',
+    category: 'all',
+    sort_by: 'newest',
+    page: 1,
+    per_page: 20,
+  });
+
+  // Dialog states
   const [dialogStates, setDialogStates] = useState<DialogStates>({
     showCreateFAQDialog: false,
     showEditFAQDialog: false,
@@ -148,12 +166,12 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
   const [selectedFAQ, setSelectedFAQ] = useState<HelpFAQ | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory | null>(null);
 
-  // Form states with proper defaults
+  // Form states
   const [faqForm, setFAQForm] = useState<FAQFormData>({
     question: '',
     answer: '',
     category_id: '',
-    tags: [], // Always an array
+    tags: [],
     is_published: false,
     is_featured: false,
     sort_order: 0,
@@ -161,15 +179,18 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
 
   const [categoryForm, setCategoryForm] = useState<CategoryFormData>({
     name: '',
-    description: '', // Always a string
+    description: '',
     icon: 'HelpCircle',
     color: '#3B82F6',
     is_active: true,
     sort_order: 0,
   });
 
-  // Simple permission check
+  // Permission check
   const isAdmin = user?.role === 'admin';
+
+  // REMOVED: Auto-refresh helper that was causing issues
+  // Instead, we'll do manual refresh only when needed
 
   // Permission check effect
   useEffect(() => {
@@ -186,14 +207,14 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     onNavigate?.('help');
   }, [onNavigate]);
 
-  // Refresh handler
+  // FIXED: Manual refresh handler - only when user clicks
   const handleRefreshAll = useCallback(async () => {
     try {
-      console.log('🔄 AdminHelpPage: Refreshing all data');
+      console.log('🔄 AdminHelpPage: Manual refresh triggered by user');
       await helpers.refresh();
       toast.success('Data refreshed successfully');
     } catch (error) {
-      console.error('❌ Refresh failed:', error);
+      console.error('❌ Manual refresh failed:', error);
       toast.error('Failed to refresh data');
     }
   }, [helpers]);
@@ -244,14 +265,16 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     });
   }, []);
 
-  // FAQ operations
+  // FIXED: FAQ operations WITHOUT auto-refresh
   const handleCreateFAQ = useCallback(async () => {
     try {
+      console.log('📝 AdminHelpPage: Creating FAQ');
       const success = await enhancedActions.handleCreateFAQ(faqForm);
       if (success) {
         closeDialog('showCreateFAQDialog');
         resetFAQForm();
         toast.success('FAQ created successfully!');
+        // NO AUTO-REFRESH - let the store handle immediate updates
       }
     } catch (error) {
       console.error('❌ Create FAQ failed:', error);
@@ -262,12 +285,13 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     (faq: HelpFAQ) => {
       if (!faq) return;
 
+      console.log('✏️ AdminHelpPage: Opening edit dialog for FAQ:', faq.id);
       setSelectedFAQ(faq);
       setFAQForm({
         question: faq.question || '',
         answer: faq.answer || '',
         category_id: faq.category_id?.toString() || '',
-        tags: Array.isArray(faq.tags) ? faq.tags : [], // Ensure array
+        tags: Array.isArray(faq.tags) ? faq.tags : [],
         is_published: faq.is_published || false,
         is_featured: faq.is_featured || false,
         sort_order: faq.sort_order || 0,
@@ -281,11 +305,13 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     if (!selectedFAQ) return;
 
     try {
+      console.log('📝 AdminHelpPage: Updating FAQ:', selectedFAQ.id);
       const success = await enhancedActions.handleUpdateFAQ(selectedFAQ, faqForm);
       if (success) {
         closeDialog('showEditFAQDialog');
         setSelectedFAQ(null);
         toast.success('FAQ updated successfully!');
+        // NO AUTO-REFRESH - let the store handle immediate updates
       }
     } catch (error) {
       console.error('❌ Update FAQ failed:', error);
@@ -296,24 +322,28 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     if (!selectedFAQ) return;
 
     try {
+      console.log('🗑️ AdminHelpPage: Deleting FAQ:', selectedFAQ.id);
       const success = await enhancedActions.handleDeleteFAQ(selectedFAQ);
       if (success) {
         closeDialog('showDeleteFAQDialog');
         setSelectedFAQ(null);
         toast.success('FAQ deleted successfully!');
+        // NO AUTO-REFRESH - let the store handle immediate updates
       }
     } catch (error) {
       console.error('❌ Delete FAQ failed:', error);
     }
   }, [selectedFAQ, enhancedActions, closeDialog]);
 
-  // Quick actions
+  // FIXED: Quick actions WITHOUT auto-refresh
   const handleTogglePublish = useCallback(
     async (faq: HelpFAQ) => {
       try {
+        console.log('📄 AdminHelpPage: Toggling publish for FAQ:', faq.id);
         await enhancedActions.handleTogglePublish(faq);
         const status = faq.is_published ? 'unpublished' : 'published';
         toast.success(`FAQ ${status} successfully!`);
+        // NO AUTO-REFRESH - store handles immediate updates
       } catch (error) {
         console.error('❌ Toggle publish failed:', error);
       }
@@ -324,9 +354,11 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
   const handleToggleFeature = useCallback(
     async (faq: HelpFAQ) => {
       try {
+        console.log('⭐ AdminHelpPage: Toggling feature for FAQ:', faq.id);
         await enhancedActions.handleToggleFeature(faq);
         const status = faq.is_featured ? 'unfeatured' : 'featured';
         toast.success(`FAQ ${status} successfully!`);
+        // NO AUTO-REFRESH - store handles immediate updates
       } catch (error) {
         console.error('❌ Toggle feature failed:', error);
       }
@@ -334,14 +366,16 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     [enhancedActions]
   );
 
-  // Category operations
+  // FIXED: Category operations WITHOUT auto-refresh
   const handleCreateCategory = useCallback(async () => {
     try {
+      console.log('📂 AdminHelpPage: Creating category');
       const success = await enhancedActions.handleCreateCategory(categoryForm);
       if (success) {
         closeDialog('showCreateCategoryDialog');
         resetCategoryForm();
         toast.success('Category created successfully!');
+        // NO AUTO-REFRESH
       }
     } catch (error) {
       console.error('❌ Create category failed:', error);
@@ -352,6 +386,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     (category: HelpCategory) => {
       if (!category) return;
 
+      console.log('✏️ AdminHelpPage: Opening edit dialog for category:', category.id);
       setSelectedCategory(category);
       setCategoryForm({
         name: category.name || '',
@@ -370,11 +405,13 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     if (!selectedCategory) return;
 
     try {
+      console.log('📂 AdminHelpPage: Updating category:', selectedCategory.id);
       const success = await enhancedActions.handleUpdateCategory(selectedCategory, categoryForm);
       if (success) {
         closeDialog('showEditCategoryDialog');
         setSelectedCategory(null);
         toast.success('Category updated successfully!');
+        // NO AUTO-REFRESH
       }
     } catch (error) {
       console.error('❌ Update category failed:', error);
@@ -385,23 +422,27 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     if (!selectedCategory) return;
 
     try {
+      console.log('🗑️ AdminHelpPage: Deleting category:', selectedCategory.id);
       const success = await enhancedActions.handleDeleteCategory(selectedCategory);
       if (success) {
         closeDialog('showDeleteCategoryDialog');
         setSelectedCategory(null);
         toast.success('Category deleted successfully!');
+        // NO AUTO-REFRESH
       }
     } catch (error) {
       console.error('❌ Delete category failed:', error);
     }
   }, [selectedCategory, enhancedActions, closeDialog]);
 
-  // Suggestion management
+  // FIXED: Suggestion management WITHOUT auto-refresh
   const handleApproveSuggestion = useCallback(
     async (faq: HelpFAQ) => {
       try {
+        console.log('✅ AdminHelpPage: Approving suggestion:', faq.id);
         await enhancedActions.handleApproveSuggestion(faq);
         toast.success('Suggestion approved and published!');
+        // NO AUTO-REFRESH
       } catch (error) {
         console.error('❌ Approve suggestion failed:', error);
       }
@@ -412,8 +453,10 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
   const handleRejectSuggestion = useCallback(
     async (faq: HelpFAQ) => {
       try {
+        console.log('❌ AdminHelpPage: Rejecting suggestion:', faq.id);
         await enhancedActions.handleRejectSuggestion(faq);
         toast.success('Suggestion rejected successfully!');
+        // NO AUTO-REFRESH
       } catch (error) {
         console.error('❌ Reject suggestion failed:', error);
       }
@@ -421,45 +464,39 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
     [enhancedActions]
   );
 
-  // Tag handlers
-  const handleAddTag = useCallback(
-    (tag: string) => {
-      const trimmedTag = tag.trim();
-      if (trimmedTag && !faqForm.tags.includes(trimmedTag) && faqForm.tags.length < 10) {
-        setFAQForm((prev) => ({
-          ...prev,
-          tags: [...prev.tags, trimmedTag],
-        }));
-      }
-    },
-    [faqForm.tags]
-  );
+  // Filter handlers
+  const handleSearchChange = useCallback((value: string) => {
+    console.log('🔍 AdminHelpPage: Search changed:', value);
+    setFilters((prev) => ({ ...prev, search: value, page: 1 }));
+  }, []);
 
-  const handleRemoveTag = useCallback((tagToRemove: string) => {
-    setFAQForm((prev) => ({
+  const handleFilterChange = useCallback((key: string, value: string) => {
+    console.log('🔧 AdminHelpPage: Filter changed:', key, value);
+    setFilters((prev) => ({
       ...prev,
-      tags: prev.tags.filter((tag) => tag !== tagToRemove),
+      [key]: value === 'all' ? undefined : value,
+      page: 1,
     }));
   }, []);
 
-  // Filter handlers
-  const handleSearchChange = useCallback(
-    (value: string) => {
-      actions.setFilters({ search: value }, true);
-    },
-    [actions]
-  );
-
-  const handleFilterChange = useCallback(
-    (key: string, value: string) => {
-      actions.setFilters({ [key]: value === 'all' ? undefined : value }, true);
-    },
-    [actions]
-  );
-
   const handleClearFilters = useCallback(() => {
-    actions.clearFilters(true);
-  }, [actions]);
+    console.log('🧹 AdminHelpPage: Clearing filters');
+    setFilters({
+      search: '',
+      status: 'all',
+      category: 'all',
+      sort_by: 'newest',
+      page: 1,
+      per_page: 20,
+    });
+  }, []);
+
+  // Check for active filters
+  const hasActiveFilters = !!(
+    filters.search ||
+    (filters.status && filters.status !== 'all') ||
+    (filters.category && filters.category !== 'all')
+  );
 
   // Early returns
   if (!user) {
@@ -566,7 +603,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
             </TabsTrigger>
           </TabsList>
 
-          {/* FAQ Management Tab */}
+          {/* FAQ Management Tab - FIXED VERSION */}
           <TabsContent value="faqs">
             <FAQManagementTab
               faqs={faqs}
@@ -585,15 +622,22 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
               }}
               onTogglePublish={handleTogglePublish}
               onToggleFeature={handleToggleFeature}
-              setFilters={actions.setFilters}
+              setFilters={(newFilters, immediate) => {
+                setFilters((prev) => ({ ...prev, ...newFilters }));
+              }}
             />
           </TabsContent>
 
-          {/* Categories Tab */}
+          {/* Other tabs remain the same */}
           <TabsContent value="categories">
             <CategoryManagementTab
               categories={categories}
-              loading={loading}
+              loading={{
+                categories: loading.categories,
+                create: loading.create,
+                update: loading.update,
+                delete: loading.delete,
+              }}
               onCreateCategory={() => openDialog('showCreateCategoryDialog')}
               onEditCategory={handleEditCategory}
               onDeleteCategory={(category) => {
@@ -606,7 +650,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
           {/* Suggestions Tab */}
           <TabsContent value="suggestions">
             <SuggestionsTab
-              suggestedFAQs={suggestedFAQs}
+              suggestedFAQs={suggestions}
               adminStats={adminStats}
               loading={loading}
               isApproving={loading.approve}
@@ -624,7 +668,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
         </Tabs>
       </div>
 
-      {/* Dialogs */}
+      {/* FIXED: All dialogs remain the same but now WITHOUT auto-refresh */}
 
       {/* Create FAQ Dialog */}
       <CreateFAQDialog
@@ -635,8 +679,21 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
         setFormData={setFAQForm}
         isLoading={loading.create}
         onSubmit={handleCreateFAQ}
-        onAddTag={handleAddTag}
-        onRemoveTag={handleRemoveTag}
+        onAddTag={(tag: string) => {
+          const trimmedTag = tag.trim();
+          if (trimmedTag && !faqForm.tags.includes(trimmedTag) && faqForm.tags.length < 10) {
+            setFAQForm((prev) => ({
+              ...prev,
+              tags: [...prev.tags, trimmedTag],
+            }));
+          }
+        }}
+        onRemoveTag={(tagToRemove: string) => {
+          setFAQForm((prev) => ({
+            ...prev,
+            tags: prev.tags.filter((tag) => tag !== tagToRemove),
+          }));
+        }}
       />
 
       {/* Edit FAQ Dialog */}
@@ -648,11 +705,24 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
         setFormData={setFAQForm}
         isLoading={loading.update}
         onSubmit={handleUpdateFAQ}
-        onAddTag={handleAddTag}
-        onRemoveTag={handleRemoveTag}
+        onAddTag={(tag: string) => {
+          const trimmedTag = tag.trim();
+          if (trimmedTag && !faqForm.tags.includes(trimmedTag) && faqForm.tags.length < 10) {
+            setFAQForm((prev) => ({
+              ...prev,
+              tags: [...prev.tags, trimmedTag],
+            }));
+          }
+        }}
+        onRemoveTag={(tagToRemove: string) => {
+          setFAQForm((prev) => ({
+            ...prev,
+            tags: prev.tags.filter((tag) => tag !== tagToRemove),
+          }));
+        }}
       />
 
-      {/* FIXED: Delete FAQ Dialog with proper HTML structure */}
+      {/* Delete FAQ Dialog */}
       <AlertDialog
         open={dialogStates.showDeleteFAQDialog}
         onOpenChange={(open) => !open && closeDialog('showDeleteFAQDialog')}
@@ -711,7 +781,7 @@ export function AdminHelpPage({ onNavigate }: AdminHelpPageProps) {
         onSubmit={handleUpdateCategory}
       />
 
-      {/* FIXED: Delete Category Dialog with proper HTML structure */}
+      {/* Delete Category Dialog */}
       <AlertDialog
         open={dialogStates.showDeleteCategoryDialog}
         onOpenChange={(open) => !open && closeDialog('showDeleteCategoryDialog')}
