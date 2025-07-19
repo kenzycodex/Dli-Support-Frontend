@@ -321,11 +321,13 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // FIXED: Fetch bookmarks - EXACTLY like help store
-        fetchBookmarks: async (page = 1, perPage = 20) => {
+        // FIXED: Enhanced bookmark fetching
+        fetchBookmarks: async (page = 1, perPage = 25) => {
           const state = get();
 
+          // Don't fetch too frequently
           if (Date.now() - state.lastFetch.bookmarks < 1000) {
+            console.log('🔖 ResourceStore: Skipping bookmark fetch (too recent)');
             return;
           }
 
@@ -335,18 +337,33 @@ export const useResourcesStore = create<ResourceState>()(
           }));
 
           try {
-            const response = await resourcesService.getBookmarks(page, perPage);
+            console.log('🔖 ResourceStore: Fetching bookmarks:', { page, perPage });
+
+            const response = await resourcesService.getBookmarks(page, perPage, { forceRefresh: true });
 
             if (response.success && response.data) {
+              const bookmarks = response.data.bookmarks || [];
+              
+              // Ensure all bookmarks have the required fields
+              const processedBookmarks: ResourceBookmark[] = bookmarks.map((bookmark: any) => ({
+                ...bookmark,
+                slug: bookmark.slug || generateResourceSlug(bookmark),
+                bookmarked_at: bookmark.bookmarked_at || bookmark.created_at,
+                is_bookmarked: true // Ensure bookmarks are marked as bookmarked
+              }));
+
               set((state) => ({
-                bookmarks: response.data!.bookmarks || [],
+                bookmarks: processedBookmarks,
                 lastFetch: { ...state.lastFetch, bookmarks: Date.now() },
                 loading: { ...state.loading, bookmarks: false },
               }));
+
+              console.log('✅ ResourceStore: Bookmarks fetched successfully:', processedBookmarks.length);
             } else {
               throw new Error(response.message || 'Failed to fetch bookmarks');
             }
           } catch (error: any) {
+            console.error('❌ ResourceStore: Failed to fetch bookmarks:', error);
             set((state) => ({
               loading: { ...state.loading, bookmarks: false },
               errors: { ...state.errors, bookmarks: error.message },
@@ -459,7 +476,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // FIXED: Update resource - EXACTLY like help store updateFAQ
+        // FIXED: Update resource - enhanced error handling
         updateResource: async (id: number, data: Partial<Resource>) => {
           set((state) => ({
             loading: { ...state.loading, update: true },
@@ -543,7 +560,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // FIXED: Toggle publish - EXACTLY like help store
+        // FIXED: Toggle publish - send complete resource data to avoid validation errors
         togglePublishResource: async (id: number) => {
           try {
             const state = get();
@@ -559,12 +576,38 @@ export const useResourcesStore = create<ResourceState>()(
               resource.is_published
             );
 
-            await get().actions.updateResource(id, {
+            // FIXED: Create complete resource data with all required fields
+            const completeResourceData = {
+              // Core required fields
+              title: resource.title,
+              description: resource.description,
+              category_id: resource.category_id,
+              type: resource.type,
+              difficulty: resource.difficulty,
+              external_url: resource.external_url,
+              
+              // Optional fields with safe defaults
+              download_url: resource.download_url || '',
+              thumbnail_url: resource.thumbnail_url || '',
+              duration: resource.duration || '',
+              tags: Array.isArray(resource.tags) ? resource.tags : [],
+              author_name: resource.author_name || '',
+              author_bio: resource.author_bio || '',
+              subcategory: resource.subcategory || '',
+              sort_order: resource.sort_order || 0,
+              
+              // Toggle publish status
               is_published: !resource.is_published,
-              published_at: !resource.is_published
-                ? new Date().toISOString()
+              is_featured: resource.is_featured, // Keep current feature status
+              
+              // Handle published_at timestamp
+              published_at: !resource.is_published 
+                ? new Date().toISOString() 
                 : resource.published_at,
-            });
+            };
+
+            // Use the existing updateResource method with complete data
+            await get().actions.updateResource(id, completeResourceData);
 
             console.log('✅ ResourceStore: Publish toggled successfully');
           } catch (error: any) {
@@ -573,7 +616,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // FIXED: Toggle feature - EXACTLY like help store
+        // FIXED: Toggle feature - send complete resource data to avoid validation errors
         toggleFeatureResource: async (id: number) => {
           try {
             const state = get();
@@ -589,9 +632,36 @@ export const useResourcesStore = create<ResourceState>()(
               resource.is_featured
             );
 
-            await get().actions.updateResource(id, {
-              is_featured: !resource.is_featured,
-            });
+            // FIXED: Create complete resource data with all required fields
+            const completeResourceData = {
+              // Core required fields
+              title: resource.title,
+              description: resource.description,
+              category_id: resource.category_id,
+              type: resource.type,
+              difficulty: resource.difficulty,
+              external_url: resource.external_url,
+              
+              // Optional fields with safe defaults
+              download_url: resource.download_url || '',
+              thumbnail_url: resource.thumbnail_url || '',
+              duration: resource.duration || '',
+              tags: Array.isArray(resource.tags) ? resource.tags : [],
+              author_name: resource.author_name || '',
+              author_bio: resource.author_bio || '',
+              subcategory: resource.subcategory || '',
+              sort_order: resource.sort_order || 0,
+              
+              // Keep publish status, toggle feature status
+              is_published: resource.is_published,
+              is_featured: !resource.is_featured, // Toggle the feature status
+              
+              // Keep existing published_at timestamp
+              published_at: resource.published_at,
+            };
+
+            // Use the existing updateResource method with complete data
+            await get().actions.updateResource(id, completeResourceData);
 
             console.log('✅ ResourceStore: Feature toggled successfully');
           } catch (error: any) {
@@ -783,29 +853,54 @@ export const useResourcesStore = create<ResourceState>()(
           }));
 
           try {
-            console.log('🎯 ResourceStore: Toggling bookmark for resource:', id);
+            console.log('🔖 ResourceStore: Toggling bookmark for resource:', id);
 
             const response = await resourcesService.toggleBookmark(id);
 
             if (response.success && response.data) {
               const isBookmarked = response.data.bookmarked;
+              const resourceId = response.data.resource_id;
 
-              set((state) => ({
-                resources: state.resources.map((r) =>
-                  r.id === id ? { ...r, is_bookmarked: isBookmarked } : r
-                ),
-                bookmarks: isBookmarked
-                  ? [
-                      ...state.bookmarks,
-                      state.resources.find((r) => r.id === id) as ResourceBookmark,
-                    ]
-                  : state.bookmarks.filter((b) => b.id !== id),
-                loading: { ...state.loading, bookmark: false },
-              }));
+              set((state) => {
+                // Find the resource to update
+                const resource = state.resources.find((r) => r.id === resourceId);
+                
+                // Update the main resources array
+                const updatedResources = state.resources.map((r) =>
+                  r.id === resourceId ? { ...r, is_bookmarked: isBookmarked } : r
+                );
+
+                // Update the bookmarks array
+                let updatedBookmarks = [...state.bookmarks];
+                
+                if (isBookmarked && resource) {
+                  // Add to bookmarks if it's not already there
+                  const bookmarkExists = updatedBookmarks.some(b => b.id === resourceId);
+                  if (!bookmarkExists) {
+                    const newBookmark = {
+                      ...resource,
+                      bookmarked_at: new Date().toISOString(),
+                      is_bookmarked: true
+                    } as ResourceBookmark;
+                    updatedBookmarks.unshift(newBookmark); // Add to beginning
+                  }
+                } else {
+                  // Remove from bookmarks
+                  updatedBookmarks = updatedBookmarks.filter((b) => b.id !== resourceId);
+                }
+
+                return {
+                  resources: updatedResources,
+                  bookmarks: updatedBookmarks,
+                  loading: { ...state.loading, bookmark: false },
+                };
+              });
 
               console.log('✅ ResourceStore: Bookmark toggled successfully');
               const message = isBookmarked ? 'Resource bookmarked!' : 'Bookmark removed';
               toast.success(message);
+              
+              return true; // Return success indicator
             } else {
               throw new Error(response.message || 'Failed to toggle bookmark');
             }
@@ -816,6 +911,7 @@ export const useResourcesStore = create<ResourceState>()(
               errors: { ...state.errors, bookmark: error.message || 'Failed to toggle bookmark' },
             }));
             toast.error(error.message || 'Failed to toggle bookmark');
+            return false; // Return failure indicator
           }
         },
 

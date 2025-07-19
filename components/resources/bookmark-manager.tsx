@@ -1,4 +1,4 @@
-// components/resources/bookmark-manager.tsx - UPDATED: With pagination support
+// components/resources/bookmark-manager.tsx - FIXED: Hooks and service integration
 
 'use client';
 
@@ -36,20 +36,25 @@ import {
   X,
 } from 'lucide-react';
 
-// UPDATED: Import the pagination component
+// FIXED: Import the pagination component and proper hooks
 import { EnhancedPagination } from '@/components/common/enhanced-pagination';
-import { useResourceBookmarks, useResourceUtils, useResourceAccess } from '@/hooks/use-resources';
+import { 
+  useResourceBookmarks, 
+  useResourceUtils, 
+  useResourceAccess,
+  useResourceBookmark // FIXED: Add the bookmark toggle hook
+} from '@/hooks/use-resources';
 import { ResourceRatingComponent } from './resource-rating';
 import { cn } from '@/lib/utils';
 import type { ResourceItem } from '@/stores/resources-store';
 import type { ResourceCategory } from '@/services/resources.service';
 import { toast } from 'sonner';
 
-// UPDATED: Enhanced interface with pagination support
+// FIXED: Enhanced interface with pagination support
 interface BookmarkManagerProps {
   viewMode?: 'grid' | 'list';
   showFilters?: boolean;
-  showPagination?: boolean; // NEW: Added pagination option
+  showPagination?: boolean;
   onResourceClick?: (resource: ResourceItem) => void;
 }
 
@@ -60,20 +65,19 @@ interface BookmarkedResource extends ResourceItem {
 export function BookmarkManagerComponent({
   viewMode = 'grid',
   showFilters = true,
-  showPagination = true, // NEW: Default to showing pagination
+  showPagination = true,
   onResourceClick,
 }: BookmarkManagerProps) {
+  // FIXED: Stable hook order - all hooks at the top level
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [sortBy, setSortBy] = useState('bookmarked_at');
   const [loadingStates, setLoadingStates] = useState<Record<number, string>>({});
-  
-  // UPDATED: Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
 
-  // UPDATED: Use the corrected hooks with proper destructuring
+  // FIXED: Use stable hooks with consistent parameters
   const { 
     bookmarks, 
     isLoading, 
@@ -93,8 +97,9 @@ export function BookmarkManagerComponent({
   } = useResourceUtils();
 
   const { access: accessResource } = useResourceAccess();
+  const { toggle: toggleBookmarkService } = useResourceBookmark(); // FIXED: Use proper bookmark service
 
-  // UPDATED: Safe array utility function
+  // FIXED: Stable array utility function
   const ensureArray = useCallback((value: any): any[] => {
     if (Array.isArray(value)) return value;
     if (value === null || value === undefined) return [];
@@ -109,10 +114,9 @@ export function BookmarkManagerComponent({
     return [];
   }, []);
 
-  // UPDATED: Handle pagination changes
+  // FIXED: Stable pagination handlers
   const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page);
-    // Scroll to top of bookmarks
     const bookmarksSection = document.getElementById('bookmarks-results');
     if (bookmarksSection) {
       bookmarksSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -121,10 +125,10 @@ export function BookmarkManagerComponent({
 
   const handlePerPageChange = useCallback((newPerPage: number) => {
     setPerPage(newPerPage);
-    setCurrentPage(1); // Reset to first page when changing per page
+    setCurrentPage(1);
   }, []);
 
-  // UPDATED: Handle resource access with individual loading states
+  // FIXED: Stable resource access handler
   const handleResourceAccess = useCallback(
     async (resource: BookmarkedResource, event: React.MouseEvent) => {
       event.stopPropagation();
@@ -158,7 +162,7 @@ export function BookmarkManagerComponent({
     [accessResource]
   );
 
-  // UPDATED: Handle remove bookmark with individual loading states
+  // FIXED: Proper bookmark removal using the store service
   const handleRemoveBookmark = useCallback(
     async (resourceId: number, event: React.MouseEvent) => {
       event.stopPropagation();
@@ -167,8 +171,18 @@ export function BookmarkManagerComponent({
       setLoadingStates((prev) => ({ ...prev, [resourceId]: 'removing' }));
 
       try {
-        toast.success('Bookmark removed');
-        await refetch();
+        console.log('🗑️ BookmarkManager: Removing bookmark for resource:', resourceId);
+        
+        // FIXED: Use the proper bookmark toggle service
+        const success = await toggleBookmarkService(resourceId);
+        
+        if (success) {
+          toast.success('Bookmark removed successfully');
+          // FIXED: Refetch bookmarks to update the list
+          await refetch();
+        } else {
+          throw new Error('Failed to remove bookmark');
+        }
       } catch (error) {
         console.error('❌ BookmarkManager: Remove bookmark failed:', error);
         toast.error('Failed to remove bookmark');
@@ -180,10 +194,10 @@ export function BookmarkManagerComponent({
         });
       }
     },
-    [refetch]
+    [toggleBookmarkService, refetch]
   );
 
-  // UPDATED: Filter and paginate bookmarks
+  // FIXED: Stable filter and pagination logic
   const { filteredBookmarks, paginationInfo } = useMemo(() => {
     if (!bookmarks || !Array.isArray(bookmarks)) {
       return {
@@ -200,7 +214,7 @@ export function BookmarkManagerComponent({
       };
     }
 
-    let filtered = bookmarks;
+    let filtered = [...bookmarks]; // FIXED: Create a copy to avoid mutations
 
     // Search filter
     if (searchTerm.trim()) {
@@ -245,7 +259,7 @@ export function BookmarkManagerComponent({
       }
     });
 
-    // UPDATED: Apply client-side pagination
+    // FIXED: Apply client-side pagination
     const totalFiltered = filtered.length;
     const startIndex = (currentPage - 1) * perPage;
     const endIndex = startIndex + perPage;
@@ -265,14 +279,14 @@ export function BookmarkManagerComponent({
       filteredBookmarks: paginatedResults,
       paginationInfo
     };
-  }, [bookmarks, searchTerm, categoryFilter, typeFilter, sortBy, ensureArray, currentPage, perPage, showPagination]);
+  }, [bookmarks, searchTerm, categoryFilter, typeFilter, sortBy, currentPage, perPage, showPagination, ensureArray]);
 
-  // Get unique categories and types from all bookmarks (not just current page)
+  // FIXED: Stable category and type calculations
   const availableCategories = useMemo(() => {
     if (!bookmarks || !Array.isArray(bookmarks)) return [];
     const categories = new Map();
     bookmarks.forEach((bookmark: BookmarkedResource) => {
-      if (bookmark.category) {
+      if (bookmark.category && bookmark.category.id) { // FIXED: Ensure valid category
         categories.set(bookmark.category.slug, bookmark.category);
       }
     });
@@ -287,7 +301,7 @@ export function BookmarkManagerComponent({
     return Array.from(types);
   }, [bookmarks]);
 
-  // Get icon component safely
+  // FIXED: Stable icon component function
   const getIconComponent = useCallback((type: string) => {
     const iconMap: Record<string, React.ComponentType<any>> = {
       article: FileText,
@@ -300,7 +314,7 @@ export function BookmarkManagerComponent({
     return iconMap[type] || BookOpen;
   }, []);
 
-  // UPDATED: Reset pagination when filters change
+  // FIXED: Stable filter change handlers
   const handleFilterChange = useCallback((filterType: string, value: string) => {
     setCurrentPage(1); // Reset to first page when filter changes
     
@@ -320,7 +334,6 @@ export function BookmarkManagerComponent({
     }
   }, []);
 
-  // UPDATED: Clear all filters and reset pagination
   const handleClearFilters = useCallback(() => {
     setSearchTerm('');
     setCategoryFilter('all');
@@ -328,11 +341,8 @@ export function BookmarkManagerComponent({
     setCurrentPage(1);
   }, []);
 
-  // ... (keep all existing card components - BookmarkCard and BookmarkListItem)
-  // (The card components remain exactly the same as in the original)
-
-  // UPDATED: BookmarkCard with safe tag handling and proper keys
-  const BookmarkCard = ({ bookmark }: { bookmark: BookmarkedResource }) => {
+  // FIXED: BookmarkCard with proper key generation
+  const BookmarkCard = useCallback(({ bookmark }: { bookmark: BookmarkedResource }) => {
     const IconComponent = getIconComponent(bookmark.type);
     const isLoading = loadingStates[bookmark.id];
     const safeTags = ensureArray(bookmark.tags);
@@ -369,6 +379,7 @@ export function BookmarkManagerComponent({
                   onClick={(e) => handleRemoveBookmark(bookmark.id, e)}
                   disabled={!!isLoading}
                   className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 sm:p-2"
+                  title="Remove bookmark"
                 >
                   {isLoading === 'removing' ? (
                     <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
@@ -423,12 +434,12 @@ export function BookmarkManagerComponent({
               </div>
             )}
 
-            {/* Tags */}
+            {/* FIXED: Tags with proper unique keys */}
             {safeTags.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {safeTags.slice(0, 2).map((tag: any, index: number) => (
                   <Badge
-                    key={`tag-${bookmark.id}-${index}-${String(tag)}`}
+                    key={`bookmark-${bookmark.id}-tag-${index}-${String(tag).replace(/\s+/g, '-')}`}
                     variant="secondary"
                     className="text-xs"
                   >
@@ -436,7 +447,7 @@ export function BookmarkManagerComponent({
                   </Badge>
                 ))}
                 {safeTags.length > 2 && (
-                  <Badge key={`more-tags-${bookmark.id}`} variant="secondary" className="text-xs">
+                  <Badge key={`bookmark-${bookmark.id}-more-tags`} variant="secondary" className="text-xs">
                     +{safeTags.length - 2}
                   </Badge>
                 )}
@@ -474,10 +485,22 @@ export function BookmarkManagerComponent({
         </CardContent>
       </Card>
     );
-  };
+  }, [
+    getIconComponent, 
+    loadingStates, 
+    ensureArray, 
+    getTypeLabel, 
+    getDifficultyColor, 
+    formatCount, 
+    formatDuration, 
+    formatTimeAgo, 
+    onResourceClick, 
+    handleRemoveBookmark, 
+    handleResourceAccess
+  ]);
 
-  // UPDATED: BookmarkListItem (similar pattern)
-  const BookmarkListItem = ({ bookmark }: { bookmark: BookmarkedResource }) => {
+  // FIXED: BookmarkListItem with proper key generation  
+  const BookmarkListItem = useCallback(({ bookmark }: { bookmark: BookmarkedResource }) => {
     const IconComponent = getIconComponent(bookmark.type);
     const isLoading = loadingStates[bookmark.id];
     const safeTags = ensureArray(bookmark.tags);
@@ -543,11 +566,12 @@ export function BookmarkManagerComponent({
                     </div>
                   )}
 
+                  {/* FIXED: Tags with proper unique keys */}
                   {safeTags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {safeTags.slice(0, 3).map((tag: any, index: number) => (
                         <Badge
-                          key={`list-tag-${bookmark.id}-${index}-${String(tag)}`}
+                          key={`list-bookmark-${bookmark.id}-tag-${index}-${String(tag).replace(/\s+/g, '-')}`}
                           variant="outline"
                           className="text-xs"
                         >
@@ -556,7 +580,7 @@ export function BookmarkManagerComponent({
                       ))}
                       {safeTags.length > 3 && (
                         <Badge
-                          key={`list-more-tags-${bookmark.id}`}
+                          key={`list-bookmark-${bookmark.id}-more-tags`}
                           variant="outline"
                           className="text-xs"
                         >
@@ -589,6 +613,7 @@ export function BookmarkManagerComponent({
                     onClick={(e) => handleRemoveBookmark(bookmark.id, e)}
                     disabled={!!isLoading}
                     className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    title="Remove bookmark"
                   >
                     {isLoading === 'removing' ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
@@ -603,9 +628,22 @@ export function BookmarkManagerComponent({
         </CardContent>
       </Card>
     );
-  };
+  }, [
+    getIconComponent, 
+    loadingStates, 
+    ensureArray, 
+    getTypeLabel, 
+    getDifficultyColor, 
+    formatTimeAgo, 
+    formatDuration, 
+    formatCount, 
+    onResourceClick, 
+    handleResourceAccess, 
+    handleRemoveBookmark
+  ]);
 
-  if (isLoading) {
+  // Early returns for loading and error states
+  if (isLoading && !hasBookmarks) {
     return (
       <div className="space-y-4 sm:space-y-6 p-4 sm:p-0">
         <div className="text-center">
@@ -636,7 +674,7 @@ export function BookmarkManagerComponent({
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-0">
-      {/* UPDATED: Header with pagination info */}
+      {/* Header with pagination info */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold">My Bookmarks</h2>
@@ -656,7 +694,7 @@ export function BookmarkManagerComponent({
         </Button>
       </div>
 
-      {/* UPDATED: Filters with pagination reset */}
+      {/* Filters */}
       {showFilters && (availableCategories.length > 0 || availableTypes.length > 0) && (
         <Card className="border-0 shadow-lg">
           <CardContent className="p-4 sm:p-6">
@@ -681,7 +719,10 @@ export function BookmarkManagerComponent({
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
                     {availableCategories.map((category: ResourceCategory) => (
-                      <SelectItem key={`category-${category.id}`} value={category.slug}>
+                      <SelectItem 
+                        key={`filter-category-${category.id}-${category.slug}`} 
+                        value={category.slug}
+                      >
                         <div className="flex items-center space-x-2">
                           <div
                             className="w-3 h-3 rounded-full"
@@ -704,7 +745,7 @@ export function BookmarkManagerComponent({
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
                     {availableTypes.map((type: string) => (
-                      <SelectItem key={`type-${type}`} value={type}>
+                      <SelectItem key={`filter-type-${type}`} value={type}>
                         {getTypeLabel(type)}
                       </SelectItem>
                     ))}
@@ -739,7 +780,7 @@ export function BookmarkManagerComponent({
         </Card>
       )}
 
-      {/* UPDATED: Bookmarks Grid/List with scroll target */}
+      {/* Bookmarks Grid/List with scroll target */}
       <div id="bookmarks-results">
         {filteredBookmarks.length > 0 ? (
           <>
@@ -752,14 +793,14 @@ export function BookmarkManagerComponent({
             >
               {filteredBookmarks.map((bookmark: BookmarkedResource) =>
                 viewMode === 'grid' ? (
-                  <BookmarkCard key={`bookmark-card-${bookmark.id}`} bookmark={bookmark} />
+                  <BookmarkCard key={`bookmark-card-${bookmark.id}-${currentPage}`} bookmark={bookmark} />
                 ) : (
-                  <BookmarkListItem key={`bookmark-list-${bookmark.id}`} bookmark={bookmark} />
+                  <BookmarkListItem key={`bookmark-list-${bookmark.id}-${currentPage}`} bookmark={bookmark} />
                 )
               )}
             </div>
 
-            {/* UPDATED: Enhanced Pagination for Bookmarks */}
+            {/* Enhanced Pagination for Bookmarks */}
             {showPagination && paginationInfo.total > perPage && (
               <Card className="border-0 shadow-lg mt-6">
                 <CardContent className="p-4 sm:p-6">

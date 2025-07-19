@@ -615,12 +615,12 @@ class ResourcesService {
     }
   }
 
-  // FIXED: Add back missing methods that were accidentally removed
+  // FIXED: Enhanced bookmark fetching with better error handling
   async getBookmarks(
     page: number = 1,
-    perPage: number = 20,
+    perPage: number = 25,
     options: RequestOptions = {}
-  ): Promise<StandardizedApiResponse<{ bookmarks: any[]; pagination: any }>> {
+  ): Promise<StandardizedApiResponse<{ bookmarks: any[]; pagination?: any }>> {
     try {
       const { userRole, forceRefresh = false } = options;
       const cacheKey = this.getCacheKey('/resources/user/bookmarks', {
@@ -630,31 +630,66 @@ class ResourcesService {
       });
 
       if (!forceRefresh) {
-        const cached = this.getFromCache<{ bookmarks: any[]; pagination: any }>(cacheKey);
-        if (cached)
+        const cached = this.getFromCache<{ bookmarks: any[]; pagination?: any }>(cacheKey);
+        if (cached) {
+          console.log('📖 ResourcesService: Bookmarks retrieved from cache');
           return {
             success: true,
             status: 200,
             message: 'Bookmarks retrieved from cache',
             data: cached,
           };
+        }
       }
+
+      console.log('📖 ResourcesService: Fetching bookmarks from server:', { page, perPage });
 
       const response = await this.apiClient.get(
         `/resources/user/bookmarks?page=${page}&per_page=${perPage}`
       );
 
       if (response.success && response.data) {
-        this.setCache(cacheKey, response.data);
+        // Ensure bookmarks is always an array
+        const bookmarks = Array.isArray(response.data.bookmarks) 
+          ? response.data.bookmarks 
+          : Array.isArray(response.data) 
+            ? response.data 
+            : [];
+
+        const result = {
+          bookmarks,
+          pagination: response.data.pagination || {
+            current_page: page,
+            last_page: Math.ceil(bookmarks.length / perPage),
+            per_page: perPage,
+            total: bookmarks.length,
+            from: bookmarks.length > 0 ? ((page - 1) * perPage) + 1 : 0,
+            to: Math.min(page * perPage, bookmarks.length),
+          }
+        };
+
+        this.setCache(cacheKey, result);
+        console.log('✅ ResourcesService: Bookmarks fetched successfully:', result);
+        
+        return {
+          success: true,
+          status: response.status || 200,
+          message: response.message || 'Bookmarks retrieved successfully',
+          data: result,
+        };
       }
 
-      return response;
+      return {
+        success: false,
+        status: response.status || 0,
+        message: response.message || 'Failed to fetch bookmarks',
+      };
     } catch (error: any) {
       console.error('❌ ResourcesService: Failed to fetch bookmarks:', error);
       return {
         success: false,
         status: 0,
-        message: 'Failed to fetch bookmarks. Please try again.',
+        message: error.message || 'Failed to fetch bookmarks. Please try again.',
       };
     }
   }
@@ -783,25 +818,47 @@ class ResourcesService {
     }
   }
 
+  // FIXED: Enhanced bookmark toggle with proper response handling
   async toggleBookmark(
     resourceId: number,
     options: RequestOptions = {}
-  ): Promise<StandardizedApiResponse<{ bookmarked: boolean; resource_id: number }>> {
+  ): Promise<StandardizedApiResponse<{ bookmarked: boolean; resource_id: number; message?: string }>> {
     try {
+      console.log('🔖 ResourcesService: Toggling bookmark for resource:', resourceId);
+      
       const response = await this.apiClient.post(`/resources/${resourceId}/bookmark`);
 
-      // Clear bookmarks cache
-      Array.from(this.cache.keys())
-        .filter((key) => key.includes('bookmarks'))
-        .forEach((key) => this.cache.delete(key));
+      if (response.success && response.data) {
+        // Clear bookmarks cache to force refresh
+        Array.from(this.cache.keys())
+          .filter((key) => key.includes('bookmarks'))
+          .forEach((key) => this.cache.delete(key));
 
-      return response;
+        console.log('✅ ResourcesService: Bookmark toggled successfully:', response.data);
+        
+        return {
+          success: true,
+          status: response.status || 200,
+          message: response.message || 'Bookmark updated successfully',
+          data: {
+            bookmarked: response.data.bookmarked || false,
+            resource_id: resourceId,
+            message: response.data.message || response.message
+          }
+        };
+      }
+
+      return {
+        success: false,
+        status: response.status || 0,
+        message: response.message || 'Failed to toggle bookmark',
+      };
     } catch (error: any) {
       console.error('❌ ResourcesService: Failed to toggle bookmark:', error);
       return {
         success: false,
         status: 0,
-        message: 'Failed to toggle bookmark. Please try again.',
+        message: error.message || 'Failed to toggle bookmark. Please try again.',
       };
     }
   }

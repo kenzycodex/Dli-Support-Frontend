@@ -1,4 +1,4 @@
-// hooks/use-resources.ts - FINAL: Single fetch strategy like help system
+// hooks/use-resources.ts - COMPLETE FIXED VERSION: Single initialization pattern like help system
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,11 +13,11 @@ import type { ResourceFilters } from '@/services/resources.service';
 import { toast } from 'sonner'
 
 // =============================================================================
-// CORE HOOK: Single source of truth - like help system
+// CORE HOOK: Single source of truth - EXACTLY like help system
 // =============================================================================
 
 /**
- * CRITICAL: Core hook that fetches ALL data ONCE and populates the store
+ * FINAL FIXED: Core hook that fetches ALL data ONCE and populates the store
  * All other hooks use this data - NO additional API calls
  */
 function useResourcesCore(enabled: boolean = true) {
@@ -28,13 +28,33 @@ function useResourcesCore(enabled: boolean = true) {
   const errors = useResourcesErrors()
 
   const [isInitialized, setIsInitialized] = useState(false)
+  const [initializationAttempted, setInitializationAttempted] = useState(false)
 
-  // SINGLE initialization that fetches everything once
+  // FIXED: Stable initialization with minimal dependencies
   const initialize = useCallback(async () => {
-    if (!enabled || !user || isInitialized) return
+    if (!enabled || !user) {
+      console.log('🎯 useResourcesCore: Skipping - not enabled or no user')
+      return
+    }
     
-    // Don't fetch if we already have data
-    if (resources.length > 0 && categories.length > 0 && stats) return
+    if (initializationAttempted) {
+      console.log('🎯 useResourcesCore: Already attempted initialization')
+      return
+    }
+    
+    if (isInitialized) {
+      console.log('🎯 useResourcesCore: Already initialized')
+      return
+    }
+    
+    setInitializationAttempted(true)
+    
+    // Don't fetch if we already have substantial data
+    if (resources.length > 0 && categories.length > 0 && stats) {
+      console.log('🎯 useResourcesCore: Data already exists, marking as initialized')
+      setIsInitialized(true)
+      return
+    }
 
     try {
       console.log('🎯 useResourcesCore: Single initialization - fetching ALL data...')
@@ -50,17 +70,34 @@ function useResourcesCore(enabled: boolean = true) {
       console.log('✅ useResourcesCore: ALL data fetched successfully - store populated')
     } catch (error) {
       console.error('❌ useResourcesCore: Failed to initialize:', error)
+      setInitializationAttempted(false) // Allow retry on error
     }
-  }, [enabled, user, isInitialized, resources.length, categories.length, stats, fetchResources, fetchCategories, fetchStats])
+  }, [
+    enabled, 
+    user, 
+    initializationAttempted, 
+    isInitialized,
+    fetchResources, 
+    fetchCategories, 
+    fetchStats
+    // REMOVED: resources.length, categories.length, stats - these cause re-runs!
+  ])
 
+  // FIXED: Only run once when dependencies actually change
   useEffect(() => {
-    initialize()
-  }, [initialize])
+    if (enabled && user && !initializationAttempted && !isInitialized) {
+      initialize()
+    }
+  }, [enabled, user, initializationAttempted, isInitialized, initialize])
 
   const refetch = useCallback(async () => {
-    console.log('🔄 useResourcesCore: Refetching all data...')
-    setIsInitialized(false) // Reset to force re-fetch
-    await initialize()
+    console.log('🔄 useResourcesCore: Manual refetch requested')
+    setIsInitialized(false)
+    setInitializationAttempted(false)
+    // Force re-initialization
+    setTimeout(() => {
+      initialize()
+    }, 100)
   }, [initialize])
 
   return {
@@ -106,7 +143,7 @@ export function useResourceCategories(options: {
 
 /**
  * Main resources - uses store data + local filtering only
- * - UPDATED with better pagination support
+ * - FIXED: Remove duplicate pagination property
  */
 export function useResources(filters: ResourceFilters = {}, options: {
   enabled?: boolean
@@ -118,14 +155,8 @@ export function useResources(filters: ResourceFilters = {}, options: {
   // Use core hook to ensure data is loaded
   const core = useResourcesCore(enabled)
 
-  // UPDATED: Local filtering only when not using server-side pagination
+  // Local filtering only - no API calls
   const filteredResources = useMemo(() => {
-    // If we have pagination data from server, don't filter locally
-    if (pagination.total > 0 && pagination.last_page > 1) {
-      return resources // Use server-filtered results
-    }
-
-    // Otherwise, filter locally (for small datasets or when server doesn't support filtering)
     let filtered = [...resources]
 
     if (filters.search) {
@@ -153,7 +184,11 @@ export function useResources(filters: ResourceFilters = {}, options: {
       filtered = filtered.filter(r => r.is_featured)
     }
 
-    // Sort locally if needed
+    if (!filters.include_drafts) {
+      filtered = filtered.filter(r => r.is_published)
+    }
+
+    // Sort locally
     const sortBy = filters.sort_by || 'featured'
     switch (sortBy) {
       case 'featured':
@@ -174,9 +209,37 @@ export function useResources(filters: ResourceFilters = {}, options: {
     }
 
     return filtered
-  }, [resources, filters, pagination])
+  }, [resources, filters])
 
-  // UPDATED: Computed data with pagination context
+  // Client-side pagination
+  const paginatedResources = useMemo(() => {
+    const page = filters.page || 1
+    const perPage = filters.per_page || 25
+    const startIndex = (page - 1) * perPage
+    const endIndex = startIndex + perPage
+    
+    return filteredResources.slice(startIndex, endIndex)
+  }, [filteredResources, filters.page, filters.per_page])
+
+  // Calculate pagination metadata
+  const calculatedPagination = useMemo(() => {
+    const page = filters.page || 1
+    const perPage = filters.per_page || 25
+    const total = filteredResources.length
+    const lastPage = Math.ceil(total / perPage)
+    
+    return {
+      current_page: page,
+      last_page: lastPage,
+      per_page: perPage,
+      total: total,
+      from: total > 0 ? ((page - 1) * perPage) + 1 : 0,
+      to: Math.min(page * perPage, total),
+      has_more_pages: page < lastPage
+    }
+  }, [filteredResources, filters.page, filters.per_page])
+
+  // Computed data with pagination context
   const computedData = useMemo(() => {
     const workingResources = filteredResources
     const publishedResources = workingResources.filter(r => r.is_published)
@@ -187,23 +250,24 @@ export function useResources(filters: ResourceFilters = {}, options: {
       publishedResources,
       featuredResources,
       draftResources,
-      totalCount: pagination.total || workingResources.length, // Use server total if available
-      currentPageCount: workingResources.length,
+      totalCount: workingResources.length,
+      currentPageCount: paginatedResources.length,
       publishedCount: publishedResources.length,
       featuredCount: featuredResources.length,
       draftCount: draftResources.length,
-      pagination, // Include pagination info
+      // REMOVED: pagination: calculatedPagination, (this was the duplicate)
     }
-  }, [filteredResources, pagination])
+  }, [filteredResources, paginatedResources, calculatedPagination])
 
   return {
-    resources: filteredResources,
+    resources: paginatedResources,
+    pagination: calculatedPagination, // ONLY pagination property here
     isLoading: core.isLoading,
     error: core.error,
     isInitialized: core.isInitialized,
-    fetchWithFilters: () => {}, // No-op since we filter server-side now
+    fetchWithFilters: () => {}, // No-op since we filter locally
     refetch: core.refetch,
-    ...computedData,
+    ...computedData, // This spread no longer contains pagination
   }
 }
 
@@ -272,7 +336,7 @@ export function useResourceStats(options: { enabled?: boolean } = {}) {
 /**
  * Resource bookmarks - separate fetch (doesn't interfere with main data)
  */
-export function useResourceBookmarks(page: number = 1, perPage: number = 20) {
+export function useResourceBookmarks(page: number = 1, perPage: number = 25) {
   const { user } = useAuth()
   const { bookmarks } = useResourcesSelectors()
   const { fetchBookmarks } = useResourcesActions()
@@ -282,30 +346,52 @@ export function useResourceBookmarks(page: number = 1, perPage: number = 20) {
   const [isInitialized, setIsInitialized] = useState(false)
 
   const initialize = useCallback(async () => {
-    if (!user || isInitialized || bookmarks.length > 0) return
+    if (!user) {
+      console.log('🔖 useResourceBookmarks: No user, skipping bookmark fetch')
+      return
+    }
+
+    if (isInitialized) {
+      console.log('🔖 useResourceBookmarks: Already initialized, skipping')
+      return
+    }
 
     try {
-      console.log('🔖 useResourceBookmarks: Fetching bookmarks...')
+      console.log('🔖 useResourceBookmarks: Initializing bookmarks fetch...', { page, perPage })
       await fetchBookmarks(page, perPage)
       setIsInitialized(true)
-      console.log('✅ useResourceBookmarks: Bookmarks fetched')
+      console.log('✅ useResourceBookmarks: Bookmarks initialized successfully')
     } catch (error) {
       console.error('❌ useResourceBookmarks: Failed to initialize:', error)
     }
-  }, [user, isInitialized, bookmarks.length, fetchBookmarks, page, perPage])
+  }, [user, isInitialized, fetchBookmarks, page, perPage])
 
   useEffect(() => {
     initialize()
   }, [initialize])
 
+  const refetch = useCallback(async () => {
+    if (!user) return
+    
+    console.log('🔄 useResourceBookmarks: Refetching bookmarks...')
+    setIsInitialized(false)
+    await fetchBookmarks(page, perPage)
+    setIsInitialized(true)
+  }, [user, fetchBookmarks, page, perPage])
+
+  // Ensure bookmarks is always an array
+  const safeBookmarks = useMemo(() => {
+    return Array.isArray(bookmarks) ? bookmarks : []
+  }, [bookmarks])
+
   return {
-    bookmarks,
+    bookmarks: safeBookmarks,
     isLoading: loading.bookmarks && !isInitialized,
     error: errors.bookmarks,
     isInitialized,
-    refetch: () => fetchBookmarks(page, perPage),
-    bookmarksCount: bookmarks.length,
-    hasBookmarks: bookmarks.length > 0,
+    refetch,
+    bookmarksCount: safeBookmarks.length,
+    hasBookmarks: safeBookmarks.length > 0,
   }
 }
 
@@ -427,17 +513,31 @@ export function useResourceBookmark() {
   const { toggleBookmark } = useResourcesActions()
   const loading = useResourcesLoading()
 
-  const toggle = useCallback(async (resourceId: number) => {
+  const toggle = useCallback(async (resourceId: number): Promise<boolean> => {
     if (!user) {
       toast.error('Please log in to bookmark resources')
       return false
     }
 
     try {
-      await toggleBookmark(resourceId)
-      return true
+      console.log('🔖 useResourceBookmark: Toggling bookmark for resource:', resourceId)
+      
+      // The store's toggleBookmark now returns a boolean indicating success
+      const result = await toggleBookmark(resourceId)
+      
+      if (typeof result === 'boolean' && result) {
+        console.log('✅ useResourceBookmark: Bookmark toggled successfully')
+        return true
+      } else if (typeof result === 'boolean' && !result) {
+        console.error('❌ useResourceBookmark: Bookmark toggle returned false')
+        return false
+      } else {
+        console.error('❌ useResourceBookmark: Bookmark toggle did not return a boolean')
+        return false
+      }
     } catch (error: any) {
       console.error('❌ useResourceBookmark: Bookmark toggle failed:', error)
+      toast.error(error.message || 'Failed to toggle bookmark')
       return false
     }
   }, [user, toggleBookmark])
@@ -453,40 +553,73 @@ export function useResourceBookmark() {
 // =============================================================================
 
 /**
- * UPDATED: Dashboard with pagination awareness
+ * UPDATED: Dashboard with pagination awareness and single initialization
  */
 export function useResourcesDashboard(options: { enabled?: boolean } = {}) {
   const { enabled = true } = options
   
-  // Use individual hooks that now all share the same data
-  const categoriesQuery = useResourceCategories({ enabled })
-  const featuredQuery = useFeaturedResources(6, { enabled }) // Show more featured resources
-  const popularQuery = usePopularResources(8, { enabled }) // Show more popular resources
-  const statsQuery = useResourceStats({ enabled })
-
-  // Core ensures everything is loaded
+  // Use core hook to ensure data is loaded ONCE
   const core = useResourcesCore(enabled)
+  
+  // Get all data from selectors (no additional API calls)
+  const { 
+    resources, 
+    categories, 
+    stats,
+    activeCategories 
+  } = useResourcesSelectors()
 
-  // Top rated from store data
-  const { resources } = useResourcesSelectors()
-  const topRated = useMemo(() => {
-    return [...resources]
+  // Computed data from store only
+  const computedData = useMemo(() => {
+    // Featured resources from store
+    const featured = resources
+      .filter(r => r.is_featured && r.is_published)
+      .slice(0, 6)
+
+    // Popular resources from store
+    const popular = [...resources]
+      .filter(r => r.is_published)
+      .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
+      .slice(0, 8)
+
+    // Top rated from store data
+    const topRated = [...resources]
       .filter(r => r.is_published && r.rating > 0)
       .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-      .slice(0, 8) // Show more top rated
-  }, [resources])
+      .slice(0, 8)
+
+    // Safe stats
+    const safeStats = stats || {
+      total_resources: resources.length,
+      published_resources: resources.filter(r => r.is_published).length,
+      draft_resources: resources.filter(r => !r.is_published).length,
+      featured_resources: resources.filter(r => r.is_featured).length,
+      categories_count: categories.length,
+      active_categories: activeCategories.length,
+      total_views: 0,
+      total_downloads: 0,
+      average_rating: 0,
+    }
+
+    return {
+      featured,
+      popular,
+      topRated,
+      stats: safeStats
+    }
+  }, [resources, categories, stats, activeCategories])
 
   return {
-    categories: categoriesQuery.categories,
-    featured: featuredQuery.featured,
-    popular: popularQuery.popular,
-    topRated,
-    stats: statsQuery.stats,
+    categories: activeCategories,
+    featured: computedData.featured,
+    popular: computedData.popular,
+    topRated: computedData.topRated,
+    stats: computedData.stats,
     isLoading: core.isLoading,
     error: core.error,
     refetch: core.refetch,
     forceRefresh: core.refetch,
-    hasData: !!(categoriesQuery.categories.length || featuredQuery.featured.length || popularQuery.popular.length),
+    hasData: !!(activeCategories.length || computedData.featured.length || computedData.popular.length),
     loadingStates: {
       categories: core.isLoading,
       featured: core.isLoading,
@@ -507,7 +640,7 @@ export function useResourcesDashboard(options: { enabled?: boolean } = {}) {
 // =============================================================================
 
 /**
- * UPDATED: Enhanced filter hook with pagination support
+ * Enhanced filter hook with pagination support
  */
 export function useResourceFilters(initialFilters: ResourceFilters = {}) {
   const [filters, setFilters] = useState<ResourceFilters>({
@@ -826,6 +959,12 @@ export function useResourceUtils() {
     return formatRating(rating).toFixed(1)
   }, [])
 
+  // FIXED: Add the missing calculateRatingPercentage function
+  const calculateRatingPercentage = useCallback((rating: number): number => {
+    const safeRating = Math.max(0, Math.min(5, Number(rating) || 0))
+    return Math.round((safeRating / 5) * 100)
+  }, [])
+
   const formatTimeAgo = useCallback((dateString: string) => {
     try {
       const date = new Date(dateString)
@@ -856,6 +995,450 @@ export function useResourceUtils() {
     formatCount,
     formatRating,
     formatRatingDisplay,
+    calculateRatingPercentage, // FIXED: Added missing function
     formatTimeAgo,
   }
+}
+
+// =============================================================================
+// ADDITIONAL UTILITY HOOKS
+// =============================================================================
+
+export function useResourcePermissions() {
+  const { user } = useAuth()
+
+  const permissions = useMemo(() => ({
+    canManageResources: user?.role === 'admin',
+    canSuggestContent: user?.role === 'counselor' || user?.role === 'admin',
+    canAccessResources: !!user,
+    canBookmarkResources: !!user,
+    canProvideRatings: !!user,
+    canViewAnalytics: user?.role === 'admin' || user?.role === 'counselor',
+  }), [user])
+
+  return permissions
+}
+
+export function useResourceValidation() {
+  const validateResourceData = useCallback((data: Partial<ResourceItem>) => {
+    const errors: string[] = []
+
+    if (!data.title?.trim() || data.title.length < 5) {
+      errors.push('Title must be at least 5 characters long')
+    }
+
+    if (!data.description?.trim() || data.description.length < 20) {
+      errors.push('Description must be at least 20 characters long')
+    }
+
+    if (!data.category_id) {
+      errors.push('Category is required')
+    }
+
+    if (!data.external_url?.trim()) {
+      errors.push('External URL is required')
+    }
+
+    if (!data.type) {
+      errors.push('Resource type is required')
+    }
+
+    if (!data.difficulty) {
+      errors.push('Difficulty level is required')
+    }
+
+    return { valid: errors.length === 0, errors }
+  }, [])
+
+  const validateCategoryData = useCallback((data: any) => {
+    const errors: string[] = []
+
+    if (!data.name?.trim() || data.name.length < 3) {
+      errors.push('Category name must be at least 3 characters long')
+    }
+
+    return { valid: errors.length === 0, errors }
+  }, [])
+
+  const isValidResourceUrl = useCallback((url: string) => {
+    try {
+      new URL(url)
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  return {
+    validateResourceData,
+    validateCategoryData,
+    isValidResourceUrl,
+  }
+}
+
+export function useResourceMetrics() {
+  const { resources } = useResourcesSelectors()
+
+  const metrics = useMemo(() => {
+    if (!resources || resources.length === 0) {
+      return {
+        totalResources: 0,
+        publishedResources: 0,
+        draftResources: 0,
+        featuredResources: 0,
+        averageRating: 0,
+        totalViews: 0,
+        totalDownloads: 0,
+        resourcesByType: {},
+        resourcesByDifficulty: {},
+        topCategories: [],
+        recentResources: [],
+      }
+    }
+
+    const published = resources.filter(r => r.is_published)
+    const drafts = resources.filter(r => !r.is_published)
+    const featured = resources.filter(r => r.is_featured)
+
+    const totalRating = resources.reduce((sum, r) => sum + (r.rating || 0), 0)
+    const averageRating = resources.length > 0 ? totalRating / resources.length : 0
+
+    const totalViews = resources.reduce((sum, r) => sum + (r.view_count || 0), 0)
+    const totalDownloads = resources.reduce((sum, r) => sum + (r.download_count || 0), 0)
+
+    // Group by type
+    const resourcesByType = resources.reduce((acc, r) => {
+      acc[r.type] = (acc[r.type] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+
+    // Group by difficulty
+    const resourcesByDifficulty = resources.reduce((acc, r) => {
+      acc[r.difficulty] = (acc[r.difficulty] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+
+    // Recent resources (last 30 days)
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const recentResources = resources.filter(r => 
+      new Date(r.created_at) > thirtyDaysAgo
+    ).slice(0, 10)
+
+    return {
+      totalResources: resources.length,
+      publishedResources: published.length,
+      draftResources: drafts.length,
+      featuredResources: featured.length,
+      averageRating,
+      totalViews,
+      totalDownloads,
+      resourcesByType,
+      resourcesByDifficulty,
+      recentResources,
+    }
+  }, [resources])
+
+  return metrics
+}
+
+export function useResourceSearch() {
+  const [searchHistory, setSearchHistory] = useState<string[]>([])
+  const [searchResults, setSearchResults] = useState<ResourceItem[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const { resources } = useResourcesSelectors()
+
+  const performSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([])
+      return
+    }
+
+    setIsSearching(true)
+    
+    try {
+      // Local search implementation
+      const searchTerm = query.toLowerCase()
+      const results = resources.filter(resource => {
+        return (
+          resource.title.toLowerCase().includes(searchTerm) ||
+          resource.description.toLowerCase().includes(searchTerm) ||
+          resource.tags.some(tag => tag.toLowerCase().includes(searchTerm)) ||
+          resource.author_name?.toLowerCase().includes(searchTerm) ||
+          resource.category?.name.toLowerCase().includes(searchTerm)
+        )
+      })
+
+      setSearchResults(results)
+      
+      // Add to search history
+      setSearchHistory(prev => {
+        const filtered = prev.filter(item => item !== query)
+        return [query, ...filtered].slice(0, 10)
+      })
+    } catch (error) {
+      console.error('Search failed:', error)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }, [resources])
+
+  const clearSearchHistory = useCallback(() => {
+    setSearchHistory([])
+  }, [])
+
+  const clearSearchResults = useCallback(() => {
+    setSearchResults([])
+  }, [])
+
+  return {
+    searchResults,
+    searchHistory,
+    isSearching,
+    performSearch,
+    clearSearchHistory,
+    clearSearchResults,
+  }
+}
+
+export function useResourceExport() {
+  const { resources, categories } = useResourcesSelectors()
+
+  const exportToCSV = useCallback((data: ResourceItem[], filename: string = 'resources.csv') => {
+    const headers = [
+      'ID',
+      'Title',
+      'Description',
+      'Type',
+      'Difficulty',
+      'Category',
+      'Author',
+      'Rating',
+      'Views',
+      'Downloads',
+      'Published',
+      'Featured',
+      'Created Date'
+    ]
+
+    const csvContent = [
+      headers.join(','),
+      ...data.map(resource => [
+        resource.id,
+        `"${resource.title.replace(/"/g, '""')}"`,
+        `"${resource.description.replace(/"/g, '""')}"`,
+        resource.type,
+        resource.difficulty,
+        resource.category?.name || '',
+        resource.author_name || '',
+        resource.rating || 0,
+        resource.view_count || 0,
+        resource.download_count || 0,
+        resource.is_published ? 'Yes' : 'No',
+        resource.is_featured ? 'Yes' : 'No',
+        new Date(resource.created_at).toLocaleDateString()
+      ].join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', filename)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }, [])
+
+  const exportToJSON = useCallback((data: ResourceItem[], filename: string = 'resources.json') => {
+    const jsonContent = JSON.stringify(data, null, 2)
+    const blob = new Blob([jsonContent], { type: 'application/json' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', filename)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }, [])
+
+  const exportResources = useCallback((format: 'csv' | 'json' = 'csv') => {
+    const timestamp = new Date().toISOString().split('T')[0]
+    const filename = `resources_export_${timestamp}`
+    
+    if (format === 'csv') {
+      exportToCSV(resources, `${filename}.csv`)
+    } else {
+      exportToJSON(resources, `${filename}.json`)
+    }
+  }, [resources, exportToCSV, exportToJSON])
+
+  const exportCategories = useCallback((format: 'csv' | 'json' = 'csv') => {
+    const timestamp = new Date().toISOString().split('T')[0]
+    const filename = `categories_export_${timestamp}`
+    
+    if (format === 'csv') {
+      const headers = ['ID', 'Name', 'Description', 'Color', 'Active', 'Sort Order', 'Resources Count']
+      const csvContent = [
+        headers.join(','),
+        ...categories.map(category => [
+          category.id,
+          `"${category.name.replace(/"/g, '""')}"`,
+          `"${(category.description || '').replace(/"/g, '""')}"`,
+          category.color,
+          category.is_active ? 'Yes' : 'No',
+          category.sort_order,
+          category.resources_count || 0
+        ].join(','))
+      ].join('\n')
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', `${filename}.csv`)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } else {
+      exportToJSON(categories as any, `${filename}.json`)
+    }
+  }, [categories, exportToJSON])
+
+  return {
+    exportResources,
+    exportCategories,
+    exportToCSV,
+    exportToJSON,
+  }
+}
+
+// =============================================================================
+// DEBUG AND PERFORMANCE HOOKS
+// =============================================================================
+
+export function useResourceDebug() {
+  const { user } = useAuth()
+  const store = useResourcesStore()
+  const selectors = useResourcesSelectors()
+  const loading = useResourcesLoading()
+  const errors = useResourcesErrors()
+
+  const debugInfo = useMemo(() => ({
+    user: {
+      id: user?.id,
+      role: user?.role,
+      isAuthenticated: !!user,
+    },
+    store: {
+      resourcesCount: selectors.resources.length,
+      categoriesCount: selectors.categories.length,
+      bookmarksCount: selectors.bookmarks.length,
+      hasStats: !!selectors.stats,
+    },
+    loading: {
+      hasAnyLoading: Object.values(loading).some(Boolean),
+      loadingStates: loading,
+    },
+    errors: {
+      hasAnyError: Object.values(errors).some(Boolean),
+      errorStates: errors,
+    },
+    performance: {
+      timestamp: new Date().toISOString(),
+      userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : 'N/A',
+    }
+  }), [user, selectors, loading, errors])
+
+  const logDebugInfo = useCallback(() => {
+    console.group('🐛 Resource System Debug Info')
+    console.table(debugInfo)
+    console.groupEnd()
+  }, [debugInfo])
+
+  return {
+    debugInfo,
+    logDebugInfo,
+  }
+}
+
+export function useResourcePerformance() {
+  const [performanceMetrics, setPerformanceMetrics] = useState({
+    lastFetchTime: 0,
+    averageFetchTime: 0,
+    totalFetches: 0,
+    cacheHitRate: 0,
+  })
+
+  const trackFetchTime = useCallback((duration: number) => {
+    setPerformanceMetrics(prev => {
+      const totalFetches = prev.totalFetches + 1
+      const averageFetchTime = (prev.averageFetchTime * prev.totalFetches + duration) / totalFetches
+      
+      return {
+        ...prev,
+        lastFetchTime: duration,
+        averageFetchTime,
+        totalFetches,
+      }
+    })
+  }, [])
+
+  const updateCacheHitRate = useCallback((rate: number) => {
+    setPerformanceMetrics(prev => ({
+      ...prev,
+      cacheHitRate: rate,
+    }))
+  }, [])
+
+  return {
+    performanceMetrics,
+    trackFetchTime,
+    updateCacheHitRate,
+  }
+}
+
+// =============================================================================
+// EXPORT ALL HOOKS
+// =============================================================================
+
+// Default export for convenience
+export default {
+  // Core data hooks
+  useResourcesDashboard,
+  useResources,
+  useResourceCategories,
+  useResource,
+  useResourceStats,
+  useResourceBookmarks,
+  useFeaturedResources,
+  usePopularResources,
+
+  // Interaction hooks
+  useResourceAccess,
+  useResourceFeedback,
+  useResourceBookmark,
+
+  // Utility hooks
+  useResourceFilters,
+  useResourceAnalytics,
+  useResourceUtils,
+  useResourcePermissions,
+  useResourceValidation,
+
+  // Admin hooks
+  useAdminResourceManagement,
+
+  // Search and history
+  useRecentResourceSearches,
+  useResourceSearch,
+
+  // Export and debug
+  useResourceExport,
+  useResourceDebug,
+  useResourcePerformance,
 }

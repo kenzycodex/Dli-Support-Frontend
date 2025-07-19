@@ -1172,7 +1172,6 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   ) : filteredResources.length > 0 ? (
                     <>
                       {/* Results Summary */}
-                      // UPDATED: Results Summary using pagination info
                       <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                         <div className="text-sm font-medium text-gray-700">
                           Showing {paginationInfo.from}-{paginationInfo.to} of {paginationInfo.total} resource{paginationInfo.total !== 1 ? 's' : ''}

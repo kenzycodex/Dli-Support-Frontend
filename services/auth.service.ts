@@ -1,4 +1,6 @@
-import { apiClient, ApiResponse } from '@/lib/api'
+// services/auth.service.ts - UPDATED: Using StandardizedApiResponse
+
+import { apiClient, StandardizedApiResponse } from '@/lib/api'
 
 export interface User {
   id: number
@@ -28,7 +30,7 @@ export interface LoginResponse {
 }
 
 class AuthService {
-  async login(credentials: LoginRequest): Promise<ApiResponse<LoginResponse>> {
+  async login(credentials: LoginRequest): Promise<StandardizedApiResponse<LoginResponse>> {
     const response = await apiClient.post<LoginResponse>('/auth/login', credentials)
     
     if (response.success && response.data) {
@@ -38,7 +40,7 @@ class AuthService {
     return response
   }
 
-  async demoLogin(request: DemoLoginRequest): Promise<ApiResponse<LoginResponse>> {
+  async demoLogin(request: DemoLoginRequest): Promise<StandardizedApiResponse<LoginResponse>> {
     const response = await apiClient.post<LoginResponse>('/auth/demo-login', request)
     
     if (response.success && response.data) {
@@ -48,23 +50,27 @@ class AuthService {
     return response
   }
 
-  async logout(): Promise<ApiResponse> {
+  async logout(): Promise<StandardizedApiResponse> {
     try {
       const response = await apiClient.post('/auth/logout')
       return response
     } catch (error) {
       console.error('Logout API error:', error)
-      return { success: true, message: 'Logged out locally' }
+      return { 
+        success: true, 
+        status: 200,
+        message: 'Logged out locally' 
+      }
     } finally {
       this.clearAuthData()
     }
   }
 
-  async getCurrentUser(): Promise<ApiResponse<{ user: User }>> {
+  async getCurrentUser(): Promise<StandardizedApiResponse<{ user: User }>> {
     return apiClient.get<{ user: User }>('/auth/user')
   }
 
-  async refreshToken(): Promise<ApiResponse<{ token: string; token_type: string }>> {
+  async refreshToken(): Promise<StandardizedApiResponse<{ token: string; token_type: string }>> {
     const response = await apiClient.post<{ token: string; token_type: string }>('/auth/refresh')
     
     if (response.success && response.data) {
