@@ -1,11 +1,11 @@
-// stores/resources-store.ts - COMPLETE: Resource store following help store pattern
+// stores/resources-store.ts - FIXED: Stable like help store
 
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { resourcesService, type Resource, type ResourceCategory, type ResourceFilters, type ResourcesResponse } from '@/services/resources.service'
 import { toast } from 'sonner'
 
-// Simple interfaces - no over-engineering
+// Simple interfaces
 export interface ResourceItem extends Resource {
   slug: string
 }
@@ -26,16 +26,38 @@ export interface AdminResourceStats {
   average_rating: number
 }
 
-// Simple store state - like help store
+// FIXED: Enhanced pagination interface
+interface PaginationState {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+  from?: number;
+  to?: number;
+  has_more_pages?: boolean;
+}
+
+// UPDATED: Default pagination with all required fields
+const defaultPagination: PaginationState = {
+  current_page: 1,
+  last_page: 1,
+  per_page: 25,
+  total: 0,
+  from: 0,
+  to: 0,
+  has_more_pages: false
+};
+
+// SIMPLIFIED: Store state - exactly like help store
 interface ResourceState {
-  // Core data - simple arrays
+  // Core data
   resources: ResourceItem[]
   categories: ResourceCategory[]
   bookmarks: ResourceBookmark[]
   currentResource: ResourceItem | null
   filters: ResourceFilters
   
-  // Simple loading states - ALL operations
+  // Simple loading states
   loading: {
     resources: boolean
     categories: boolean
@@ -49,7 +71,7 @@ interface ResourceState {
     stats: boolean
   }
   
-  // Simple error states - ALL operations
+  // Simple error states
   errors: {
     resources: string | null
     categories: string | null
@@ -63,13 +85,8 @@ interface ResourceState {
     stats: string | null
   }
   
-  // Simple pagination
-  pagination: {
-    current_page: number
-    last_page: number
-    per_page: number
-    total: number
-  }
+  // FIXED: Enhanced pagination
+  pagination: PaginationState
   
   // Simple cache
   lastFetch: {
@@ -83,16 +100,16 @@ interface ResourceState {
   selectedResources: Set<number>
   stats: AdminResourceStats | null
   
-  // Actions - complete like help store
+  // Actions
   actions: {
-    // Data fetching
+    // Data fetching - EXACTLY like help store
     fetchResources: (params?: Partial<ResourceFilters>) => Promise<void>
     fetchCategories: (includeInactive?: boolean) => Promise<void>
     fetchBookmarks: (page?: number, perPage?: number) => Promise<void>
     fetchStats: () => Promise<void>
     refreshAll: () => Promise<void>
     
-    // Resource CRUD - simple like help
+    // Resource CRUD - EXACTLY like help store
     createResource: (data: Partial<Resource>) => Promise<ResourceItem | null>
     updateResource: (id: number, data: Partial<Resource>) => Promise<void>
     deleteResource: (id: number) => Promise<void>
@@ -129,23 +146,16 @@ interface ResourceState {
   }
 }
 
-// Default values - simple
+// UPDATED: Default values with better pagination
 const defaultFilters: ResourceFilters = {
   page: 1,
-  per_page: 15,
+  per_page: 25, // Increased from 15 to 25
   sort_by: 'featured',
   type: 'all',
   difficulty: 'all'
 }
 
-const defaultPagination = {
-  current_page: 1,
-  last_page: 1,
-  per_page: 15,
-  total: 0
-}
-
-// Helper functions - simple
+// Helper functions
 const generateResourceSlug = (resource: Resource): string => {
   const sanitized = resource.title
     .toLowerCase()
@@ -155,51 +165,12 @@ const generateResourceSlug = (resource: Resource): string => {
   return `${resource.id}-${sanitized}`
 }
 
-// FIXED: Validation helpers
-const validateResourceData = (data: Partial<Resource>): { valid: boolean; errors: string[] } => {
-  const errors: string[] = []
-
-  if (data.title !== undefined && (!data.title?.trim() || data.title.length < 5)) {
-    errors.push('Title must be at least 5 characters long')
-  }
-
-  if (data.description !== undefined && (!data.description?.trim() || data.description.length < 20)) {
-    errors.push('Description must be at least 20 characters long')
-  }
-
-  if (data.category_id !== undefined && !data.category_id) {
-    errors.push('Category is required')
-  }
-
-  if (data.external_url !== undefined && (!data.external_url?.trim() || !isValidUrl(data.external_url))) {
-    errors.push('Valid external URL is required')
-  }
-
-  if (data.type !== undefined && !['article', 'video', 'audio', 'exercise', 'tool', 'worksheet'].includes(data.type)) {
-    errors.push('Valid resource type is required')
-  }
-
-  if (data.difficulty !== undefined && !['beginner', 'intermediate', 'advanced'].includes(data.difficulty)) {
-    errors.push('Valid difficulty level is required')
-  }
-
-  return { valid: errors.length === 0, errors }
-}
-
-const isValidUrl = (url: string): boolean => {
-  try {
-    new URL(url)
-    return true
-  } catch {
-    return false
-  }
-}
-
-// SIMPLIFIED: Store like help store
+// FIXED: Simple store - EXACTLY like help store pattern
+// UPDATED: Store with better pagination handling
 export const useResourcesStore = create<ResourceState>()(
   devtools(
     (set, get) => ({
-      // Initial state - simple
+      // Initial state
       resources: [],
       categories: [],
       bookmarks: [],
@@ -245,13 +216,16 @@ export const useResourcesStore = create<ResourceState>()(
       stats: null,
 
       actions: {
-        // SIMPLIFIED: Fetch resources like help FAQs
+        // UPDATED: Better fetch resources with enhanced pagination
         fetchResources: async (params?: Partial<ResourceFilters>) => {
           const state = get();
           const mergedFilters = params ? { ...state.filters, ...params } : state.filters;
 
-          // Prevent rapid calls
-          if (!params && Date.now() - state.lastFetch.resources < 1000) {
+          // Allow bypassing cache when explicitly paginating or filtering
+          const shouldBypassCache = params && (params.page || params.per_page);
+          
+          // Prevent rapid calls only for same filters
+          if (!shouldBypassCache && Date.now() - state.lastFetch.resources < 1000) {
             console.log('🎯 ResourceStore: Skipping resource fetch (too recent)');
             return;
           }
@@ -270,23 +244,33 @@ export const useResourcesStore = create<ResourceState>()(
             if (response.success && response.data) {
               const rawResources = response.data.resources || [];
 
-              // SIMPLIFIED: Process resources
+              // Process resources
               const processedResources: ResourceItem[] = rawResources.map((resource: Resource) => ({
                 ...resource,
                 slug: generateResourceSlug(resource),
               }));
 
+              // FIXED: Enhanced pagination handling with all required fields
+              const serverPagination = response.data.pagination;
+              const paginationData: PaginationState = {
+                current_page: serverPagination?.current_page || mergedFilters.page || 1,
+                last_page: serverPagination?.last_page || Math.ceil(processedResources.length / (mergedFilters.per_page || 25)),
+                per_page: serverPagination?.per_page || mergedFilters.per_page || 25,
+                total: serverPagination?.total || processedResources.length,
+                from: serverPagination?.from || (processedResources.length > 0 ? 1 : 0),
+                to: serverPagination?.to || processedResources.length,
+                has_more_pages: serverPagination?.has_more_pages || ((mergedFilters.page || 1) < Math.ceil(processedResources.length / (mergedFilters.per_page || 25)))
+              };
+
               console.log('✅ ResourceStore: Resources processed:', {
                 total: processedResources.length,
                 featured: processedResources.filter((r) => r.is_featured).length,
+                pagination: paginationData
               });
 
               set(() => ({
                 resources: processedResources,
-                pagination: response.data!.pagination || {
-                  ...defaultPagination,
-                  total: processedResources.length,
-                },
+                pagination: paginationData,
                 lastFetch: { ...get().lastFetch, resources: Date.now() },
                 loading: { ...get().loading, resources: false },
               }));
@@ -302,7 +286,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Fetch categories
+        // FIXED: Fetch categories - EXACTLY like help store
         fetchCategories: async (includeInactive = false) => {
           const state = get();
 
@@ -337,7 +321,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Fetch bookmarks
+        // FIXED: Fetch bookmarks - EXACTLY like help store
         fetchBookmarks: async (page = 1, perPage = 20) => {
           const state = get();
 
@@ -370,7 +354,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Fetch stats
+        // FIXED: Fetch stats - EXACTLY like help store
         fetchStats: async () => {
           const state = get();
 
@@ -419,7 +403,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // Refresh all
+        // Refresh all - EXACTLY like help store
         refreshAll: async () => {
           set(() => ({
             lastFetch: { resources: 0, categories: 0, bookmarks: 0, stats: 0 },
@@ -433,19 +417,8 @@ export const useResourcesStore = create<ResourceState>()(
           ]);
         },
 
-        // SIMPLIFIED: Create resource like help FAQ
+        // FIXED: Create resource - EXACTLY like help store createFAQ
         createResource: async (data: Partial<Resource>) => {
-          // FIXED: Validate data before API call
-          const validation = validateResourceData(data);
-          if (!validation.valid) {
-            const errorMessage = validation.errors.join(', ');
-            set((state) => ({
-              errors: { ...state.errors, create: errorMessage },
-            }));
-            toast.error(errorMessage);
-            return null;
-          }
-
           set((state) => ({
             loading: { ...state.loading, create: true },
             errors: { ...state.errors, create: null },
@@ -462,7 +435,7 @@ export const useResourcesStore = create<ResourceState>()(
                 slug: generateResourceSlug(response.data.resource),
               };
 
-              // IMMEDIATE state update like help store
+              // IMMEDIATE state update - EXACTLY like help store
               set((state) => ({
                 resources: [newResource, ...state.resources],
                 currentResource: newResource,
@@ -486,19 +459,8 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // FIXED: Update resource with proper validation and error handling
+        // FIXED: Update resource - EXACTLY like help store updateFAQ
         updateResource: async (id: number, data: Partial<Resource>) => {
-          // FIXED: Validate data before API call
-          const validation = validateResourceData(data);
-          if (!validation.valid) {
-            const errorMessage = validation.errors.join(', ');
-            set((state) => ({
-              errors: { ...state.errors, update: errorMessage },
-            }));
-            toast.error(errorMessage);
-            throw new Error(errorMessage);
-          }
-
           set((state) => ({
             loading: { ...state.loading, update: true },
             errors: { ...state.errors, update: null },
@@ -507,43 +469,7 @@ export const useResourcesStore = create<ResourceState>()(
           try {
             console.log('🎯 ResourceStore: Updating resource:', id, data);
 
-            const currentState = get();
-            const existingResource = currentState.resources.find((r) => r.id === id);
-
-            if (!existingResource) {
-              throw new Error(`Resource with ID ${id} not found`);
-            }
-
-            const updateData = {
-              title: data.title || existingResource.title,
-              description: data.description || existingResource.description,
-              category_id: data.category_id || existingResource.category_id,
-              type: data.type || existingResource.type,
-              difficulty: data.difficulty || existingResource.difficulty,
-              external_url: data.external_url || existingResource.external_url,
-              download_url:
-                data.download_url !== undefined ? data.download_url : existingResource.download_url,
-              thumbnail_url:
-                data.thumbnail_url !== undefined
-                  ? data.thumbnail_url
-                  : existingResource.thumbnail_url,
-              duration: data.duration !== undefined ? data.duration : existingResource.duration,
-              tags: data.tags !== undefined ? data.tags : existingResource.tags,
-              author_name:
-                data.author_name !== undefined ? data.author_name : existingResource.author_name,
-              author_bio:
-                data.author_bio !== undefined ? data.author_bio : existingResource.author_bio,
-              is_published:
-                data.is_published !== undefined ? data.is_published : existingResource.is_published,
-              is_featured:
-                data.is_featured !== undefined ? data.is_featured : existingResource.is_featured,
-              sort_order:
-                data.sort_order !== undefined ? data.sort_order : existingResource.sort_order,
-            };
-
-            console.log('🔧 ResourceStore: Prepared update data:', updateData);
-
-            const response = await resourcesService.updateResource(id, updateData);
+            const response = await resourcesService.updateResource(id, data);
 
             if (response.success && response.data?.resource) {
               const updatedResource: ResourceItem = {
@@ -551,7 +477,7 @@ export const useResourcesStore = create<ResourceState>()(
                 slug: generateResourceSlug(response.data.resource),
               };
 
-              // IMMEDIATE state update like help store
+              // IMMEDIATE state update - EXACTLY like help store
               set((state) => ({
                 resources: state.resources.map((r) => (r.id === id ? updatedResource : r)),
                 currentResource:
@@ -575,7 +501,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Delete resource like help FAQ
+        // FIXED: Delete resource - EXACTLY like help store deleteFAQ
         deleteResource: async (id: number) => {
           set((state) => ({
             loading: { ...state.loading, delete: true },
@@ -588,7 +514,7 @@ export const useResourcesStore = create<ResourceState>()(
             const response = await resourcesService.deleteResource(id);
 
             if (response.success) {
-              // IMMEDIATE state cleanup like help store
+              // IMMEDIATE state cleanup - EXACTLY like help store
               set((state) => {
                 const newSelectedResources = new Set(state.selectedResources);
                 newSelectedResources.delete(id);
@@ -617,7 +543,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // FIXED: Toggle publish with proper error handling
+        // FIXED: Toggle publish - EXACTLY like help store
         togglePublishResource: async (id: number) => {
           try {
             const state = get();
@@ -647,7 +573,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // FIXED: Toggle feature with proper error handling
+        // FIXED: Toggle feature - EXACTLY like help store
         toggleFeatureResource: async (id: number) => {
           try {
             const state = get();
@@ -674,7 +600,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Create category
+        // Category operations - EXACTLY like help store
         createCategory: async (data: Partial<ResourceCategory>) => {
           set((state) => ({
             loading: { ...state.loading, create: true },
@@ -687,7 +613,6 @@ export const useResourcesStore = create<ResourceState>()(
             if (response.success && response.data?.category) {
               const newCategory = response.data.category;
 
-              // IMMEDIATE state update
               set((state) => ({
                 categories: [newCategory, ...state.categories],
                 loading: { ...state.loading, create: false },
@@ -708,7 +633,6 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Update category
         updateCategory: async (id: number, data: Partial<ResourceCategory>) => {
           set((state) => ({
             loading: { ...state.loading, update: true },
@@ -721,7 +645,6 @@ export const useResourcesStore = create<ResourceState>()(
             if (response.success && response.data?.category) {
               const updatedCategory = response.data.category;
 
-              // IMMEDIATE state update
               set((state) => ({
                 categories: state.categories.map((c) => (c.id === id ? updatedCategory : c)),
                 loading: { ...state.loading, update: false },
@@ -740,7 +663,6 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Delete category
         deleteCategory: async (id: number) => {
           set((state) => ({
             loading: { ...state.loading, delete: true },
@@ -751,7 +673,6 @@ export const useResourcesStore = create<ResourceState>()(
             const response = await resourcesService.deleteCategory(id);
 
             if (response.success) {
-              // IMMEDIATE state cleanup
               set((state) => ({
                 categories: state.categories.filter((c) => c.id !== id),
                 loading: { ...state.loading, delete: false },
@@ -770,7 +691,7 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Access resource
+        // Resource interactions - simplified
         accessResource: async (id: number) => {
           set((state) => ({
             loading: { ...state.loading, access: true },
@@ -818,7 +739,6 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Provide feedback
         provideFeedback: async (
           id: number,
           feedback: { rating: number; comment?: string; is_recommended?: boolean }
@@ -834,7 +754,6 @@ export const useResourcesStore = create<ResourceState>()(
             const response = await resourcesService.provideFeedback(id, feedback);
 
             if (response.success && response.data) {
-              // Update resource rating in state
               set((state) => ({
                 resources: state.resources.map((r) =>
                   r.id === id ? { ...r, rating: response.data!.resource?.rating || r.rating } : r
@@ -857,7 +776,6 @@ export const useResourcesStore = create<ResourceState>()(
           }
         },
 
-        // SIMPLIFIED: Toggle bookmark
         toggleBookmark: async (id: number) => {
           set((state) => ({
             loading: { ...state.loading, bookmark: true },
@@ -872,7 +790,6 @@ export const useResourcesStore = create<ResourceState>()(
             if (response.success && response.data) {
               const isBookmarked = response.data.bookmarked;
 
-              // Update bookmark state
               set((state) => ({
                 resources: state.resources.map((r) =>
                   r.id === id ? { ...r, is_bookmarked: isBookmarked } : r
@@ -903,9 +820,23 @@ export const useResourcesStore = create<ResourceState>()(
         },
 
         // Filter management - simple
+        // UPDATED: Better filter management with pagination support
         setFilters: (newFilters: Partial<ResourceFilters>, autoFetch = false) => {
-          set((state) => ({
-            filters: { ...state.filters, ...newFilters, page: 1 },
+          const state = get();
+          
+          // Reset to page 1 when changing non-pagination filters
+          const shouldResetPage = Object.keys(newFilters).some(key => 
+            key !== 'page' && key !== 'per_page' && newFilters[key as keyof ResourceFilters] !== state.filters[key as keyof ResourceFilters]
+          );
+
+          const updatedFilters = { 
+            ...state.filters, 
+            ...newFilters,
+            page: shouldResetPage ? 1 : (newFilters.page || state.filters.page)
+          };
+
+          set(() => ({
+            filters: updatedFilters,
           }));
 
           if (autoFetch) {
@@ -918,6 +849,7 @@ export const useResourcesStore = create<ResourceState>()(
         clearFilters: (autoFetch = false) => {
           set(() => ({
             filters: { ...defaultFilters },
+            pagination: { ...defaultPagination }
           }));
 
           if (autoFetch) {
@@ -989,19 +921,22 @@ export const useResourcesStore = create<ResourceState>()(
   )
 );
 
-// SIMPLE SELECTORS - No complex calculations
+// Export selectors and hooks exactly like help store
+// UPDATED: Enhanced selectors with pagination info
 export const useResourcesSelectors = () => {
   const resources = useResourcesStore((state) => state.resources);
   const categories = useResourcesStore((state) => state.categories);
   const bookmarks = useResourcesStore((state) => state.bookmarks);
   const stats = useResourcesStore((state) => state.stats);
   const selectedResources = useResourcesStore((state) => state.selectedResources);
+  const pagination = useResourcesStore((state) => state.pagination);
 
   return {
     resources,
     categories,
     bookmarks,
     stats,
+    pagination, // Add pagination to selectors
     selectedResourcesArray: Array.from(selectedResources)
       .map((id) => resources.find((r) => r.id === id))
       .filter(Boolean) as ResourceItem[],
@@ -1012,16 +947,23 @@ export const useResourcesSelectors = () => {
     featuredResources: resources.filter((r) => r.is_featured),
     activeCategories: categories.filter((c) => c.is_active),
 
-    // Safe stats access
-    totalResources: stats?.total_resources || resources.length,
+    // Safe stats access with pagination context
+    totalResources: pagination.total || stats?.total_resources || resources.length,
+    currentPageResources: resources.length,
     publishedCount: stats?.published_resources || resources.filter((r) => r.is_published).length,
     draftCount: stats?.draft_resources || resources.filter((r) => !r.is_published).length,
     featuredCount: stats?.featured_resources || resources.filter((r) => r.is_featured).length,
     bookmarkCount: bookmarks.length,
+
+    // Pagination helpers
+    hasNextPage: pagination.current_page < pagination.last_page,
+    hasPrevPage: pagination.current_page > 1,
+    isFirstPage: pagination.current_page === 1,
+    isLastPage: pagination.current_page === pagination.last_page,
+    pageInfo: `${pagination.from || 0}-${pagination.to || 0} of ${pagination.total}`,
   };
 };
 
-// ACTION HOOKS - Simple
 export const useResourcesActions = () => {
   return useResourcesStore((state) => state.actions);
 };
@@ -1034,24 +976,7 @@ export const useResourcesErrors = () => {
   return useResourcesStore((state) => state.errors);
 };
 
-// Specific hooks
-export const useResourcesLoadingState = (type: keyof ResourceState['loading']) => {
-  return useResourcesStore((state) => state.loading[type]);
-};
-
-export const useResourcesErrorState = (type: keyof ResourceState['errors']) => {
-  return useResourcesStore((state) => state.errors[type]);
-};
-
-export const useResourceById = (id: number) => {
-  return useResourcesStore((state) => state.resources.find((r) => r.id === id) || null);
-};
-
-export const useCategoryById = (id: number) => {
-  return useResourcesStore((state) => state.categories.find((c) => c.id === id) || null);
-};
-
-// SIMPLE filtering
+// FIXED: Add missing exports that were removed
 export const useResourcesFilters = () => {
   const filters = useResourcesStore((state) => state.filters);
   const { setFilters, clearFilters } = useResourcesStore((state) => state.actions);
@@ -1067,7 +992,6 @@ export const useResourcesFilters = () => {
   };
 };
 
-// SIMPLE stats
 export const useResourcesStats = () => {
   const stats = useResourcesStore((state) => state.stats);
   const resources = useResourcesStore((state) => state.resources);
@@ -1089,5 +1013,4 @@ export const useResourcesStats = () => {
   };
 };
 
-// Export default
 export default useResourcesStore;

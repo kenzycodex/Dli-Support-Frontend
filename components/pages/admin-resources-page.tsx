@@ -67,6 +67,8 @@ import {
   Lock
 } from "lucide-react"
 
+import { EnhancedPagination } from '@/components/common/enhanced-pagination';
+
 import { useAuth } from "@/contexts/AuthContext"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -339,8 +341,139 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
     difficulty: 'all',
     sort_by: 'newest',
     page: 1,
-    per_page: 20,
+    per_page: 25,
   })
+
+  // UPDATED: Safe pagination calculation
+  const paginatedResources = useMemo(() => {
+    if (!resources || !Array.isArray(resources)) return []
+
+    let filtered = resources.filter(resource => {
+      // Search filter
+      if (filters.search) {
+        const searchLower = filters.search.toLowerCase()
+        const matchesSearch = 
+          resource.title.toLowerCase().includes(searchLower) ||
+          resource.description.toLowerCase().includes(searchLower) ||
+          resource.tags?.some(tag => tag.toLowerCase().includes(searchLower))
+        
+        if (!matchesSearch) return false
+      }
+      
+      // Status filter
+      if (filters.status && filters.status !== 'all') {
+        switch (filters.status) {
+          case 'published':
+            if (!resource.is_published) return false
+            break
+          case 'unpublished':
+            if (resource.is_published) return false
+            break
+          case 'featured':
+            if (!resource.is_featured) return false
+            break
+        }
+      }
+
+      // Category filter
+      if (filters.category && filters.category !== 'all') {
+        const category = categories.find(c => c.slug === filters.category)
+        if (category && resource.category_id !== category.id) return false
+      }
+
+      // Type filter
+      if (filters.type && filters.type !== 'all') {
+        if (resource.type !== filters.type) return false
+      }
+
+      // Difficulty filter
+      if (filters.difficulty && filters.difficulty !== 'all') {
+        if (resource.difficulty !== filters.difficulty) return false
+      }
+      
+      return true
+    })
+
+    // UPDATED: Safe pagination with proper defaults
+    const safePerPage = filters.per_page || 25
+    const safePage = filters.page || 1
+    const startIndex = (safePage - 1) * safePerPage
+    const endIndex = startIndex + safePerPage
+    
+    return filtered.slice(startIndex, endIndex)
+  }, [resources, filters, categories])
+
+  // UPDATED: Safe pagination info calculation
+  const paginationInfo = useMemo(() => {
+    if (!resources || !Array.isArray(resources)) {
+      return {
+        current_page: 1,
+        last_page: 1,
+        per_page: 25,
+        total: 0,
+        from: 0,
+        to: 0,
+        has_more_pages: false
+      }
+    }
+
+    // Apply same filtering logic to get total count
+    let totalFiltered = resources.filter(resource => {
+      // ... same filter logic as above
+      if (filters.search) {
+        const searchLower = filters.search.toLowerCase()
+        const matchesSearch = 
+          resource.title.toLowerCase().includes(searchLower) ||
+          resource.description.toLowerCase().includes(searchLower) ||
+          resource.tags?.some(tag => tag.toLowerCase().includes(searchLower))
+        if (!matchesSearch) return false
+      }
+      
+      if (filters.status && filters.status !== 'all') {
+        switch (filters.status) {
+          case 'published':
+            if (!resource.is_published) return false
+            break
+          case 'unpublished':
+            if (resource.is_published) return false
+            break
+          case 'featured':
+            if (!resource.is_featured) return false
+            break
+        }
+      }
+
+      if (filters.category && filters.category !== 'all') {
+        const category = categories.find(c => c.slug === filters.category)
+        if (category && resource.category_id !== category.id) return false
+      }
+
+      if (filters.type && filters.type !== 'all') {
+        if (resource.type !== filters.type) return false
+      }
+
+      if (filters.difficulty && filters.difficulty !== 'all') {
+        if (resource.difficulty !== filters.difficulty) return false
+      }
+      
+      return true
+    }).length
+
+    const safePerPage = filters.per_page || 25
+    const safePage = filters.page || 1
+    const lastPage = Math.ceil(totalFiltered / safePerPage)
+    const startIndex = (safePage - 1) * safePerPage
+
+    return {
+      current_page: safePage,
+      last_page: lastPage,
+      per_page: safePerPage,
+      total: totalFiltered,
+      from: totalFiltered > 0 ? startIndex + 1 : 0,
+      to: Math.min(startIndex + safePerPage, totalFiltered),
+      has_more_pages: safePage < lastPage
+    }
+  }, [resources, filters, categories])
 
   // Dialog states
   const [dialogStates, setDialogStates] = useState<DialogStates>({
@@ -417,6 +550,22 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
   const handleBackToResources = useCallback(() => {
     onNavigate?.('resources')
   }, [onNavigate])
+
+  const handlePageChange = useCallback((page: number) => {
+    console.log('📄 AdminResourcesPage: Page changed to:', page)
+    setFilters((prev) => ({ ...prev, page }))
+    
+    // Scroll to top of results
+    const resultsSection = document.getElementById('admin-resources-results')
+    if (resultsSection) {
+      resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [])
+
+  const handlePerPageChange = useCallback((perPage: number) => {
+    console.log('📄 AdminResourcesPage: Per page changed to:', perPage)
+    setFilters((prev) => ({ ...prev, per_page: perPage, page: 1 }))
+  }, [])
 
   // FIXED: Manual refresh handler - only when user clicks (following help pattern)
   const handleRefreshAll = useCallback(async () => {
@@ -886,7 +1035,8 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <div className="flex items-center space-x-2">
                 <CheckCircle className="h-5 w-5 text-green-600" />
                 <span className="text-green-800">
-                  Resource system ready - {adminStats.total_resources} resources, {adminStats.categories_count} categories
+                  Resource system ready - {adminStats.total_resources} resources,{' '}
+                  {adminStats.categories_count} categories
                   {adminStats.draft_resources > 0 && `, ${adminStats.draft_resources} unpublished`}
                 </span>
               </div>
@@ -927,7 +1077,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                     </CardTitle>
                     <CardDescription>Manage resources with individual actions</CardDescription>
                   </div>
-                  <Button onClick={() => openDialog('showCreateResourceDialog')} disabled={loading.create}>
+                  <Button
+                    onClick={() => openDialog('showCreateResourceDialog')}
+                    disabled={loading.create}
+                  >
                     {loading.create ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
@@ -937,7 +1090,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   </Button>
                 </div>
               </CardHeader>
-              
+
               <CardContent className="p-4 sm:p-6">
                 {/* Search and Filters */}
                 <div className="space-y-4 mb-6">
@@ -951,7 +1104,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                         className="pl-10"
                       />
                     </div>
-                    <Select value={filters.status || 'all'} onValueChange={(value) => handleFilterChange('status', value)}>
+                    <Select
+                      value={filters.status || 'all'}
+                      onValueChange={(value) => handleFilterChange('status', value)}
+                    >
                       <SelectTrigger className="w-40">
                         <SelectValue placeholder="Status" />
                       </SelectTrigger>
@@ -962,7 +1118,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                         <SelectItem value="featured">Featured</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value={filters.category || 'all'} onValueChange={(value) => handleFilterChange('category', value)}>
+                    <Select
+                      value={filters.category || 'all'}
+                      onValueChange={(value) => handleFilterChange('category', value)}
+                    >
                       <SelectTrigger className="w-48">
                         <SelectValue placeholder="Category" />
                       </SelectTrigger>
@@ -971,7 +1130,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                         {categories.map((category) => (
                           <SelectItem key={category.id} value={category.slug}>
                             <div className="flex items-center space-x-2">
-                              <div 
+                              <div
                                 className="w-3 h-3 rounded-full"
                                 style={{ backgroundColor: category.color }}
                               />
@@ -990,239 +1149,328 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   </div>
                 </div>
 
-                {/* FIXED: Resources List following help pattern */}
-                {loading.resources && !resources.length ? (
-                  <div className="space-y-4">
-                    {[...Array(5)].map((_, i) => (
-                      <div key={i} className="h-24 bg-gray-200 rounded-lg animate-pulse" />
-                    ))}
-                  </div>
-                ) : errors.resources ? (
-                  <div className="text-center py-12">
-                    <AlertTriangle className="h-16 w-16 mx-auto mb-4 text-red-300" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">Failed to load resources</h3>
-                    <p className="text-gray-600 mb-4">Please try refreshing the page</p>
-                    <Button onClick={handleRefreshAll}>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Retry
-                    </Button>
-                  </div>
-                ) : filteredResources.length > 0 ? (
-                  <div className="space-y-4">
-                    {/* Results Summary */}
-                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="text-sm font-medium text-gray-700">
-                        Showing {filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {filteredResources.length} total results
-                      </div>
+                {/* UPDATED: Resources List with Pagination */}
+                <div className="space-y-4 sm:space-y-6" id="admin-resources-results">
+                  {loading.resources && !resources.length ? (
+                    <div className="space-y-4">
+                      {[...Array(filters.per_page || 25)].map((_, i) => (
+                        <div key={i} className="h-24 bg-gray-200 rounded-lg animate-pulse" />
+                      ))}
                     </div>
+                  ) : errors.resources ? (
+                    <div className="text-center py-12">
+                      <AlertTriangle className="h-16 w-16 mx-auto mb-4 text-red-300" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">
+                        Failed to load resources
+                      </h3>
+                      <p className="text-gray-600 mb-4">Please try refreshing the page</p>
+                      <Button onClick={handleRefreshAll}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Retry
+                      </Button>
+                    </div>
+                  ) : filteredResources.length > 0 ? (
+                    <>
+                      {/* Results Summary */}
+                      // UPDATED: Results Summary using pagination info
+                      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div className="text-sm font-medium text-gray-700">
+                          Showing {paginationInfo.from}-{paginationInfo.to} of {paginationInfo.total} resource{paginationInfo.total !== 1 ? 's' : ''}
+                        </div>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500">
+                          <span>{paginationInfo.total} total results</span>
+                          <Badge variant="outline" className="text-xs">
+                            {resources.filter(r => r.is_published).length} published
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {resources.filter(r => !r.is_published).length} drafts
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {resources.filter(r => r.is_featured).length} featured
+                          </Badge>
+                        </div>
+                      </div>
 
-                    {/* Resource Cards following help pattern */}
-                    {filteredResources.map((resource) => {
-                      const IconComponent = getIconComponent(resource.type)
-                      
-                      return (
-                        <Card 
-                          key={resource.id} 
-                          className="transition-all duration-200 hover:shadow-md"
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-start space-x-4">
-                              {/* Resource Content */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between">
-                                  <div className="flex-1 space-y-2">
-                                    {/* Title */}
-                                    <h3 className="font-semibold text-gray-900 line-clamp-2">
-                                      {resource.title}
-                                    </h3>
-                                    
-                                    {/* Description Preview */}
-                                    <p className="text-sm text-gray-600 line-clamp-2">
-                                      {resource.description.substring(0, 150)}...
-                                    </p>
-                                    
-                                    {/* Metadata */}
-                                    <div className="flex items-center space-x-4 text-xs text-gray-500">
-                                      <div className="flex items-center space-x-1">
-                                        <Target className="h-3 w-3" />
-                                        <span>ID: {resource.id}</span>
-                                      </div>
-                                      {resource.category && (
-                                        <div className="flex items-center space-x-1">
-                                          <div 
-                                            className="w-2 h-2 rounded-full"
-                                            style={{ backgroundColor: resource.category.color }}
-                                          />
-                                          <span>{resource.category.name}</span>
+                      {/* Resource Cards */}
+                      <div className="space-y-4">
+                        {paginatedResources.map((resource) => {
+                          const IconComponent = getIconComponent(resource.type);
+
+                          return (
+                            <Card
+                              key={resource.id}
+                              className="transition-all duration-200 hover:shadow-md"
+                            >
+                              <CardContent className="p-4">
+                                <div className="flex items-start space-x-4">
+                                  {/* Resource Content */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1 space-y-2">
+                                        {/* Title */}
+                                        <h3 className="font-semibold text-gray-900 line-clamp-2">
+                                          {resource.title}
+                                        </h3>
+
+                                        {/* Description Preview */}
+                                        <p className="text-sm text-gray-600 line-clamp-2">
+                                          {resource.description.substring(0, 150)}...
+                                        </p>
+
+                                        {/* Metadata */}
+                                        <div className="flex items-center space-x-4 text-xs text-gray-500">
+                                          <div className="flex items-center space-x-1">
+                                            <Target className="h-3 w-3" />
+                                            <span>ID: {resource.id}</span>
+                                          </div>
+                                          {resource.category && (
+                                            <div className="flex items-center space-x-1">
+                                              <div
+                                                className="w-2 h-2 rounded-full"
+                                                style={{ backgroundColor: resource.category.color }}
+                                              />
+                                              <span>{resource.category.name}</span>
+                                            </div>
+                                          )}
+                                          <div className="flex items-center space-x-1">
+                                            <Calendar className="h-3 w-3" />
+                                            <span>
+                                              {new Date(resource.created_at).toLocaleDateString()}
+                                            </span>
+                                          </div>
+                                          {resource.author_name && (
+                                            <div className="flex items-center space-x-1">
+                                              <Users className="h-3 w-3" />
+                                              <span>{resource.author_name}</span>
+                                            </div>
+                                          )}
                                         </div>
-                                      )}
-                                      <div className="flex items-center space-x-1">
-                                        <Calendar className="h-3 w-3" />
-                                        <span>{new Date(resource.created_at).toLocaleDateString()}</span>
+
+                                        {/* Tags */}
+                                        {resource.tags && resource.tags.length > 0 && (
+                                          <div className="flex flex-wrap gap-1">
+                                            {resource.tags.slice(0, 3).map((tag, index) => (
+                                              <Badge
+                                                key={index}
+                                                variant="outline"
+                                                className="text-xs"
+                                              >
+                                                {tag}
+                                              </Badge>
+                                            ))}
+                                            {resource.tags.length > 3 && (
+                                              <Badge variant="outline" className="text-xs">
+                                                +{resource.tags.length - 3} more
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        )}
                                       </div>
-                                      {resource.author_name && (
-                                        <div className="flex items-center space-x-1">
-                                          <Users className="h-3 w-3" />
-                                          <span>{resource.author_name}</span>
+
+                                      {/* Status & Actions */}
+                                      <div className="flex items-center space-x-2 ml-4">
+                                        {/* Status Badges */}
+                                        <div className="flex flex-col items-end space-y-1">
+                                          <div className="flex items-center space-x-1">
+                                            {resource.is_published ? (
+                                              <Badge
+                                                variant="default"
+                                                className="bg-green-100 text-green-800 border-green-300"
+                                              >
+                                                <Globe className="h-3 w-3 mr-1" />
+                                                Published
+                                              </Badge>
+                                            ) : (
+                                              <Badge
+                                                variant="outline"
+                                                className="bg-gray-100 text-gray-600"
+                                              >
+                                                <Lock className="h-3 w-3 mr-1" />
+                                                Draft
+                                              </Badge>
+                                            )}
+                                            {resource.is_featured && (
+                                              <Badge
+                                                variant="default"
+                                                className="bg-yellow-100 text-yellow-800 border-yellow-300"
+                                              >
+                                                <Star className="h-3 w-3 mr-1" />
+                                                Featured
+                                              </Badge>
+                                            )}
+                                          </div>
+
+                                          {/* Stats */}
+                                          <div className="flex items-center space-x-3 text-xs text-gray-500">
+                                            <span className="flex items-center space-x-1">
+                                              <Eye className="h-3 w-3" />
+                                              <span>{resource.view_count || 0}</span>
+                                            </span>
+                                            <span className="flex items-center space-x-1">
+                                              <Download className="h-3 w-3" />
+                                              <span>{resource.download_count || 0}</span>
+                                            </span>
+                                            <span className="flex items-center space-x-1">
+                                              <Star className="h-3 w-3" />
+                                              <span>
+                                                {(Number(resource.rating) || 0).toFixed(1)}
+                                              </span>
+                                            </span>
+                                          </div>
                                         </div>
-                                      )}
-                                    </div>
-                                    
-                                    {/* Tags */}
-                                    {resource.tags && resource.tags.length > 0 && (
-                                      <div className="flex flex-wrap gap-1">
-                                        {resource.tags.slice(0, 3).map((tag, index) => (
-                                          <Badge key={index} variant="outline" className="text-xs">
-                                            {tag}
-                                          </Badge>
-                                        ))}
-                                        {resource.tags.length > 3 && (
-                                          <Badge variant="outline" className="text-xs">
-                                            +{resource.tags.length - 3} more
-                                          </Badge>
-                                        )}
+
+                                        {/* FIXED: Safe Action Buttons following help pattern */}
+                                        <div className="flex items-center space-x-1">
+                                          {/* Quick Publish Toggle */}
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={(e) => handleQuickPublish(resource, e)}
+                                            className={
+                                              resource.is_published
+                                                ? 'text-green-600 hover:text-green-700'
+                                                : 'text-gray-400 hover:text-gray-600'
+                                            }
+                                            disabled={loading.update}
+                                            title={
+                                              resource.is_published
+                                                ? 'Unpublish Resource'
+                                                : 'Publish Resource'
+                                            }
+                                          >
+                                            {resource.is_published ? (
+                                              <Eye className="h-4 w-4" />
+                                            ) : (
+                                              <EyeOff className="h-4 w-4" />
+                                            )}
+                                          </Button>
+
+                                          {/* Quick Feature Toggle */}
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={(e) => handleQuickFeature(resource, e)}
+                                            className={
+                                              resource.is_featured
+                                                ? 'text-yellow-600 hover:text-yellow-700'
+                                                : 'text-gray-400 hover:text-gray-600'
+                                            }
+                                            disabled={loading.update}
+                                            title={
+                                              resource.is_featured
+                                                ? 'Unfeature Resource'
+                                                : 'Feature Resource'
+                                            }
+                                          >
+                                            {resource.is_featured ? (
+                                              <Star className="h-4 w-4" />
+                                            ) : (
+                                              <StarOff className="h-4 w-4" />
+                                            )}
+                                          </Button>
+
+                                          {/* Edit Button */}
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              handleIndividualEditResource(resource);
+                                            }}
+                                            className="text-blue-600 hover:text-blue-700"
+                                            title="Edit Resource"
+                                          >
+                                            <Edit className="h-4 w-4" />
+                                          </Button>
+
+                                          {/* Delete Button */}
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              handleIndividualDeleteResource(resource);
+                                            }}
+                                            className="text-red-600 hover:text-red-700"
+                                            title="Delete Resource"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </div>
                                       </div>
-                                    )}
-                                  </div>
-
-                                  {/* Status & Actions */}
-                                  <div className="flex items-center space-x-2 ml-4">
-                                    {/* Status Badges */}
-                                    <div className="flex flex-col items-end space-y-1">
-                                      <div className="flex items-center space-x-1">
-                                        {resource.is_published ? (
-                                          <Badge variant="default" className="bg-green-100 text-green-800 border-green-300">
-                                            <Globe className="h-3 w-3 mr-1" />
-                                            Published
-                                          </Badge>
-                                        ) : (
-                                          <Badge variant="outline" className="bg-gray-100 text-gray-600">
-                                            <Lock className="h-3 w-3 mr-1" />
-                                            Draft
-                                          </Badge>
-                                        )}
-                                        {resource.is_featured && (
-                                          <Badge variant="default" className="bg-yellow-100 text-yellow-800 border-yellow-300">
-                                            <Star className="h-3 w-3 mr-1" />
-                                            Featured
-                                          </Badge>
-                                        )}
-                                      </div>
-                                      
-                                      {/* Stats */}
-                                      <div className="flex items-center space-x-3 text-xs text-gray-500">
-                                        <span className="flex items-center space-x-1">
-                                          <Eye className="h-3 w-3" />
-                                          <span>{resource.view_count || 0}</span>
-                                        </span>
-                                        <span className="flex items-center space-x-1">
-                                          <Download className="h-3 w-3" />
-                                          <span>{resource.download_count || 0}</span>
-                                        </span>
-                                        <span className="flex items-center space-x-1">
-                                          <Star className="h-3 w-3" />
-                                          <span>{(Number(resource.rating) || 0).toFixed(1)}</span>
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    {/* FIXED: Safe Action Buttons following help pattern */}
-                                    <div className="flex items-center space-x-1">
-                                      {/* Quick Publish Toggle */}
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={(e) => handleQuickPublish(resource, e)}
-                                        className={resource.is_published ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-gray-600'}
-                                        disabled={loading.update}
-                                        title={resource.is_published ? 'Unpublish Resource' : 'Publish Resource'}
-                                      >
-                                        {resource.is_published ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                                      </Button>
-
-                                      {/* Quick Feature Toggle */}
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={(e) => handleQuickFeature(resource, e)}
-                                        className={resource.is_featured ? 'text-yellow-600 hover:text-yellow-700' : 'text-gray-400 hover:text-gray-600'}
-                                        disabled={loading.update}
-                                        title={resource.is_featured ? 'Unfeature Resource' : 'Feature Resource'}
-                                      >
-                                        {resource.is_featured ? <Star className="h-4 w-4" /> : <StarOff className="h-4 w-4" />}
-                                      </Button>
-                                      
-                                      {/* Edit Button */}
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.preventDefault()
-                                          e.stopPropagation()
-                                          handleIndividualEditResource(resource)
-                                        }}
-                                        className="text-blue-600 hover:text-blue-700"
-                                        title="Edit Resource"
-                                      >
-                                        <Edit className="h-4 w-4" />
-                                      </Button>
-
-                                      {/* Delete Button */}
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.preventDefault()
-                                          e.stopPropagation()
-                                          handleIndividualDeleteResource(resource)
-                                        }}
-                                        className="text-red-600 hover:text-red-700"
-                                        title="Delete Resource"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
                                     </div>
                                   </div>
                                 </div>
-                              </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+
+                      {/* UPDATED: Enhanced Pagination for Admin Resources */}
+                      {paginationInfo.total > (filters.per_page || 25) && (
+                        <Card className="border-0 shadow-lg">
+                          <CardContent className="p-4 sm:p-6">
+                            <EnhancedPagination
+                              pagination={paginationInfo}
+                              onPageChange={handlePageChange}
+                              onPerPageChange={handlePerPageChange}
+                              isLoading={loading.resources}
+                              showPerPageSelector={true}
+                              showResultsInfo={true}
+                              perPageOptions={[10, 25, 50, 100]}
+                              className="w-full"
+                            />
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Loading state for admin operations */}
+                      {(loading.update || loading.delete) && (
+                        <Card className="border-blue-200 bg-blue-50">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-center space-x-2">
+                              <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+                              <span className="text-blue-800">
+                                {loading.update && 'Updating resource...'}
+                                {loading.delete && 'Deleting resource...'}
+                              </span>
                             </div>
                           </CardContent>
                         </Card>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <div className="space-y-4">
-                      <div className="p-4 bg-gray-100 rounded-full w-16 h-16 mx-auto flex items-center justify-center">
-                        <Search className="h-8 w-8 text-gray-400" />
-                      </div>
-                      <div className="space-y-2">
-                        <h3 className="text-lg font-medium text-gray-900">No Resources Found</h3>
-                        <p className="text-gray-600 max-w-md mx-auto">
-                          {hasActiveFilters 
-                            ? 'No resources match your current filters. Try adjusting your search criteria.'
-                            : 'Get started by creating your first resource.'
-                          }
-                        </p>
-                      </div>
-                      {hasActiveFilters ? (
-                        <Button variant="outline" onClick={handleClearFilters}>
-                          <X className="h-4 w-4 mr-2" />
-                          Clear Filters
-                        </Button>
-                      ) : (
-                        <Button onClick={() => openDialog('showCreateResourceDialog')}>
-                          <Plus className="h-4 w-4 mr-2" />
-                          Create Your First Resource
-                        </Button>
                       )}
+                    </>
+                  ) : (
+                    <div className="text-center py-12">
+                      <div className="space-y-4">
+                        <div className="p-4 bg-gray-100 rounded-full w-16 h-16 mx-auto flex items-center justify-center">
+                          <Search className="h-8 w-8 text-gray-400" />
+                        </div>
+                        <div className="space-y-2">
+                          <h3 className="text-lg font-medium text-gray-900">No Resources Found</h3>
+                          <p className="text-gray-600 max-w-md mx-auto">
+                            {hasActiveFilters
+                              ? 'No resources match your current filters. Try adjusting your search criteria.'
+                              : 'Get started by creating your first resource.'}
+                          </p>
+                        </div>
+                        {hasActiveFilters ? (
+                          <Button variant="outline" onClick={handleClearFilters}>
+                            <X className="h-4 w-4 mr-2" />
+                            Clear Filters
+                          </Button>
+                        ) : (
+                          <Button onClick={() => openDialog('showCreateResourceDialog')}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            Create Your First Resource
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1239,7 +1487,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                     </CardTitle>
                     <CardDescription>Organize your resources with categories</CardDescription>
                   </div>
-                  <Button onClick={() => openDialog('showCreateCategoryDialog')} disabled={loading.create}>
+                  <Button
+                    onClick={() => openDialog('showCreateCategoryDialog')}
+                    disabled={loading.create}
+                  >
                     {loading.create ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
@@ -1249,7 +1500,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   </Button>
                 </div>
               </CardHeader>
-              
+
               <CardContent className="p-4 sm:p-6">
                 {loading.categories && !categories.length ? (
                   <div className="space-y-4">
@@ -1260,29 +1511,34 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 ) : categories.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                     {categories.map((category) => (
-                      <Card key={category.id} className="border-0 shadow-md hover:shadow-lg transition-shadow">
+                      <Card
+                        key={category.id}
+                        className="border-0 shadow-md hover:shadow-lg transition-shadow"
+                      >
                         <CardContent className="p-4 sm:p-6">
                           <div className="space-y-4">
                             <div className="flex items-start justify-between">
                               <div className="flex items-center space-x-3">
-                                <div 
+                                <div
                                   className="w-12 h-12 rounded-lg flex items-center justify-center"
                                   style={{ backgroundColor: category.color + '20' }}
                                 >
-                                  <div 
+                                  <div
                                     className="w-6 h-6 rounded"
                                     style={{ backgroundColor: category.color }}
                                   />
                                 </div>
                                 <div>
                                   <h3 className="font-medium text-lg">{category.name}</h3>
-                                  <p className="text-sm text-gray-500">{category.resources_count || 0} resources</p>
+                                  <p className="text-sm text-gray-500">
+                                    {category.resources_count || 0} resources
+                                  </p>
                                 </div>
                               </div>
-                              
+
                               <div className="flex items-center space-x-2">
-                                <Badge variant={category.is_active ? "default" : "secondary"}>
-                                  {category.is_active ? "Active" : "Inactive"}
+                                <Badge variant={category.is_active ? 'default' : 'secondary'}>
+                                  {category.is_active ? 'Active' : 'Inactive'}
                                 </Badge>
                                 <div className="flex items-center space-x-1">
                                   {/* Edit Button */}
@@ -1290,9 +1546,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                                     variant="ghost"
                                     size="sm"
                                     onClick={(e) => {
-                                      e.preventDefault()
-                                      e.stopPropagation()
-                                      handleIndividualEditCategory(category)
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleIndividualEditCategory(category);
                                     }}
                                     className="text-blue-600 hover:text-blue-700"
                                     title="Edit Category"
@@ -1305,9 +1561,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                                     variant="ghost"
                                     size="sm"
                                     onClick={(e) => {
-                                      e.preventDefault()
-                                      e.stopPropagation()
-                                      handleIndividualDeleteCategory(category)
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleIndividualDeleteCategory(category);
                                     }}
                                     className="text-red-600 hover:text-red-700"
                                     title="Delete Category"
@@ -1317,14 +1573,18 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                                 </div>
                               </div>
                             </div>
-                            
+
                             {category.description && (
-                              <p className="text-sm text-gray-600 line-clamp-2">{category.description}</p>
+                              <p className="text-sm text-gray-600 line-clamp-2">
+                                {category.description}
+                              </p>
                             )}
-                            
+
                             <div className="flex items-center justify-between text-xs text-gray-500">
                               <span>Sort: {category.sort_order}</span>
-                              <span>Updated {new Date(category.updated_at).toLocaleDateString()}</span>
+                              <span>
+                                Updated {new Date(category.updated_at).toLocaleDateString()}
+                              </span>
                             </div>
                           </div>
                         </CardContent>
@@ -1335,7 +1595,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   <div className="text-center py-12">
                     <Settings className="h-16 w-16 mx-auto mb-4 text-gray-300" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No categories found</h3>
-                    <p className="text-gray-600 mb-4">Create your first category to organize resources</p>
+                    <p className="text-gray-600 mb-4">
+                      Create your first category to organize resources
+                    </p>
                     <Button onClick={() => openDialog('showCreateCategoryDialog')}>
                       <Plus className="h-4 w-4 mr-2" />
                       Create Category
@@ -1365,7 +1627,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                           <BookOpen className="h-6 w-6 text-blue-600" />
                         </div>
                         <div>
-                          <div className="text-2xl font-bold">{adminStats?.total_resources || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {adminStats?.total_resources || 0}
+                          </div>
                           <div className="text-sm text-gray-600">Total Resources</div>
                         </div>
                       </div>
@@ -1433,7 +1697,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                     <Download className="h-6 w-6 text-blue-600" />
                     <span>Export Data</span>
                   </CardTitle>
-                  <CardDescription>Export resources and categories for backup or analysis</CardDescription>
+                  <CardDescription>
+                    Export resources and categories for backup or analysis
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 space-y-4">
                   <Button variant="outline" className="w-full justify-between h-auto p-4">
@@ -1446,7 +1712,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   <Button variant="outline" className="w-full justify-between h-auto p-4">
                     <div className="text-left">
                       <h4 className="font-medium">Export Categories</h4>
-                      <p className="text-sm text-gray-600">Download category structure and settings</p>
+                      <p className="text-sm text-gray-600">
+                        Download category structure and settings
+                      </p>
                     </div>
                     <Download className="h-4 w-4" />
                   </Button>
@@ -1466,7 +1734,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                     <Upload className="h-6 w-6 text-green-600" />
                     <span>Import Data</span>
                   </CardTitle>
-                  <CardDescription>Import resources and categories from external sources</CardDescription>
+                  <CardDescription>
+                    Import resources and categories from external sources
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 space-y-4">
                   <Button variant="outline" className="w-full justify-between h-auto p-4">
@@ -1489,7 +1759,8 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                       <div>
                         <h4 className="font-medium text-yellow-800">Import Guidelines</h4>
                         <p className="text-sm text-yellow-700">
-                          Ensure your files follow the required format. Large imports may take time to process.
+                          Ensure your files follow the required format. Large imports may take time
+                          to process.
                         </p>
                       </div>
                     </div>
@@ -1502,9 +1773,12 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
       </div>
 
       {/* FIXED: All Dialogs with proper form handling - following help pattern */}
-      
+
       {/* Create Resource Dialog */}
-      <Dialog open={dialogStates.showCreateResourceDialog} onOpenChange={(open) => !open && closeDialog('showCreateResourceDialog')}>
+      <Dialog
+        open={dialogStates.showCreateResourceDialog}
+        onOpenChange={(open) => !open && closeDialog('showCreateResourceDialog')}
+      >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Resource</DialogTitle>
@@ -1517,34 +1791,40 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="category">Category *</Label>
-                <Select 
-                  value={resourceForm.category_id} 
-                  onValueChange={(value) => setResourceForm(prev => ({ ...prev, category_id: value }))}
+                <Select
+                  value={resourceForm.category_id}
+                  onValueChange={(value) =>
+                    setResourceForm((prev) => ({ ...prev, category_id: value }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {categories?.filter(cat => cat.is_active).map((category) => (
-                      <SelectItem key={category.id} value={category.id.toString()}>
-                        <div className="flex items-center space-x-2">
-                          <div 
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: category.color }}
-                          />
-                          <span>{category.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {categories
+                      ?.filter((cat) => cat.is_active)
+                      .map((category) => (
+                        <SelectItem key={category.id} value={category.id.toString()}>
+                          <div className="flex items-center space-x-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: category.color }}
+                            />
+                            <span>{category.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="type">Resource Type *</Label>
-                <Select 
-                  value={resourceForm.type} 
-                  onValueChange={(value: ResourceType) => setResourceForm(prev => ({ ...prev, type: value }))}
+                <Select
+                  value={resourceForm.type}
+                  onValueChange={(value: ResourceType) =>
+                    setResourceForm((prev) => ({ ...prev, type: value }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1566,7 +1846,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Input
                 id="title"
                 value={resourceForm.title}
-                onChange={(e) => setResourceForm(prev => ({ ...prev, title: e.target.value }))}
+                onChange={(e) => setResourceForm((prev) => ({ ...prev, title: e.target.value }))}
                 placeholder="Enter the resource title..."
                 maxLength={255}
               />
@@ -1577,7 +1857,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Textarea
                 id="description"
                 value={resourceForm.description}
-                onChange={(e) => setResourceForm(prev => ({ ...prev, description: e.target.value }))}
+                onChange={(e) =>
+                  setResourceForm((prev) => ({ ...prev, description: e.target.value }))
+                }
                 placeholder="Describe what this resource covers..."
                 className="min-h-[100px] resize-none"
                 maxLength={2000}
@@ -1587,9 +1869,11 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="difficulty">Difficulty Level *</Label>
-                <Select 
-                  value={resourceForm.difficulty} 
-                  onValueChange={(value: DifficultyLevel) => setResourceForm(prev => ({ ...prev, difficulty: value }))}
+                <Select
+                  value={resourceForm.difficulty}
+                  onValueChange={(value: DifficultyLevel) =>
+                    setResourceForm((prev) => ({ ...prev, difficulty: value }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1607,7 +1891,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Input
                   id="duration"
                   value={resourceForm.duration}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, duration: e.target.value }))}
+                  onChange={(e) =>
+                    setResourceForm((prev) => ({ ...prev, duration: e.target.value }))
+                  }
                   placeholder="e.g., 15 minutes, 2 hours"
                   maxLength={50}
                 />
@@ -1620,7 +1906,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 id="external_url"
                 type="url"
                 value={resourceForm.external_url}
-                onChange={(e) => setResourceForm(prev => ({ ...prev, external_url: e.target.value }))}
+                onChange={(e) =>
+                  setResourceForm((prev) => ({ ...prev, external_url: e.target.value }))
+                }
                 placeholder="https://example.com/resource"
                 maxLength={500}
               />
@@ -1632,7 +1920,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 id="download_url"
                 type="url"
                 value={resourceForm.download_url}
-                onChange={(e) => setResourceForm(prev => ({ ...prev, download_url: e.target.value }))}
+                onChange={(e) =>
+                  setResourceForm((prev) => ({ ...prev, download_url: e.target.value }))
+                }
                 placeholder="https://example.com/download"
                 maxLength={500}
               />
@@ -1644,7 +1934,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Input
                   id="author_name"
                   value={resourceForm.author_name}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, author_name: e.target.value }))}
+                  onChange={(e) =>
+                    setResourceForm((prev) => ({ ...prev, author_name: e.target.value }))
+                  }
                   placeholder="Resource creator/author"
                   maxLength={255}
                 />
@@ -1656,7 +1948,12 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   id="sort_order"
                   type="number"
                   value={resourceForm.sort_order}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  onChange={(e) =>
+                    setResourceForm((prev) => ({
+                      ...prev,
+                      sort_order: parseInt(e.target.value) || 0,
+                    }))
+                  }
                   min="0"
                 />
               </div>
@@ -1666,7 +1963,12 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Label>Tags</Label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {resourceForm.tags.map((tag: string, index: number) => (
-                  <Badge key={index} variant="secondary" className="cursor-pointer" onClick={() => handleRemoveTag(tag)}>
+                  <Badge
+                    key={index}
+                    variant="secondary"
+                    className="cursor-pointer"
+                    onClick={() => handleRemoveTag(tag)}
+                  >
                     {tag} ×
                   </Badge>
                 ))}
@@ -1675,10 +1977,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 placeholder="Add tags (press Enter to add)"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    e.preventDefault()
-                    const target = e.target as HTMLInputElement
-                    handleAddTag(target.value)
-                    target.value = ''
+                    e.preventDefault();
+                    const target = e.target as HTMLInputElement;
+                    handleAddTag(target.value);
+                    target.value = '';
                   }
                 }}
               />
@@ -1689,7 +1991,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Switch
                   id="is_published"
                   checked={resourceForm.is_published}
-                  onCheckedChange={(checked) => setResourceForm(prev => ({ ...prev, is_published: checked }))}
+                  onCheckedChange={(checked) =>
+                    setResourceForm((prev) => ({ ...prev, is_published: checked }))
+                  }
                 />
                 <Label htmlFor="is_published">Publish immediately</Label>
               </div>
@@ -1697,7 +2001,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Switch
                   id="is_featured"
                   checked={resourceForm.is_featured}
-                  onCheckedChange={(checked) => setResourceForm(prev => ({ ...prev, is_featured: checked }))}
+                  onCheckedChange={(checked) =>
+                    setResourceForm((prev) => ({ ...prev, is_featured: checked }))
+                  }
                 />
                 <Label htmlFor="is_featured">Feature this resource</Label>
               </div>
@@ -1721,13 +2027,14 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
       </Dialog>
 
       {/* Edit Resource Dialog */}
-      <Dialog open={dialogStates.showEditResourceDialog} onOpenChange={(open) => !open && closeDialog('showEditResourceDialog')}>
+      <Dialog
+        open={dialogStates.showEditResourceDialog}
+        onOpenChange={(open) => !open && closeDialog('showEditResourceDialog')}
+      >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Resource</DialogTitle>
-            <DialogDescription>
-              Update the resource information and settings.
-            </DialogDescription>
+            <DialogDescription>Update the resource information and settings.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -1735,34 +2042,40 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-category">Category *</Label>
-                <Select 
-                  value={resourceForm.category_id} 
-                  onValueChange={(value) => setResourceForm(prev => ({ ...prev, category_id: value }))}
+                <Select
+                  value={resourceForm.category_id}
+                  onValueChange={(value) =>
+                    setResourceForm((prev) => ({ ...prev, category_id: value }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {categories?.filter(cat => cat.is_active).map((category) => (
-                      <SelectItem key={category.id} value={category.id.toString()}>
-                        <div className="flex items-center space-x-2">
-                          <div 
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: category.color }}
-                          />
-                          <span>{category.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {categories
+                      ?.filter((cat) => cat.is_active)
+                      .map((category) => (
+                        <SelectItem key={category.id} value={category.id.toString()}>
+                          <div className="flex items-center space-x-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: category.color }}
+                            />
+                            <span>{category.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="edit-type">Resource Type *</Label>
-                <Select 
-                  value={resourceForm.type} 
-                  onValueChange={(value: ResourceType) => setResourceForm(prev => ({ ...prev, type: value }))}
+                <Select
+                  value={resourceForm.type}
+                  onValueChange={(value: ResourceType) =>
+                    setResourceForm((prev) => ({ ...prev, type: value }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1784,7 +2097,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Input
                 id="edit-title"
                 value={resourceForm.title}
-                onChange={(e) => setResourceForm(prev => ({ ...prev, title: e.target.value }))}
+                onChange={(e) => setResourceForm((prev) => ({ ...prev, title: e.target.value }))}
                 placeholder="Enter the resource title..."
                 maxLength={255}
               />
@@ -1795,7 +2108,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Textarea
                 id="edit-description"
                 value={resourceForm.description}
-                onChange={(e) => setResourceForm(prev => ({ ...prev, description: e.target.value }))}
+                onChange={(e) =>
+                  setResourceForm((prev) => ({ ...prev, description: e.target.value }))
+                }
                 placeholder="Describe what this resource covers..."
                 className="min-h-[100px] resize-none"
                 maxLength={2000}
@@ -1805,9 +2120,11 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-difficulty">Difficulty Level *</Label>
-                <Select 
-                  value={resourceForm.difficulty} 
-                  onValueChange={(value: DifficultyLevel) => setResourceForm(prev => ({ ...prev, difficulty: value }))}
+                <Select
+                  value={resourceForm.difficulty}
+                  onValueChange={(value: DifficultyLevel) =>
+                    setResourceForm((prev) => ({ ...prev, difficulty: value }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1825,7 +2142,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Input
                   id="edit-duration"
                   value={resourceForm.duration}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, duration: e.target.value }))}
+                  onChange={(e) =>
+                    setResourceForm((prev) => ({ ...prev, duration: e.target.value }))
+                  }
                   placeholder="e.g., 15 minutes, 2 hours"
                   maxLength={50}
                 />
@@ -1838,7 +2157,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 id="edit-external_url"
                 type="url"
                 value={resourceForm.external_url}
-                onChange={(e) => setResourceForm(prev => ({ ...prev, external_url: e.target.value }))}
+                onChange={(e) =>
+                  setResourceForm((prev) => ({ ...prev, external_url: e.target.value }))
+                }
                 placeholder="https://example.com/resource"
                 maxLength={500}
               />
@@ -1850,7 +2171,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 id="edit-download_url"
                 type="url"
                 value={resourceForm.download_url}
-                onChange={(e) => setResourceForm(prev => ({ ...prev, download_url: e.target.value }))}
+                onChange={(e) =>
+                  setResourceForm((prev) => ({ ...prev, download_url: e.target.value }))
+                }
                 placeholder="https://example.com/download"
                 maxLength={500}
               />
@@ -1862,7 +2185,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Input
                   id="edit-author_name"
                   value={resourceForm.author_name}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, author_name: e.target.value }))}
+                  onChange={(e) =>
+                    setResourceForm((prev) => ({ ...prev, author_name: e.target.value }))
+                  }
                   placeholder="Resource creator/author"
                   maxLength={255}
                 />
@@ -1874,7 +2199,12 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   id="edit-sort_order"
                   type="number"
                   value={resourceForm.sort_order}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  onChange={(e) =>
+                    setResourceForm((prev) => ({
+                      ...prev,
+                      sort_order: parseInt(e.target.value) || 0,
+                    }))
+                  }
                   min="0"
                 />
               </div>
@@ -1884,10 +2214,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Label>Tags</Label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {resourceForm.tags.map((tag, index) => (
-                  <Badge 
-                    key={index} 
-                    variant="secondary" 
-                    className="cursor-pointer hover:bg-red-100 hover:text-red-800" 
+                  <Badge
+                    key={index}
+                    variant="secondary"
+                    className="cursor-pointer hover:bg-red-100 hover:text-red-800"
                     onClick={() => handleRemoveTag(tag)}
                   >
                     {tag} ×
@@ -1898,10 +2228,10 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 placeholder="Add tags (press Enter to add)"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    e.preventDefault()
-                    const target = e.target as HTMLInputElement
-                    handleAddTag(target.value)
-                    target.value = ''
+                    e.preventDefault();
+                    const target = e.target as HTMLInputElement;
+                    handleAddTag(target.value);
+                    target.value = '';
                   }
                 }}
               />
@@ -1912,7 +2242,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Switch
                   id="edit-is_published"
                   checked={resourceForm.is_published}
-                  onCheckedChange={(checked) => setResourceForm(prev => ({ ...prev, is_published: checked }))}
+                  onCheckedChange={(checked) =>
+                    setResourceForm((prev) => ({ ...prev, is_published: checked }))
+                  }
                 />
                 <Label htmlFor="edit-is_published">Published</Label>
               </div>
@@ -1920,7 +2252,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                 <Switch
                   id="edit-is_featured"
                   checked={resourceForm.is_featured}
-                  onCheckedChange={(checked) => setResourceForm(prev => ({ ...prev, is_featured: checked }))}
+                  onCheckedChange={(checked) =>
+                    setResourceForm((prev) => ({ ...prev, is_featured: checked }))
+                  }
                 />
                 <Label htmlFor="edit-is_featured">Featured</Label>
               </div>
@@ -1944,13 +2278,14 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
       </Dialog>
 
       {/* Create Category Dialog */}
-      <Dialog open={dialogStates.showCreateCategoryDialog} onOpenChange={(open) => !open && closeDialog('showCreateCategoryDialog')}>
+      <Dialog
+        open={dialogStates.showCreateCategoryDialog}
+        onOpenChange={(open) => !open && closeDialog('showCreateCategoryDialog')}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Create New Category</DialogTitle>
-            <DialogDescription>
-              Add a new category to organize your resources.
-            </DialogDescription>
+            <DialogDescription>Add a new category to organize your resources.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -1959,7 +2294,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Input
                 id="category-name"
                 value={categoryForm.name}
-                onChange={(e) => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
+                onChange={(e) => setCategoryForm((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="Category name..."
                 maxLength={100}
               />
@@ -1970,7 +2305,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Textarea
                 id="category-description"
                 value={categoryForm.description}
-                onChange={(e) => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
+                onChange={(e) =>
+                  setCategoryForm((prev) => ({ ...prev, description: e.target.value }))
+                }
                 placeholder="Brief description..."
                 className="min-h-[80px] resize-none"
                 maxLength={500}
@@ -1984,7 +2321,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   id="category-color"
                   type="color"
                   value={categoryForm.color}
-                  onChange={(e) => setCategoryForm(prev => ({ ...prev, color: e.target.value }))}
+                  onChange={(e) => setCategoryForm((prev) => ({ ...prev, color: e.target.value }))}
                   className="h-10"
                 />
               </div>
@@ -1994,7 +2331,12 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   id="category-sort"
                   type="number"
                   value={categoryForm.sort_order}
-                  onChange={(e) => setCategoryForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  onChange={(e) =>
+                    setCategoryForm((prev) => ({
+                      ...prev,
+                      sort_order: parseInt(e.target.value) || 0,
+                    }))
+                  }
                   min="0"
                 />
               </div>
@@ -2004,7 +2346,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Switch
                 id="category-active"
                 checked={categoryForm.is_active}
-                onCheckedChange={(checked) => setCategoryForm(prev => ({ ...prev, is_active: checked }))}
+                onCheckedChange={(checked) =>
+                  setCategoryForm((prev) => ({ ...prev, is_active: checked }))
+                }
               />
               <Label htmlFor="category-active">Active</Label>
             </div>
@@ -2027,13 +2371,14 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
       </Dialog>
 
       {/* Edit Category Dialog */}
-      <Dialog open={dialogStates.showEditCategoryDialog} onOpenChange={(open) => !open && closeDialog('showEditCategoryDialog')}>
+      <Dialog
+        open={dialogStates.showEditCategoryDialog}
+        onOpenChange={(open) => !open && closeDialog('showEditCategoryDialog')}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Category</DialogTitle>
-            <DialogDescription>
-              Update the category information.
-            </DialogDescription>
+            <DialogDescription>Update the category information.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -2042,7 +2387,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Input
                 id="edit-category-name"
                 value={categoryForm.name}
-                onChange={(e) => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
+                onChange={(e) => setCategoryForm((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="Category name..."
                 maxLength={100}
               />
@@ -2053,7 +2398,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Textarea
                 id="edit-category-description"
                 value={categoryForm.description}
-                onChange={(e) => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
+                onChange={(e) =>
+                  setCategoryForm((prev) => ({ ...prev, description: e.target.value }))
+                }
                 placeholder="Brief description..."
                 className="min-h-[80px] resize-none"
                 maxLength={500}
@@ -2067,7 +2414,7 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   id="edit-category-color"
                   type="color"
                   value={categoryForm.color}
-                  onChange={(e) => setCategoryForm(prev => ({ ...prev, color: e.target.value }))}
+                  onChange={(e) => setCategoryForm((prev) => ({ ...prev, color: e.target.value }))}
                   className="h-10"
                 />
               </div>
@@ -2077,7 +2424,12 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
                   id="edit-category-sort"
                   type="number"
                   value={categoryForm.sort_order}
-                  onChange={(e) => setCategoryForm(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
+                  onChange={(e) =>
+                    setCategoryForm((prev) => ({
+                      ...prev,
+                      sort_order: parseInt(e.target.value) || 0,
+                    }))
+                  }
                   min="0"
                 />
               </div>
@@ -2087,7 +2439,9 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
               <Switch
                 id="edit-category-active"
                 checked={categoryForm.is_active}
-                onCheckedChange={(checked) => setCategoryForm(prev => ({ ...prev, is_active: checked }))}
+                onCheckedChange={(checked) =>
+                  setCategoryForm((prev) => ({ ...prev, is_active: checked }))
+                }
               />
               <Label htmlFor="edit-category-active">Active</Label>
             </div>
@@ -2117,14 +2471,16 @@ export function AdminResourcesPage({ onNavigate }: AdminResourcesPageProps) {
         action={individualActionDialog.action}
         isProcessing={individualActionDialog.isProcessing}
         onConfirm={executeIndividualAction}
-        onCancel={() => setIndividualActionDialog({ 
-          isOpen: false, 
-          resource: null, 
-          category: null, 
-          action: 'edit', 
-          isProcessing: false 
-        })}
+        onCancel={() =>
+          setIndividualActionDialog({
+            isOpen: false,
+            resource: null,
+            category: null,
+            action: 'edit',
+            isProcessing: false,
+          })
+        }
       />
     </div>
-  )
+  );
 }

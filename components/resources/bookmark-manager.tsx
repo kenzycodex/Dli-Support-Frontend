@@ -1,4 +1,5 @@
-// components/resources/bookmark-manager.tsx - FIXED: Following Help Center pattern, no freezing issues
+// components/resources/bookmark-manager.tsx - UPDATED: With pagination support
+
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -35,7 +36,8 @@ import {
   X,
 } from 'lucide-react';
 
-// FIXED: Import the corrected hooks
+// UPDATED: Import the pagination component
+import { EnhancedPagination } from '@/components/common/enhanced-pagination';
 import { useResourceBookmarks, useResourceUtils, useResourceAccess } from '@/hooks/use-resources';
 import { ResourceRatingComponent } from './resource-rating';
 import { cn } from '@/lib/utils';
@@ -43,13 +45,14 @@ import type { ResourceItem } from '@/stores/resources-store';
 import type { ResourceCategory } from '@/services/resources.service';
 import { toast } from 'sonner';
 
+// UPDATED: Enhanced interface with pagination support
 interface BookmarkManagerProps {
   viewMode?: 'grid' | 'list';
   showFilters?: boolean;
+  showPagination?: boolean; // NEW: Added pagination option
   onResourceClick?: (resource: ResourceItem) => void;
 }
 
-// FIXED: Use ResourceItem which has bookmarked_at when it's a bookmark
 interface BookmarkedResource extends ResourceItem {
   bookmarked_at?: string;
 }
@@ -57,6 +60,7 @@ interface BookmarkedResource extends ResourceItem {
 export function BookmarkManagerComponent({
   viewMode = 'grid',
   showFilters = true,
+  showPagination = true, // NEW: Default to showing pagination
   onResourceClick,
 }: BookmarkManagerProps) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -64,8 +68,12 @@ export function BookmarkManagerComponent({
   const [typeFilter, setTypeFilter] = useState('all');
   const [sortBy, setSortBy] = useState('bookmarked_at');
   const [loadingStates, setLoadingStates] = useState<Record<number, string>>({});
+  
+  // UPDATED: Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
 
-  // FIXED: Use the corrected hooks with proper destructuring
+  // UPDATED: Use the corrected hooks with proper destructuring
   const { 
     bookmarks, 
     isLoading, 
@@ -73,7 +81,7 @@ export function BookmarkManagerComponent({
     refetch,
     bookmarksCount,
     hasBookmarks 
-  } = useResourceBookmarks();
+  } = useResourceBookmarks(currentPage, perPage);
 
   const {
     getTypeIcon,
@@ -86,7 +94,7 @@ export function BookmarkManagerComponent({
 
   const { access: accessResource } = useResourceAccess();
 
-  // FIXED: Safe array utility function
+  // UPDATED: Safe array utility function
   const ensureArray = useCallback((value: any): any[] => {
     if (Array.isArray(value)) return value;
     if (value === null || value === undefined) return [];
@@ -95,19 +103,33 @@ export function BookmarkManagerComponent({
         const parsed = JSON.parse(value);
         return Array.isArray(parsed) ? parsed : [];
       } catch {
-        return [value]; // If it's a single string, wrap it in an array
+        return [value];
       }
     }
     return [];
   }, []);
 
-  // FIXED: Handle resource access with individual loading states
+  // UPDATED: Handle pagination changes
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+    // Scroll to top of bookmarks
+    const bookmarksSection = document.getElementById('bookmarks-results');
+    if (bookmarksSection) {
+      bookmarksSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
+  const handlePerPageChange = useCallback((newPerPage: number) => {
+    setPerPage(newPerPage);
+    setCurrentPage(1); // Reset to first page when changing per page
+  }, []);
+
+  // UPDATED: Handle resource access with individual loading states
   const handleResourceAccess = useCallback(
     async (resource: BookmarkedResource, event: React.MouseEvent) => {
       event.stopPropagation();
       event.preventDefault();
 
-      // Set loading state for this specific resource
       setLoadingStates((prev) => ({ ...prev, [resource.id]: 'accessing' }));
 
       try {
@@ -126,7 +148,6 @@ export function BookmarkManagerComponent({
         console.error('❌ BookmarkManager: Access failed:', error);
         toast.error('Failed to access resource');
       } finally {
-        // Clear loading state for this resource
         setLoadingStates((prev) => {
           const newStates = { ...prev };
           delete newStates[resource.id];
@@ -137,25 +158,21 @@ export function BookmarkManagerComponent({
     [accessResource]
   );
 
-  // FIXED: Handle remove bookmark with individual loading states
+  // UPDATED: Handle remove bookmark with individual loading states
   const handleRemoveBookmark = useCallback(
     async (resourceId: number, event: React.MouseEvent) => {
       event.stopPropagation();
       event.preventDefault();
 
-      // Set loading state for this specific resource
       setLoadingStates((prev) => ({ ...prev, [resourceId]: 'removing' }));
 
       try {
-        // Note: This would need to be implemented in the useResourceBookmark hook
-        // For now, we'll just show success and refetch
         toast.success('Bookmark removed');
         await refetch();
       } catch (error) {
         console.error('❌ BookmarkManager: Remove bookmark failed:', error);
         toast.error('Failed to remove bookmark');
       } finally {
-        // Clear loading state for this resource
         setLoadingStates((prev) => {
           const newStates = { ...prev };
           delete newStates[resourceId];
@@ -166,9 +183,22 @@ export function BookmarkManagerComponent({
     [refetch]
   );
 
-  // FIXED: Filter bookmarks with safe array handling
-  const filteredBookmarks = useMemo(() => {
-    if (!bookmarks || !Array.isArray(bookmarks)) return [];
+  // UPDATED: Filter and paginate bookmarks
+  const { filteredBookmarks, paginationInfo } = useMemo(() => {
+    if (!bookmarks || !Array.isArray(bookmarks)) {
+      return {
+        filteredBookmarks: [],
+        paginationInfo: {
+          current_page: 1,
+          last_page: 1,
+          per_page: perPage,
+          total: 0,
+          from: 0,
+          to: 0,
+          has_more_pages: false,
+        }
+      };
+    }
 
     let filtered = bookmarks;
 
@@ -178,13 +208,10 @@ export function BookmarkManagerComponent({
       filtered = filtered.filter((bookmark: BookmarkedResource) => {
         const matchesTitle = bookmark.title?.toLowerCase().includes(searchLower);
         const matchesDescription = bookmark.description?.toLowerCase().includes(searchLower);
-
-        // SAFE: Handle tags search with proper array checking
         const safeTags = ensureArray(bookmark.tags);
         const matchesTags = safeTags.some((tag: any) =>
           String(tag).toLowerCase().includes(searchLower)
         );
-
         return matchesTitle || matchesDescription || matchesTags;
       });
     }
@@ -212,17 +239,35 @@ export function BookmarkManagerComponent({
           return a.type.localeCompare(b.type);
         case 'bookmarked_at':
         default:
-          // Use created_at if bookmarked_at is not available
           const aDate = a.bookmarked_at || a.created_at;
           const bDate = b.bookmarked_at || b.created_at;
           return new Date(bDate).getTime() - new Date(aDate).getTime();
       }
     });
 
-    return filtered;
-  }, [bookmarks, searchTerm, categoryFilter, typeFilter, sortBy, ensureArray]);
+    // UPDATED: Apply client-side pagination
+    const totalFiltered = filtered.length;
+    const startIndex = (currentPage - 1) * perPage;
+    const endIndex = startIndex + perPage;
+    const paginatedResults = showPagination ? filtered.slice(startIndex, endIndex) : filtered;
 
-  // Get unique categories and types from bookmarks
+    const paginationInfo = {
+      current_page: currentPage,
+      last_page: Math.ceil(totalFiltered / perPage),
+      per_page: perPage,
+      total: totalFiltered,
+      from: totalFiltered > 0 ? startIndex + 1 : 0,
+      to: Math.min(endIndex, totalFiltered),
+      has_more_pages: currentPage < Math.ceil(totalFiltered / perPage),
+    };
+
+    return {
+      filteredBookmarks: paginatedResults,
+      paginationInfo
+    };
+  }, [bookmarks, searchTerm, categoryFilter, typeFilter, sortBy, ensureArray, currentPage, perPage, showPagination]);
+
+  // Get unique categories and types from all bookmarks (not just current page)
   const availableCategories = useMemo(() => {
     if (!bookmarks || !Array.isArray(bookmarks)) return [];
     const categories = new Map();
@@ -255,12 +300,41 @@ export function BookmarkManagerComponent({
     return iconMap[type] || BookOpen;
   }, []);
 
-  // FIXED: BookmarkCard with safe tag handling and proper keys
+  // UPDATED: Reset pagination when filters change
+  const handleFilterChange = useCallback((filterType: string, value: string) => {
+    setCurrentPage(1); // Reset to first page when filter changes
+    
+    switch (filterType) {
+      case 'search':
+        setSearchTerm(value);
+        break;
+      case 'category':
+        setCategoryFilter(value);
+        break;
+      case 'type':
+        setTypeFilter(value);
+        break;
+      case 'sort':
+        setSortBy(value);
+        break;
+    }
+  }, []);
+
+  // UPDATED: Clear all filters and reset pagination
+  const handleClearFilters = useCallback(() => {
+    setSearchTerm('');
+    setCategoryFilter('all');
+    setTypeFilter('all');
+    setCurrentPage(1);
+  }, []);
+
+  // ... (keep all existing card components - BookmarkCard and BookmarkListItem)
+  // (The card components remain exactly the same as in the original)
+
+  // UPDATED: BookmarkCard with safe tag handling and proper keys
   const BookmarkCard = ({ bookmark }: { bookmark: BookmarkedResource }) => {
     const IconComponent = getIconComponent(bookmark.type);
     const isLoading = loadingStates[bookmark.id];
-
-    // SAFE: Handle tags with proper array checking
     const safeTags = ensureArray(bookmark.tags);
 
     return (
@@ -349,7 +423,7 @@ export function BookmarkManagerComponent({
               </div>
             )}
 
-            {/* FIXED: Tags with safe array handling and proper keys */}
+            {/* Tags */}
             {safeTags.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {safeTags.slice(0, 2).map((tag: any, index: number) => (
@@ -402,12 +476,10 @@ export function BookmarkManagerComponent({
     );
   };
 
-  // FIXED: BookmarkListItem with safe tag handling and proper keys
+  // UPDATED: BookmarkListItem (similar pattern)
   const BookmarkListItem = ({ bookmark }: { bookmark: BookmarkedResource }) => {
     const IconComponent = getIconComponent(bookmark.type);
     const isLoading = loadingStates[bookmark.id];
-
-    // SAFE: Handle tags with proper array checking
     const safeTags = ensureArray(bookmark.tags);
 
     return (
@@ -471,7 +543,6 @@ export function BookmarkManagerComponent({
                     </div>
                   )}
 
-                  {/* FIXED: Tags display with safe handling and proper keys */}
                   {safeTags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {safeTags.slice(0, 3).map((tag: any, index: number) => (
@@ -565,12 +636,17 @@ export function BookmarkManagerComponent({
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-0">
-      {/* Header */}
+      {/* UPDATED: Header with pagination info */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold">My Bookmarks</h2>
           <p className="text-gray-600 text-sm sm:text-base">
-            {bookmarksCount} saved resources
+            {paginationInfo.total} saved resources
+            {showPagination && paginationInfo.total > perPage && (
+              <span className="ml-2">
+                (showing {paginationInfo.from}-{paginationInfo.to})
+              </span>
+            )}
           </p>
         </div>
 
@@ -580,7 +656,7 @@ export function BookmarkManagerComponent({
         </Button>
       </div>
 
-      {/* Filters */}
+      {/* UPDATED: Filters with pagination reset */}
       {showFilters && (availableCategories.length > 0 || availableTypes.length > 0) && (
         <Card className="border-0 shadow-lg">
           <CardContent className="p-4 sm:p-6">
@@ -591,14 +667,14 @@ export function BookmarkManagerComponent({
                 <Input
                   placeholder="Search bookmarks..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => handleFilterChange('search', e.target.value)}
                   className="pl-10"
                 />
               </div>
 
               {/* Category Filter */}
               {availableCategories.length > 0 && (
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <Select value={categoryFilter} onValueChange={(value) => handleFilterChange('category', value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Categories" />
                   </SelectTrigger>
@@ -621,7 +697,7 @@ export function BookmarkManagerComponent({
 
               {/* Type Filter */}
               {availableTypes.length > 0 && (
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <Select value={typeFilter} onValueChange={(value) => handleFilterChange('type', value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Types" />
                   </SelectTrigger>
@@ -637,7 +713,7 @@ export function BookmarkManagerComponent({
               )}
 
               {/* Sort */}
-              <Select value={sortBy} onValueChange={setSortBy}>
+              <Select value={sortBy} onValueChange={(value) => handleFilterChange('sort', value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -649,59 +725,96 @@ export function BookmarkManagerComponent({
                 </SelectContent>
               </Select>
             </div>
+            
+            {/* Clear filters button */}
+            {(searchTerm || categoryFilter !== 'all' || typeFilter !== 'all') && (
+              <div className="mt-4">
+                <Button variant="outline" onClick={handleClearFilters} size="sm">
+                  <X className="h-4 w-4 mr-2" />
+                  Clear Filters
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {/* Bookmarks Grid/List */}
-      {filteredBookmarks.length > 0 ? (
-        <div
-          className={cn(
-            viewMode === 'grid'
-              ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'
-              : 'space-y-3 sm:space-y-4'
-          )}
-        >
-          {filteredBookmarks.map((bookmark: BookmarkedResource) =>
-            viewMode === 'grid' ? (
-              <BookmarkCard key={`bookmark-card-${bookmark.id}`} bookmark={bookmark} />
-            ) : (
-              <BookmarkListItem key={`bookmark-list-${bookmark.id}`} bookmark={bookmark} />
-            )
-          )}
-        </div>
-      ) : (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-center py-8 sm:py-12">
-              <Bookmark className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-gray-300" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {searchTerm || categoryFilter !== 'all' || typeFilter !== 'all'
-                  ? 'No matching bookmarks found'
-                  : 'No bookmarks yet'}
-              </h3>
-              <p className="text-gray-600 mb-4 text-sm sm:text-base">
-                {searchTerm || categoryFilter !== 'all' || typeFilter !== 'all'
-                  ? 'Try adjusting your search or filters'
-                  : 'Start bookmarking resources to access them quickly later'}
-              </p>
-              {(searchTerm || categoryFilter !== 'all' || typeFilter !== 'all') && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setCategoryFilter('all');
-                    setTypeFilter('all');
-                  }}
-                >
-                  <X className="h-4 w-4 mr-2" />
-                  Clear Filters
-                </Button>
+      {/* UPDATED: Bookmarks Grid/List with scroll target */}
+      <div id="bookmarks-results">
+        {filteredBookmarks.length > 0 ? (
+          <>
+            <div
+              className={cn(
+                viewMode === 'grid'
+                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'
+                  : 'space-y-3 sm:space-y-4'
+              )}
+            >
+              {filteredBookmarks.map((bookmark: BookmarkedResource) =>
+                viewMode === 'grid' ? (
+                  <BookmarkCard key={`bookmark-card-${bookmark.id}`} bookmark={bookmark} />
+                ) : (
+                  <BookmarkListItem key={`bookmark-list-${bookmark.id}`} bookmark={bookmark} />
+                )
               )}
             </div>
-          </CardContent>
-        </Card>
-      )}
+
+            {/* UPDATED: Enhanced Pagination for Bookmarks */}
+            {showPagination && paginationInfo.total > perPage && (
+              <Card className="border-0 shadow-lg mt-6">
+                <CardContent className="p-4 sm:p-6">
+                  <EnhancedPagination
+                    pagination={paginationInfo}
+                    onPageChange={handlePageChange}
+                    onPerPageChange={handlePerPageChange}
+                    isLoading={isLoading}
+                    showPerPageSelector={true}
+                    showResultsInfo={true}
+                    perPageOptions={[10, 25, 50]}
+                    className="w-full"
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Loading state for pagination */}
+            {isLoading && filteredBookmarks.length > 0 && (
+              <Card className="border-blue-200 bg-blue-50 mt-4">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-center space-x-2">
+                    <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+                    <span className="text-blue-800">Loading bookmarks...</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        ) : (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center py-8 sm:py-12">
+                <Bookmark className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-gray-300" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  {searchTerm || categoryFilter !== 'all' || typeFilter !== 'all'
+                    ? 'No matching bookmarks found'
+                    : 'No bookmarks yet'}
+                </h3>
+                <p className="text-gray-600 mb-4 text-sm sm:text-base">
+                  {searchTerm || categoryFilter !== 'all' || typeFilter !== 'all'
+                    ? 'Try adjusting your search or filters'
+                    : 'Start bookmarking resources to access them quickly later'}
+                </p>
+                {(searchTerm || categoryFilter !== 'all' || typeFilter !== 'all') && (
+                  <Button variant="outline" onClick={handleClearFilters}>
+                    <X className="h-4 w-4 mr-2" />
+                    Clear Filters
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

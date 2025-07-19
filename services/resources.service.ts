@@ -1,230 +1,175 @@
-// services/resources.service.ts - FIXED: Extended ResourceStats interface
+// services/resources.service.ts - FIXED: Stable fetching like help service
 
-import { apiClient, type StandardizedApiResponse } from '@/lib/api'
+import { apiClient, type StandardizedApiResponse } from '@/lib/api';
 
+// Keep your existing interfaces unchanged...
 export interface ResourceCategory {
-  id: number
-  name: string
-  slug: string
-  description?: string
-  icon: string
-  color: string
-  sort_order: number
-  is_active: boolean
-  resources_count?: number
-  created_at: string
-  updated_at: string
+  id: number;
+  name: string;
+  slug: string;
+  description?: string;
+  icon: string;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
+  resources_count?: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Resource {
-  id: number
-  category_id: number
-  title: string
-  description: string
-  slug: string
-  type: 'article' | 'video' | 'audio' | 'exercise' | 'tool' | 'worksheet'
-  subcategory?: string
-  difficulty: 'beginner' | 'intermediate' | 'advanced'
-  duration?: string
-  external_url: string
-  download_url?: string
-  thumbnail_url?: string
-  tags: string[]
-  author_name?: string
-  author_bio?: string
-  rating: number
-  view_count: number
-  download_count: number
-  sort_order: number
-  is_published: boolean
-  is_featured: boolean
-  is_bookmarked: boolean
-  created_by?: number
-  updated_by?: number
-  published_at?: string
-  created_at: string
-  updated_at: string
-  category?: ResourceCategory
+  id: number;
+  category_id: number;
+  title: string;
+  description: string;
+  slug: string;
+  type: 'article' | 'video' | 'audio' | 'exercise' | 'tool' | 'worksheet';
+  subcategory?: string;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  duration?: string;
+  external_url: string;
+  download_url?: string;
+  thumbnail_url?: string;
+  tags: string[];
+  author_name?: string;
+  author_bio?: string;
+  rating: number;
+  view_count: number;
+  download_count: number;
+  sort_order: number;
+  is_published: boolean;
+  is_featured: boolean;
+  is_bookmarked: boolean;
+  created_by?: number;
+  updated_by?: number;
+  published_at?: string;
+  created_at: string;
+  updated_at: string;
+  category?: ResourceCategory;
   creator?: {
-    id: number
-    name: string
-    email: string
-  }
+    id: number;
+    name: string;
+    email: string;
+  };
 }
 
-export interface ResourceFeedback {
-  id: number
-  resource_id: number
-  user_id: number
-  rating: number
-  comment?: string
-  is_recommended: boolean
-  created_at: string
-  updated_at: string
-}
-
+// UPDATED: Enhanced ResourceFilters interface
 export interface ResourceFilters {
-  category?: string
-  type?: 'article' | 'video' | 'audio' | 'exercise' | 'tool' | 'worksheet' | 'all'
-  difficulty?: 'beginner' | 'intermediate' | 'advanced' | 'all'
-  search?: string
-  featured?: boolean
-  sort_by?: 'featured' | 'rating' | 'downloads' | 'newest' | 'popular'
-  per_page?: number
-  page?: number
-  include_drafts?: boolean
+  category?: string;
+  type?: 'article' | 'video' | 'audio' | 'exercise' | 'tool' | 'worksheet' | 'all';
+  difficulty?: 'beginner' | 'intermediate' | 'advanced' | 'all';
+  search?: string;
+  featured?: boolean;
+  sort_by?: 'featured' | 'rating' | 'downloads' | 'newest' | 'popular';
+  per_page?: number;
+  page?: number;
+  include_drafts?: boolean;
+  // UPDATED: Enhanced pagination options
+  limit?: number; // Alternative to per_page for some APIs
+  offset?: number; // Alternative pagination method
+  cursor?: string; // For cursor-based pagination
 }
 
+// UPDATED: Enhanced ResourcesResponse with better pagination
 export interface ResourcesResponse {
-  resources: Resource[]
-  featured_resources?: Resource[]
-  type_counts?: Record<string, number>
+  resources: Resource[];
+  featured_resources?: Resource[];
+  type_counts?: Record<string, number>;
   pagination?: {
-    current_page: number
-    last_page: number
-    per_page: number
-    total: number
-    from?: number
-    to?: number
-    has_more_pages?: boolean
-  }
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    from?: number;
+    to?: number;
+    has_more_pages?: boolean;
+    // UPDATED: Additional pagination metadata
+    next_page_url?: string;
+    prev_page_url?: string;
+    links?: Array<{
+      url: string | null;
+      label: string;
+      active: boolean;
+    }>;
+  };
+  // UPDATED: Additional response metadata
+  meta?: {
+    total_resources: number;
+    filtered_count: number;
+    cache_hit?: boolean;
+    query_time?: number;
+  };
 }
-
-export interface BookmarksResponse {
-  bookmarks: (Resource & { bookmarked_at: string })[]
-  pagination: {
-    current_page: number
-    last_page: number
-    per_page: number
-    total: number
-  }
-}
-
-// FIXED: Extended ResourceStats interface to include all properties used by the store
 export interface ResourceStats {
-  total_resources: number
-  total_categories: number
-  // ADDED: Properties required by the store
-  total_views: number
-  total_downloads: number
-  average_rating: number
-  // Original properties
-  most_popular_resource?: Pick<Resource, 'id' | 'title' | 'view_count' | 'type'> | null
-  highest_rated_resource?: Pick<Resource, 'id' | 'title' | 'rating' | 'type'> | null
-  most_downloaded_resource?: Pick<Resource, 'id' | 'title' | 'download_count' | 'type'> | null
-  resources_by_type: Record<string, number>
-  resources_by_difficulty: Record<string, number>
-  categories_with_counts: Pick<ResourceCategory, 'id' | 'name' | 'slug' | 'color'>[]
+  total_resources: number;
+  total_categories: number;
+  total_views: number;
+  total_downloads: number;
+  average_rating: number;
+  most_popular_resource?: Pick<Resource, 'id' | 'title' | 'view_count' | 'type'> | null;
+  highest_rated_resource?: Pick<Resource, 'id' | 'title' | 'rating' | 'type'> | null;
+  most_downloaded_resource?: Pick<Resource, 'id' | 'title' | 'download_count' | 'type'> | null;
+  resources_by_type: Record<string, number>;
+  resources_by_difficulty: Record<string, number>;
+  categories_with_counts: Pick<ResourceCategory, 'id' | 'name' | 'slug' | 'color'>[];
 }
 
-export interface ResourceOptions {
-  types: Array<{ value: string; label: string; icon: string }>
-  difficulties: Array<{ value: string; label: string; color: string }>
-  categories: Pick<ResourceCategory, 'id' | 'name' | 'slug'>[]
-}
-
-// Request options interface
 interface RequestOptions {
-  userRole?: string
-  forceRefresh?: boolean
-  include_inactive?: boolean
+  userRole?: string;
+  forceRefresh?: boolean;
+  include_inactive?: boolean;
 }
 
 /**
- * UPDATED: Resource Service with extended stats support
+ * FIXED: Simplified Resource Service - Following Help Service Pattern
  */
 class ResourcesService {
-  private readonly apiClient = apiClient
-  private cache = new Map<string, { data: any; timestamp: number; ttl: number }>()
-  private readonly DEFAULT_TTL = 15 * 60 * 1000 // 15 minutes
-  private readonly STATS_TTL = 30 * 60 * 1000 // 30 minutes for stats
-  private readonly CATEGORIES_TTL = 20 * 60 * 1000 // 20 minutes for categories
+  private readonly apiClient = apiClient;
+  private cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+  private readonly DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes like help service
 
-  // Type definitions for resource types
-  static readonly RESOURCE_TYPES = {
-    article: { label: 'Article', icon: 'FileText' },
-    video: { label: 'Video', icon: 'Video' },
-    audio: { label: 'Audio', icon: 'Headphones' },
-    exercise: { label: 'Exercise', icon: 'Brain' },
-    tool: { label: 'Tool', icon: 'Heart' },
-    worksheet: { label: 'Worksheet', icon: 'Download' },
-  } as const
-
-  static readonly DIFFICULTY_LEVELS = {
-    beginner: { label: 'Beginner', color: 'bg-green-100 text-green-800' },
-    intermediate: { label: 'Intermediate', color: 'bg-yellow-100 text-yellow-800' },
-    advanced: { label: 'Advanced', color: 'bg-red-100 text-red-800' },
-  } as const
-
-  // Smart caching methods
+  // UPDATED: Enhanced cache key generation
   private getCacheKey(endpoint: string, params?: any): string {
-    const baseKey = endpoint.replace(/^\//, '')
-    if (params) {
-      const sortedParams = Object.keys(params)
-        .sort()
-        .reduce((acc, key) => {
-          if (params[key] !== undefined && params[key] !== null && params[key] !== '') {
-            acc[key] = params[key]
-          }
-          return acc
-        }, {} as any)
-      
-      return `${baseKey}_${JSON.stringify(sortedParams)}`
-    }
-    return baseKey
+    // Include pagination params in cache key for proper cache separation
+    const sortedParams = params ? JSON.stringify(params, Object.keys(params).sort()) : '';
+    return `${endpoint}_${sortedParams}`;
   }
 
-  private setCache(key: string, data: any, ttl?: number): void {
+  private getFromCache<T>(key: string): T | null {
+    const cached = this.cache.get(key);
+    if (!cached) return null;
+
+    if (Date.now() - cached.timestamp > cached.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return cached.data;
+  }
+
+  private setCache<T>(key: string, data: T, ttl: number = this.DEFAULT_TTL): void {
     this.cache.set(key, {
       data,
       timestamp: Date.now(),
-      ttl: ttl || this.DEFAULT_TTL,
-    })
-  }
-
-  private getCache(key: string): any | null {
-    const cached = this.cache.get(key)
-    if (!cached) return null
-
-    const isExpired = Date.now() - cached.timestamp > cached.ttl
-    if (isExpired) {
-      this.cache.delete(key)
-      return null
-    }
-
-    return cached.data
+      ttl,
+    });
   }
 
   public clearCache(): void {
-    this.cache.clear()
+    this.cache.clear();
   }
 
-  public getCacheStats(): { cacheSize: number; totalMemory: number; hitRate: number } {
-    const totalMemory = Array.from(this.cache.values()).reduce((total, entry) => {
-      return total + JSON.stringify(entry.data).length
-    }, 0)
+  // FIXED: Simple response parser - EXACTLY like help service
+  private parseResourcesResponse(rawResponse: any): ResourcesResponse {
+    console.log('🔍 ResourcesService: Parsing response:', rawResponse);
 
-    return {
-      cacheSize: this.cache.size,
-      totalMemory,
-      hitRate: 0, // Would need to track hits/misses for real calculation
-    }
-  }
-
-  // Enhanced response parser aligned with backend
-  // CRITICAL FIX: Simplified response parser
-  private parseBackendResponse(rawResponse: any): ResourcesResponse {
-    console.log('🔍 ResourcesService: Raw response:', rawResponse);
-
-    // Safety check
     if (!rawResponse) {
-      console.warn('⚠️ ResourcesService: No response data provided');
+      console.warn('⚠️ ResourcesService: No response data');
       return { resources: [] };
     }
 
-    // STRATEGY 1: Direct response structure (what backend actually returns)
+    // EXACTLY like help service - check for direct resources array
     if (rawResponse.resources && Array.isArray(rawResponse.resources)) {
-      console.log('✅ ResourcesService: Found direct resources format');
       return {
         resources: rawResponse.resources,
         featured_resources: rawResponse.featured_resources || [],
@@ -238,13 +183,10 @@ class ResourcesService {
       };
     }
 
-    // STRATEGY 2: Array response fallback
+    // Fallback if it's just an array
     if (Array.isArray(rawResponse)) {
-      console.log('✅ ResourcesService: Found array format');
       return {
         resources: rawResponse,
-        featured_resources: rawResponse.filter((r: Resource) => r.is_featured) || [],
-        type_counts: {},
         pagination: {
           current_page: 1,
           last_page: 1,
@@ -254,124 +196,373 @@ class ResourcesService {
       };
     }
 
-    // FALLBACK: Return empty
-    console.warn('⚠️ ResourcesService: Unknown response format, returning empty');
+    console.warn('⚠️ ResourcesService: Unknown response format');
     return { resources: [] };
   }
 
   // =============================================================================
-  // BASIC OPERATIONS
+  // BASIC OPERATIONS - EXACTLY like help service
   // =============================================================================
 
-  async getCategories(options: RequestOptions = {}): Promise<StandardizedApiResponse<{ categories: ResourceCategory[] }>> {
+  async getCategories(
+    options: RequestOptions = {}
+  ): Promise<StandardizedApiResponse<{ categories: ResourceCategory[] }>> {
     try {
-      const { include_inactive = false, forceRefresh = false } = options
-      const cacheKey = this.getCacheKey('categories', { include_inactive })
-      
+      const { include_inactive = false, forceRefresh = false } = options;
+      const cacheKey = this.getCacheKey('categories', { include_inactive });
+
       if (!forceRefresh) {
-        const cached = this.getCache(cacheKey)
-        if (cached) return { 
-          success: true, 
-          status: 200,
-          message: 'Categories retrieved from cache',
-          data: cached 
-        }
+        const cached = this.getFromCache<{ categories: ResourceCategory[] }>(cacheKey);
+        if (cached)
+          return {
+            success: true,
+            status: 200,
+            message: 'Categories retrieved from cache',
+            data: cached,
+          };
       }
 
-      const endpoint = '/resources/categories'
-      const response = await this.apiClient.get<{ categories: ResourceCategory[] }>(endpoint)
+      const endpoint = '/resources/categories';
+      const response = await this.apiClient.get<{ categories: ResourceCategory[] }>(endpoint);
 
       if (response.success && response.data) {
-        this.setCache(cacheKey, response.data, this.CATEGORIES_TTL)
+        this.setCache(cacheKey, response.data);
       }
 
-      return response
+      return response;
     } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to fetch categories:', error)
+      console.error('❌ ResourcesService: Failed to fetch categories:', error);
       return {
         success: false,
         status: 0,
         message: 'Failed to fetch resource categories. Please try again.',
-      }
+      };
     }
   }
 
-  async getResources(filters: ResourceFilters & RequestOptions = {}): Promise<StandardizedApiResponse<ResourcesResponse>> {
+  // FIXED: Simplified getResources - EXACTLY like help service getFAQs
+  // UPDATED: Enhanced getResources with better pagination support
+  async getResources(
+    filters: ResourceFilters = {},
+    options: RequestOptions = {}
+  ): Promise<StandardizedApiResponse<ResourcesResponse>> {
     try {
-      const { userRole, forceRefresh = false, ...apiFilters } = filters
-      const cacheKey = this.getCacheKey('/resources', { ...apiFilters, userRole })
-
-      if (!forceRefresh) {
-        const cached = this.getCache(cacheKey)
-        if (cached) return { 
-          success: true, 
-          status: 200,
-          message: 'Resources retrieved from cache',
-          data: cached 
-        }
-      }
-
-      const params = new URLSearchParams()
-      Object.entries(apiFilters).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
-          params.append(key, value.toString())
-        }
-      })
-
-      const endpoint = `/resources${params.toString() ? `?${params.toString()}` : ''}`
-      console.log('📡 ResourcesService: Making request to:', endpoint)
+      const { forceRefresh = false } = options;
       
-      const response = await this.apiClient.get<any>(endpoint)
-      console.log('📡 ResourcesService: Raw response:', response)
+      // UPDATED: More intelligent caching for pagination
+      // Don't cache individual pages, but cache the full dataset when appropriate
+      const shouldCache = !filters.page || filters.page === 1;
+      const cacheKey = shouldCache ? this.getCacheKey('resources', { ...filters, page: undefined }) : null;
 
-      if (!response.success) {
-        console.error('❌ ResourcesService: Request failed:', response)
-        return response
+      if (!forceRefresh && cacheKey) {
+        const cached = this.getFromCache<ResourcesResponse>(cacheKey);
+        if (cached) {
+          // UPDATED: Handle pagination from cached data
+          const paginatedResult = this.paginateCachedData(cached, filters);
+          return {
+            success: true,
+            status: 200,
+            message: 'Resources retrieved from cache',
+            data: paginatedResult,
+          };
+        }
       }
 
-      // Use enhanced response parser
-      const parsedData = this.parseBackendResponse(response.data)
-      console.log('✅ ResourcesService: Parsed data:', parsedData)
+      // UPDATED: Build enhanced params
+      const params = this.buildRequestParams(filters);
+      const endpoint = `/resources${params ? `?${params}` : ''}`;
+      
+      console.log('📡 ResourcesService: Fetching with enhanced pagination:', {
+        endpoint,
+        filters,
+        cacheEnabled: !!cacheKey
+      });
 
-      // Cache the processed response
-      if (!forceRefresh && parsedData.resources.length > 0) {
-        this.setCache(cacheKey, parsedData, this.DEFAULT_TTL)
+      const response = await this.apiClient.get(endpoint);
+
+      if (!response.success) return response;
+
+      // UPDATED: Enhanced response processing
+      const data = response.data || {};
+      const result: ResourcesResponse = this.processResourcesResponse(data, filters);
+
+      // UPDATED: Smart caching strategy
+      if (cacheKey && shouldCache) {
+        this.setCache(cacheKey, result);
       }
 
       return {
         success: true,
-        status: 200,
+        status: response.status || 200,
         message: response.message || 'Resources retrieved successfully',
-        data: parsedData
-      }
-
+        data: result,
+      };
     } catch (error: any) {
-      console.error('❌ ResourcesService: Service Error:', error)
-      
-      // Return stale cache if available on error
-      const cacheKey = this.getCacheKey('/resources', filters)
-      const cached = this.getCache(cacheKey)
-      if (cached) {
-        console.log('📋 ResourcesService: Returning cached data due to error')
-        return {
-          success: true,
-          status: 200,
-          message: 'Resources retrieved from cache',
-          data: cached
-        }
-      }
-      throw error
+      console.error('❌ ResourcesService: Failed to fetch resources:', error);
+      return {
+        success: false,
+        status: 0,
+        message: 'Failed to fetch resources. Please try again.',
+      };
     }
   }
 
-  // UPDATED: getStats method with extended ResourceStats support
+  // UPDATED: Enhanced request params builder
+  private buildRequestParams(filters: ResourceFilters): string {
+    const params = new URLSearchParams();
+    
+    // UPDATED: Handle all filter types with proper encoding
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+        // Special handling for arrays (like tags)
+        if (Array.isArray(value)) {
+          value.forEach(item => params.append(`${key}[]`, item.toString()));
+        } else {
+          params.append(key, value.toString());
+        }
+      }
+    });
+
+    // UPDATED: Ensure proper pagination defaults
+    if (!params.has('per_page')) {
+      params.set('per_page', '25'); // Default to 25 instead of 15
+    }
+    
+    if (!params.has('page')) {
+      params.set('page', '1');
+    }
+
+    return params.toString();
+  }
+
+  // UPDATED: Enhanced response processor
+  private processResourcesResponse(data: any, filters: ResourceFilters): ResourcesResponse {
+    const resources = data.resources || [];
+    
+    // UPDATED: Enhanced pagination processing
+    let pagination = data.pagination;
+    
+    if (!pagination && resources.length > 0) {
+      // UPDATED: Generate pagination metadata if not provided by server
+      const perPage = filters.per_page || 25;
+      const currentPage = filters.page || 1;
+      const total = data.total || resources.length;
+      
+      pagination = {
+        current_page: currentPage,
+        last_page: Math.ceil(total / perPage),
+        per_page: perPage,
+        total: total,
+        from: total > 0 ? ((currentPage - 1) * perPage) + 1 : 0,
+        to: Math.min(currentPage * perPage, total),
+        has_more_pages: currentPage < Math.ceil(total / perPage),
+      };
+    }
+
+    return {
+      resources,
+      featured_resources: data.featured_resources || [],
+      type_counts: data.type_counts || {},
+      pagination,
+      meta: {
+        total_resources: data.total || resources.length,
+        filtered_count: resources.length,
+        cache_hit: false,
+        query_time: data.query_time,
+      },
+    };
+  }
+
+  // UPDATED: Client-side pagination for cached data
+  private paginateCachedData(cachedData: ResourcesResponse, filters: ResourceFilters): ResourcesResponse {
+    const { page = 1, per_page = 25 } = filters;
+    const allResources = cachedData.resources || [];
+    
+    // UPDATED: Apply client-side filtering to cached data
+    let filteredResources = this.applyClientSideFilters(allResources, filters);
+    
+    // UPDATED: Apply pagination
+    const startIndex = (page - 1) * per_page;
+    const endIndex = startIndex + per_page;
+    const paginatedResources = filteredResources.slice(startIndex, endIndex);
+    
+    // UPDATED: Generate pagination metadata
+    const total = filteredResources.length;
+    const lastPage = Math.ceil(total / per_page);
+    
+    return {
+      ...cachedData,
+      resources: paginatedResources,
+      pagination: {
+        current_page: page,
+        last_page: lastPage,
+        per_page: per_page,
+        total: total,
+        from: total > 0 ? startIndex + 1 : 0,
+        to: Math.min(endIndex, total),
+        has_more_pages: page < lastPage,
+      },
+      meta: {
+        ...cachedData.meta,
+        total_resources: cachedData.resources?.length || 0,
+        filtered_count: total,
+        cache_hit: true,
+      },
+    };
+  }
+
+  // UPDATED: Client-side filtering for cached data
+  private applyClientSideFilters(resources: Resource[], filters: ResourceFilters): Resource[] {
+    let filtered = [...resources];
+
+    // UPDATED: Apply all filter types
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      filtered = filtered.filter(resource =>
+        resource.title.toLowerCase().includes(searchLower) ||
+        resource.description.toLowerCase().includes(searchLower) ||
+        resource.tags?.some(tag => tag.toLowerCase().includes(searchLower)) ||
+        resource.author_name?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    if (filters.category && filters.category !== 'all') {
+      filtered = filtered.filter(resource => resource.category?.slug === filters.category);
+    }
+
+    if (filters.type && filters.type !== 'all') {
+      filtered = filtered.filter(resource => resource.type === filters.type);
+    }
+
+    if (filters.difficulty && filters.difficulty !== 'all') {
+      filtered = filtered.filter(resource => resource.difficulty === filters.difficulty);
+    }
+
+    if (filters.featured !== undefined) {
+      filtered = filtered.filter(resource => resource.is_featured === filters.featured);
+    }
+
+    if (!filters.include_drafts) {
+      filtered = filtered.filter(resource => resource.is_published);
+    }
+
+    // UPDATED: Apply sorting
+    const sortBy = filters.sort_by || 'featured';
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'featured':
+          return (b.is_featured ? 1 : 0) - (a.is_featured ? 1 : 0);
+        case 'rating':
+          return (b.rating || 0) - (a.rating || 0);
+        case 'popular':
+          return (b.view_count || 0) - (a.view_count || 0);
+        case 'downloads':
+          return (b.download_count || 0) - (a.download_count || 0);
+        case 'newest':
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }
+
+  // UPDATED: Enhanced cache management for pagination
+  public clearPaginationCache(): void {
+    // Clear only pagination-related cache entries
+    const keysToDelete: string[] = [];
+    
+    for (const [key] of this.cache) {
+      if (key.includes('resources') && key.includes('page')) {
+        keysToDelete.push(key);
+      }
+    }
+    
+    keysToDelete.forEach(key => this.cache.delete(key));
+    console.log(`🗑️ ResourcesService: Cleared ${keysToDelete.length} pagination cache entries`);
+  }
+
+  // UPDATED: Prefetch next page for better UX
+  public async prefetchNextPage(currentFilters: ResourceFilters): Promise<void> {
+    const nextPageFilters = {
+      ...currentFilters,
+      page: (currentFilters.page || 1) + 1,
+    };
+
+    try {
+      console.log('🔮 ResourcesService: Prefetching next page:', nextPageFilters.page);
+      await this.getResources(nextPageFilters);
+    } catch (error) {
+      console.log('⚠️ ResourcesService: Prefetch failed (non-critical):', error);
+    }
+  }
+
+  // UPDATED: Get pagination info without fetching data
+  public getPaginationInfo(filters: ResourceFilters): {
+    current_page: number;
+    per_page: number;
+    estimated_total?: number;
+  } {
+    return {
+      current_page: filters.page || 1,
+      per_page: filters.per_page || 25,
+      estimated_total: undefined, // Would need to be determined from cache or previous requests
+    };
+  }
+
+  // UPDATED: Validate pagination parameters
+  public validatePaginationParams(filters: ResourceFilters): {
+    valid: boolean;
+    errors: string[];
+    corrected: ResourceFilters;
+  } {
+    const errors: string[] = [];
+    const corrected = { ...filters };
+
+    // Validate page
+    if (corrected.page !== undefined) {
+      if (corrected.page < 1) {
+        errors.push('Page must be 1 or greater');
+        corrected.page = 1;
+      }
+      if (!Number.isInteger(corrected.page)) {
+        errors.push('Page must be an integer');
+        corrected.page = Math.floor(corrected.page);
+      }
+    }
+
+    // Validate per_page
+    if (corrected.per_page !== undefined) {
+      if (corrected.per_page < 1) {
+        errors.push('Per page must be 1 or greater');
+        corrected.per_page = 25;
+      }
+      if (corrected.per_page > 100) {
+        errors.push('Per page cannot exceed 100');
+        corrected.per_page = 100;
+      }
+      if (!Number.isInteger(corrected.per_page)) {
+        errors.push('Per page must be an integer');
+        corrected.per_page = Math.floor(corrected.per_page);
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      corrected,
+    };
+  }
+
+  // FIXED: Simplified getStats - EXACTLY like help service
   async getStats(options: RequestOptions = {}): Promise<StandardizedApiResponse<ResourceStats>> {
     try {
-      const { userRole, forceRefresh = false } = options;
-      const cacheKey = this.getCacheKey('/resources/stats', { userRole });
+      const { forceRefresh = false } = options;
+      const cacheKey = this.getCacheKey('stats');
 
       if (!forceRefresh) {
-        const cached = this.getCache(cacheKey);
+        const cached = this.getFromCache<ResourceStats>(cacheKey);
         if (cached)
           return {
             success: true,
@@ -381,118 +572,191 @@ class ResourcesService {
           };
       }
 
-      console.log('📊 ResourcesService: Fetching stats from /resources/stats');
       const response = await this.apiClient.get<ResourceStats>('/resources/stats');
 
       if (response.success && response.data) {
-        // CRITICAL FIX: Backend now returns stats directly, not nested
-        const stats: ResourceStats = response.data;
-
-        console.log('✅ ResourcesService: Stats received:', stats);
-
-        // Ensure all required properties exist with safe defaults
-        const completeStats: ResourceStats = {
-          total_resources: stats.total_resources || 0,
-          total_categories: stats.total_categories || 0,
-          total_views: stats.total_views || 0,
-          total_downloads: stats.total_downloads || 0,
-          average_rating: stats.average_rating || 0,
-          most_popular_resource: stats.most_popular_resource || null,
-          highest_rated_resource: stats.highest_rated_resource || null,
-          most_downloaded_resource: stats.most_downloaded_resource || null,
-          resources_by_type: stats.resources_by_type || {},
-          resources_by_difficulty: stats.resources_by_difficulty || {},
-          categories_with_counts: stats.categories_with_counts || [],
+        // SIMPLIFIED: Use response data directly
+        const stats: ResourceStats = {
+          total_resources: response.data.total_resources || 0,
+          total_categories: response.data.total_categories || 0,
+          total_views: response.data.total_views || 0,
+          total_downloads: response.data.total_downloads || 0,
+          average_rating: response.data.average_rating || 0,
+          most_popular_resource: response.data.most_popular_resource || null,
+          highest_rated_resource: response.data.highest_rated_resource || null,
+          most_downloaded_resource: response.data.most_downloaded_resource || null,
+          resources_by_type: response.data.resources_by_type || {},
+          resources_by_difficulty: response.data.resources_by_difficulty || {},
+          categories_with_counts: response.data.categories_with_counts || [],
         };
 
-        this.setCache(cacheKey, completeStats, this.STATS_TTL || 30 * 60 * 1000);
+        this.setCache(cacheKey, stats);
 
         return {
           success: true,
           status: 200,
           message: response.message || 'Stats retrieved successfully',
-          data: completeStats,
+          data: stats,
         };
       }
 
       return {
         success: false,
         status: response.status || 0,
-        message: response.message || 'Failed to fetch resource statistics. Please try again.',
+        message: response.message || 'Failed to fetch stats',
       };
     } catch (error: any) {
       console.error('❌ ResourcesService: Failed to fetch stats:', error);
       return {
         success: false,
         status: 0,
-        message: 'Failed to fetch resource statistics. Please try again.',
+        message: 'Failed to fetch stats. Please try again.',
       };
     }
   }
 
-  async getResource(id: number, options: RequestOptions = {}): Promise<StandardizedApiResponse<{
-    resource: Resource
-    user_feedback?: ResourceFeedback
-    related_resources: Resource[]
-  }>> {
+  // FIXED: Add back missing methods that were accidentally removed
+  async getBookmarks(
+    page: number = 1,
+    perPage: number = 20,
+    options: RequestOptions = {}
+  ): Promise<StandardizedApiResponse<{ bookmarks: any[]; pagination: any }>> {
     try {
-      const { userRole, forceRefresh = false } = options
-      const cacheKey = this.getCacheKey(`/resources/${id}`, { userRole })
+      const { userRole, forceRefresh = false } = options;
+      const cacheKey = this.getCacheKey('/resources/user/bookmarks', {
+        page,
+        per_page: perPage,
+        userRole,
+      });
 
       if (!forceRefresh) {
-        const cached = this.getCache(cacheKey)
-        if (cached) return { 
-          success: true, 
-          status: 200,
-          message: 'Resource retrieved from cache',
-          data: cached 
-        }
+        const cached = this.getFromCache<{ bookmarks: any[]; pagination: any }>(cacheKey);
+        if (cached)
+          return {
+            success: true,
+            status: 200,
+            message: 'Bookmarks retrieved from cache',
+            data: cached,
+          };
       }
 
-      const response = await this.apiClient.get<{
-        resource: Resource
-        user_feedback?: ResourceFeedback
-        related_resources: Resource[]
-      }>(`/resources/${id}`)
+      const response = await this.apiClient.get(
+        `/resources/user/bookmarks?page=${page}&per_page=${perPage}`
+      );
 
       if (response.success && response.data) {
-        this.setCache(cacheKey, response.data, this.DEFAULT_TTL)
+        this.setCache(cacheKey, response.data);
       }
 
-      return response
+      return response;
     } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to fetch resource:', error)
+      console.error('❌ ResourcesService: Failed to fetch bookmarks:', error);
       return {
         success: false,
         status: 0,
-        message: 'Failed to fetch resource. Please try again.',
-      }
+        message: 'Failed to fetch bookmarks. Please try again.',
+      };
     }
   }
 
-  async accessResource(id: number, options: RequestOptions = {}): Promise<StandardizedApiResponse<{
-    url: string
-    action: 'access' | 'download'
-    resource: Pick<Resource, 'id' | 'title' | 'type'>
-  }>> {
+  async createCategory(
+    categoryData: Partial<ResourceCategory>,
+    userRole?: string
+  ): Promise<StandardizedApiResponse<{ category: ResourceCategory }>> {
+    try {
+      const response = await this.apiClient.post<{ category: ResourceCategory }>(
+        '/admin/resources/categories',
+        categoryData
+      );
+
+      if (response.success) {
+        this.clearCache();
+      }
+
+      return response;
+    } catch (error: any) {
+      console.error('❌ ResourcesService: Failed to create category:', error);
+      return {
+        success: false,
+        status: 0,
+        message: 'Failed to create category. Please try again.',
+      };
+    }
+  }
+
+  async updateCategory(
+    id: number,
+    categoryData: Partial<ResourceCategory>,
+    userRole?: string
+  ): Promise<StandardizedApiResponse<{ category: ResourceCategory }>> {
+    try {
+      const response = await this.apiClient.put<{ category: ResourceCategory }>(
+        `/admin/resources/categories/${id}`,
+        categoryData
+      );
+
+      if (response.success) {
+        this.clearCache();
+      }
+
+      return response;
+    } catch (error: any) {
+      console.error('❌ ResourcesService: Failed to update category:', error);
+      return {
+        success: false,
+        status: 0,
+        message: 'Failed to update category. Please try again.',
+      };
+    }
+  }
+
+  async deleteCategory(id: number, userRole?: string): Promise<StandardizedApiResponse<void>> {
+    try {
+      const response = await this.apiClient.delete(`/admin/resources/categories/${id}`);
+
+      if (response.success) {
+        this.clearCache();
+      }
+
+      return response;
+    } catch (error: any) {
+      console.error('❌ ResourcesService: Failed to delete category:', error);
+      return {
+        success: false,
+        status: 0,
+        message: 'Failed to delete category. Please try again.',
+      };
+    }
+  }
+
+  async accessResource(
+    id: number,
+    options: RequestOptions = {}
+  ): Promise<
+    StandardizedApiResponse<{
+      url: string;
+      action: 'access' | 'download';
+      resource: Pick<Resource, 'id' | 'title' | 'type'>;
+    }>
+  > {
     try {
       const response = await this.apiClient.post<{
-        url: string
-        action: 'access' | 'download'
-        resource: Pick<Resource, 'id' | 'title' | 'type'>
-      }>(`/resources/${id}/access`)
+        url: string;
+        action: 'access' | 'download';
+        resource: Pick<Resource, 'id' | 'title' | 'type'>;
+      }>(`/resources/${id}/access`);
 
       // Clear resource cache to update view/download counts
-      this.cache.delete(this.getCacheKey(`/resources/${id}`))
-      
-      return response
+      this.cache.delete(this.getCacheKey(`/resources/${id}`));
+
+      return response;
     } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to access resource:', error)
+      console.error('❌ ResourcesService: Failed to access resource:', error);
       return {
         success: false,
         status: 0,
         message: 'Failed to access resource. Please try again.',
-      }
+      };
     }
   }
 
@@ -500,602 +764,184 @@ class ResourcesService {
     resourceId: number,
     feedback: { rating: number; comment?: string; is_recommended?: boolean },
     options: RequestOptions = {}
-  ): Promise<StandardizedApiResponse<{ feedback: ResourceFeedback; resource?: Resource }>> {
+  ): Promise<StandardizedApiResponse<{ feedback: any; resource?: Resource }>> {
     try {
-      const response = await this.apiClient.post<{ feedback: ResourceFeedback; resource?: Resource }>(
-        `/resources/${resourceId}/feedback`,
-        feedback
-      )
+      const response = await this.apiClient.post(`/resources/${resourceId}/feedback`, feedback);
 
       // Clear related caches
-      this.cache.delete(this.getCacheKey(`/resources/${resourceId}`))
-      this.cache.delete(this.getCacheKey('/resources/stats'))
+      this.cache.delete(this.getCacheKey(`/resources/${resourceId}`));
+      this.cache.delete(this.getCacheKey('stats'));
 
-      return response
+      return response;
     } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to provide feedback:', error)
+      console.error('❌ ResourcesService: Failed to provide feedback:', error);
       return {
         success: false,
         status: 0,
         message: 'Failed to submit feedback. Please try again.',
-      }
+      };
     }
   }
 
-  async toggleBookmark(resourceId: number, options: RequestOptions = {}): Promise<StandardizedApiResponse<{ bookmarked: boolean; resource_id: number }>> {
+  async toggleBookmark(
+    resourceId: number,
+    options: RequestOptions = {}
+  ): Promise<StandardizedApiResponse<{ bookmarked: boolean; resource_id: number }>> {
     try {
-      const response = await this.apiClient.post<{ bookmarked: boolean; resource_id: number }>(`/resources/${resourceId}/bookmark`)
+      const response = await this.apiClient.post(`/resources/${resourceId}/bookmark`);
 
       // Clear bookmarks cache
       Array.from(this.cache.keys())
-        .filter(key => key.includes('bookmarks'))
-        .forEach(key => this.cache.delete(key))
+        .filter((key) => key.includes('bookmarks'))
+        .forEach((key) => this.cache.delete(key));
 
-      return response
+      return response;
     } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to toggle bookmark:', error)
+      console.error('❌ ResourcesService: Failed to toggle bookmark:', error);
       return {
         success: false,
         status: 0,
         message: 'Failed to toggle bookmark. Please try again.',
-      }
+      };
     }
   }
 
-  async getBookmarks(
-    page: number = 1,
-    perPage: number = 20,
-    options: RequestOptions = {}
-  ): Promise<StandardizedApiResponse<BookmarksResponse>> {
+  // SIMPLIFIED: Admin operations - exactly like help service
+  async createResource(
+    resourceData: Partial<Resource>,
+    userRole?: string
+  ): Promise<StandardizedApiResponse<{ resource: Resource }>> {
     try {
-      const { userRole, forceRefresh = false } = options
-      const cacheKey = this.getCacheKey('/resources/user/bookmarks', { page, per_page: perPage, userRole })
+      const response = await this.apiClient.post<{ resource: Resource }>(
+        '/admin/resources',
+        resourceData
+      );
 
-      if (!forceRefresh) {
-        const cached = this.getCache(cacheKey)
-        if (cached) return { 
-          success: true, 
-          status: 200,
-          message: 'Bookmarks retrieved from cache',
-          data: cached 
-        }
-      }
-
-      const response = await this.apiClient.get<BookmarksResponse>(
-        `/resources/user/bookmarks?page=${page}&per_page=${perPage}`
-      )
-
-      if (response.success && response.data) {
-        this.setCache(cacheKey, response.data, this.DEFAULT_TTL)
-      }
-
-      return response
-    } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to fetch bookmarks:', error)
-      return {
-        success: false,
-        status: 0,
-        message: 'Failed to fetch bookmarks. Please try again.',
-      }
-    }
-  }
-
-  async getOptions(): Promise<StandardizedApiResponse<ResourceOptions>> {
-    const cacheKey = this.getCacheKey('/resources/options')
-    const cached = this.getCache(cacheKey)
-    if (cached) return { 
-      success: true, 
-      status: 200,
-      message: 'Options retrieved from cache',
-      data: cached 
-    }
-
-    try {
-      const response = await this.apiClient.get<ResourceOptions>('/resources/options')
-
-      if (response.success && response.data) {
-        this.setCache(cacheKey, response.data, this.STATS_TTL) // Long cache for options
-      }
-
-      return response
-    } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to fetch options:', error)
-      return {
-        success: false,
-        status: 0,
-        message: 'Failed to fetch resource options. Please try again.',
-      }
-    }
-  }
-
-  async searchResources(
-    query: string,
-    filters: Omit<ResourceFilters, 'search'> & RequestOptions = {}
-  ): Promise<StandardizedApiResponse<ResourcesResponse>> {
-    const { userRole, forceRefresh = false, ...searchFilters } = filters
-    return this.getResources({ ...searchFilters, search: query, userRole, forceRefresh })
-  }
-
-  // Enhanced methods for featured, popular, and top-rated resources
-  async getFeaturedResources(limit: number = 3, options: RequestOptions = {}): Promise<StandardizedApiResponse<Resource[]>> {
-    const response = await this.getResources({
-      featured: true,
-      per_page: limit,
-      ...options
-    })
-
-    if (response.success && response.data) {
-      const featuredResources = response.data.featured_resources || 
-                               response.data.resources?.filter(r => r.is_featured) || 
-                               []
-
-      return {
-        success: true,
-        status: 200,
-        message: response.message || 'Featured resources retrieved successfully',
-        data: featuredResources.slice(0, limit),
-      }
-    }
-
-    return {
-      success: false,
-      status: response.status || 500,
-      message: response.message || 'Failed to fetch featured resources',
-    }
-  }
-
-  async getPopularResources(limit: number = 5, options: RequestOptions = {}): Promise<StandardizedApiResponse<Resource[]>> {
-    const response = await this.getResources({
-      sort_by: 'popular',
-      per_page: limit,
-      ...options
-    })
-
-    if (response.success && response.data) {
-      return {
-        success: true,
-        status: 200,
-        message: response.message || 'Popular resources retrieved successfully',
-        data: response.data.resources?.slice(0, limit) || [],
-      }
-    }
-
-    return {
-      success: false,
-      status: response.status || 500,
-      message: response.message || 'Failed to fetch popular resources',
-    }
-  }
-
-  async getTopRatedResources(limit: number = 5, options: RequestOptions = {}): Promise<StandardizedApiResponse<Resource[]>> {
-    const response = await this.getResources({
-      sort_by: 'rating',
-      per_page: limit,
-      ...options
-    })
-
-    if (response.success && response.data) {
-      return {
-        success: true,
-        status: 200,
-        message: response.message || 'Top rated resources retrieved successfully',
-        data: response.data.resources?.slice(0, limit) || [],
-      }
-    }
-
-    return {
-      success: false,
-      status: response.status || 500,
-      message: response.message || 'Failed to fetch top rated resources',
-    }
-  }
-
-  // =============================================================================
-  // ADMIN OPERATIONS
-  // =============================================================================
-
-  async createResource(resourceData: Partial<Resource>, userRole?: string): Promise<StandardizedApiResponse<{ resource: Resource }>> {
-    try {
-      const response = await this.apiClient.post<{ resource: Resource }>('/admin/resources', resourceData)
-      
       if (response.success) {
-        // Clear relevant caches
-        this.clearCache()
+        this.clearCache(); // Clear all cache like help service
       }
-      
-      return response
+
+      return response;
     } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to create resource:', error)
+      console.error('❌ ResourcesService: Failed to create resource:', error);
       return {
         success: false,
         status: 0,
         message: 'Failed to create resource. Please try again.',
-      }
+      };
     }
   }
 
-  async updateResource(id: number, resourceData: Partial<Resource>, userRole?: string): Promise<StandardizedApiResponse<{ resource: Resource }>> {
+  async updateResource(
+    id: number,
+    resourceData: Partial<Resource>,
+    userRole?: string
+  ): Promise<StandardizedApiResponse<{ resource: Resource }>> {
     try {
-      const response = await this.apiClient.put<{ resource: Resource }>(`/admin/resources/${id}`, resourceData)
-      
+      const response = await this.apiClient.put<{ resource: Resource }>(
+        `/admin/resources/${id}`,
+        resourceData
+      );
+
       if (response.success) {
-        // Clear relevant caches
-        this.cache.delete(this.getCacheKey(`/resources/${id}`))
-        Array.from(this.cache.keys())
-          .filter(key => key.includes('resources'))
-          .forEach(key => this.cache.delete(key))
+        this.clearCache(); // Clear all cache like help service
       }
-      
-      return response
+
+      return response;
     } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to update resource:', error)
+      console.error('❌ ResourcesService: Failed to update resource:', error);
       return {
         success: false,
         status: 0,
         message: 'Failed to update resource. Please try again.',
-      }
+      };
     }
   }
 
   async deleteResource(id: number, userRole?: string): Promise<StandardizedApiResponse<void>> {
     try {
-      const response = await this.apiClient.delete(`/admin/resources/${id}`)
-      
+      const response = await this.apiClient.delete(`/admin/resources/${id}`);
+
       if (response.success) {
-        // Clear relevant caches
-        this.clearCache()
+        this.clearCache(); // Clear all cache like help service
       }
-      
-      return response
+
+      return response;
     } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to delete resource:', error)
+      console.error('❌ ResourcesService: Failed to delete resource:', error);
       return {
         success: false,
         status: 0,
         message: 'Failed to delete resource. Please try again.',
-      }
+      };
     }
   }
 
-  async createCategory(categoryData: Partial<ResourceCategory>, userRole?: string): Promise<StandardizedApiResponse<{ category: ResourceCategory }>> {
-    try {
-      const response = await this.apiClient.post<{ category: ResourceCategory }>('/admin/resources/categories', categoryData)
-      
-      if (response.success) {
-        // Clear categories cache
-        Array.from(this.cache.keys())
-          .filter(key => key.includes('categories'))
-          .forEach(key => this.cache.delete(key))
-      }
-      
-      return response
-    } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to create category:', error)
-      return {
-        success: false,
-        status: 0,
-        message: 'Failed to create category. Please try again.',
-      }
-    }
-  }
-
-  async updateCategory(id: number, categoryData: Partial<ResourceCategory>, userRole?: string): Promise<StandardizedApiResponse<{ category: ResourceCategory }>> {
-    try {
-      const response = await this.apiClient.put<{ category: ResourceCategory }>(`/admin/resources/categories/${id}`, categoryData)
-      
-      if (response.success) {
-        // Clear categories cache
-        Array.from(this.cache.keys())
-          .filter(key => key.includes('categories'))
-          .forEach(key => this.cache.delete(key))
-      }
-      
-      return response
-    } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to update category:', error)
-      return {
-        success: false,
-        status: 0,
-        message: 'Failed to update category. Please try again.',
-      }
-    }
-  }
-
-  async deleteCategory(id: number, userRole?: string): Promise<StandardizedApiResponse<void>> {
-    try {
-      const response = await this.apiClient.delete(`/admin/resources/categories/${id}`)
-      
-      if (response.success) {
-        // Clear categories cache
-        Array.from(this.cache.keys())
-          .filter(key => key.includes('categories'))
-          .forEach(key => this.cache.delete(key))
-      }
-      
-      return response
-    } catch (error: any) {
-      console.error('❌ ResourcesService: Failed to delete category:', error)
-      return {
-        success: false,
-        status: 0,
-        message: 'Failed to delete category. Please try again.',
-      }
-    }
-  }
-
-  // =============================================================================
-  // UTILITY METHODS
-  // =============================================================================
-
-  formatDuration(duration?: string): string {
-    if (!duration) return 'Self-paced'
-    return duration
-  }
-
-  formatRating(rating: any): number {
-    const numRating = Number(rating)
-    if (isNaN(numRating)) return 0
-    return Math.max(0, Math.min(5, numRating))
-  }
-
-  formatRatingDisplay(rating: any): string {
-    return this.formatRating(rating).toFixed(1)
-  }
-
+  // Keep all utility methods unchanged...
   getTypeIcon(type: string): string {
-    return (
-      ResourcesService.RESOURCE_TYPES[type as keyof typeof ResourcesService.RESOURCE_TYPES]?.icon ||
-      'BookOpen'
-    )
+    const types = {
+      article: 'FileText',
+      video: 'Video',
+      audio: 'Headphones',
+      exercise: 'Brain',
+      tool: 'Heart',
+      worksheet: 'Download',
+    } as const;
+    return types[type as keyof typeof types] || 'BookOpen';
   }
 
   getTypeLabel(type: string): string {
-    return (
-      ResourcesService.RESOURCE_TYPES[type as keyof typeof ResourcesService.RESOURCE_TYPES]
-        ?.label || type
-    )
+    const types = {
+      article: 'Article',
+      video: 'Video',
+      audio: 'Audio',
+      exercise: 'Exercise',
+      tool: 'Tool',
+      worksheet: 'Worksheet',
+    } as const;
+    return types[type as keyof typeof types] || type;
   }
 
   getDifficultyColor(difficulty: string): string {
-    return (
-      ResourcesService.DIFFICULTY_LEVELS[
-        difficulty as keyof typeof ResourcesService.DIFFICULTY_LEVELS
-      ]?.color || 'bg-gray-100 text-gray-800'
-    )
+    const colors = {
+      beginner: 'bg-green-100 text-green-800',
+      intermediate: 'bg-yellow-100 text-yellow-800',
+      advanced: 'bg-red-100 text-red-800',
+    } as const;
+    return colors[difficulty as keyof typeof colors] || 'bg-gray-100 text-gray-800';
   }
 
   getDifficultyLabel(difficulty: string): string {
-    return (
-      ResourcesService.DIFFICULTY_LEVELS[
-        difficulty as keyof typeof ResourcesService.DIFFICULTY_LEVELS
-      ]?.label || difficulty
-    )
+    const labels = {
+      beginner: 'Beginner',
+      intermediate: 'Intermediate',
+      advanced: 'Advanced',
+    } as const;
+    return labels[difficulty as keyof typeof labels] || difficulty;
   }
 
-  calculateRatingPercentage(rating: number): number {
-    return Math.round((rating / 5) * 100)
+  formatRating(rating: any): number {
+    const numRating = Number(rating);
+    if (isNaN(numRating)) return 0;
+    return Math.max(0, Math.min(5, numRating));
+  }
+
+  formatRatingDisplay(rating: any): string {
+    return this.formatRating(rating).toFixed(1);
   }
 
   formatCount(count: number | undefined | null): string {
-    const safeCount = Number(count) || 0
-    if (safeCount < 1000) return safeCount.toString()
-    if (safeCount < 1000000) return `${(safeCount / 1000).toFixed(1)}K`
-    return `${(safeCount / 1000000).toFixed(1)}M`
+    const safeCount = Number(count) || 0;
+    if (safeCount < 1000) return safeCount.toString();
+    if (safeCount < 1000000) return `${(safeCount / 1000).toFixed(1)}K`;
+    return `${(safeCount / 1000000).toFixed(1)}M`;
   }
 
-  isValidResourceUrl(url: string): boolean {
-    try {
-      new URL(url)
-      return true
-    } catch {
-      return false
-    }
+  formatDuration(duration?: string): string {
+    if (!duration) return 'Self-paced';
+    return duration;
   }
 
-  getAvailableTypes(): Array<{ value: string; label: string; icon: string }> {
-    return Object.entries(ResourcesService.RESOURCE_TYPES).map(([value, config]) => ({
-      value,
-      label: config.label,
-      icon: config.icon,
-    }))
-  }
-
-  getAvailableDifficulties(): Array<{ value: string; label: string; color: string }> {
-    return Object.entries(ResourcesService.DIFFICULTY_LEVELS).map(([value, config]) => ({
-      value,
-      label: config.label,
-      color: config.color,
-    }))
-  }
-
-  // Role-based permission checks
-  canManageResources(userRole: string): boolean {
-    return userRole === 'admin'
-  }
-
-  canSuggestContent(userRole: string): boolean {
-    return ['counselor', 'admin'].includes(userRole)
-  }
-
-  canAccessAllResources(userRole: string): boolean {
-    return ['counselor', 'advisor', 'admin'].includes(userRole)
-  }
-
-  // Debug and health check methods
-  getDebugInfo(): {
-    apiBaseUrl: string;
-    hasAuthToken: boolean;
-    userRole: string;
-    permissions: {
-      canSuggestContent: boolean;
-      canManageResources: boolean;
-      canAccessAllResources: boolean;
-    };
-    cacheStats: {
-      cacheSize: number;
-      totalMemory: number;
-    };
-  } {
-    const userRole = this.getCurrentUserRole();
-    
-    return {
-      apiBaseUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api",
-      hasAuthToken: !!this.getAuthToken(),
-      userRole,
-      permissions: {
-        canSuggestContent: this.canSuggestContent(userRole),
-        canManageResources: this.canManageResources(userRole),
-        canAccessAllResources: this.canAccessAllResources(userRole)
-      },
-      cacheStats: {
-        cacheSize: this.cache.size,
-        totalMemory: Array.from(this.cache.values()).reduce((total, entry) => {
-          return total + JSON.stringify(entry.data).length
-        }, 0)
-      }
-    };
-  }
-
-  async healthCheck(): Promise<boolean> {
-    try {
-      const response = await this.apiClient.get('/health')
-      return response.success
-    } catch {
-      return false
-    }
-  }
-
-  // Validation methods aligned with backend requirements
-  validateResourceData(data: Partial<Resource>): { valid: boolean; errors: string[] } {
-    const errors: string[] = []
-
-    if (!data.title?.trim()) {
-      errors.push('Title is required')
-    } else if (data.title.length < 5) {
-      errors.push('Title must be at least 5 characters long')
-    } else if (data.title.length > 255) {
-      errors.push('Title cannot exceed 255 characters')
-    }
-
-    if (!data.description?.trim()) {
-      errors.push('Description is required')
-    } else if (data.description.length < 20) {
-      errors.push('Description must be at least 20 characters long')
-    } else if (data.description.length > 2000) {
-      errors.push('Description cannot exceed 2000 characters')
-    }
-
-    if (!data.category_id) {
-      errors.push('Category is required')
-    }
-
-    if (!data.type) {
-      errors.push('Resource type is required')
-    } else if (!['article', 'video', 'audio', 'exercise', 'tool', 'worksheet'].includes(data.type)) {
-      errors.push('Invalid resource type')
-    }
-
-    if (!data.difficulty) {
-      errors.push('Difficulty level is required')
-    } else if (!['beginner', 'intermediate', 'advanced'].includes(data.difficulty)) {
-      errors.push('Invalid difficulty level')
-    }
-
-    if (!data.external_url?.trim()) {
-      errors.push('External URL is required')
-    } else if (!this.isValidResourceUrl(data.external_url)) {
-      errors.push('Please provide a valid external URL')
-    }
-
-    if (data.download_url && !this.isValidResourceUrl(data.download_url)) {
-      errors.push('Please provide a valid download URL')
-    }
-
-    if (data.thumbnail_url && !this.isValidResourceUrl(data.thumbnail_url)) {
-      errors.push('Please provide a valid thumbnail URL')
-    }
-
-    if (data.tags && data.tags.length > 10) {
-      errors.push('Maximum 10 tags allowed')
-    }
-
-    if (data.tags && data.tags.some(tag => tag.length > 50)) {
-      errors.push('Each tag cannot exceed 50 characters')
-    }
-
-    if (data.author_name && data.author_name.length > 255) {
-      errors.push('Author name cannot exceed 255 characters')
-    }
-
-    if (data.author_bio && data.author_bio.length > 1000) {
-      errors.push('Author bio cannot exceed 1000 characters')
-    }
-
-    if (data.duration && data.duration.length > 50) {
-      errors.push('Duration cannot exceed 50 characters')
-    }
-
-    if (data.sort_order !== undefined && (data.sort_order < 0 || !Number.isInteger(data.sort_order))) {
-      errors.push('Sort order must be a non-negative integer')
-    }
-
-    return { valid: errors.length === 0, errors }
-  }
-
-  validateCategoryData(data: Partial<ResourceCategory>): { valid: boolean; errors: string[] } {
-    const errors: string[] = []
-
-    if (!data.name?.trim()) {
-      errors.push('Category name is required')
-    } else if (data.name.length < 3) {
-      errors.push('Category name must be at least 3 characters long')
-    } else if (data.name.length > 255) {
-      errors.push('Category name cannot exceed 255 characters')
-    }
-
-    if (data.description && data.description.length > 1000) {
-      errors.push('Description cannot exceed 1000 characters')
-    }
-
-    if (data.color && !/^#[A-Fa-f0-9]{6}$/.test(data.color)) {
-      errors.push('Color must be a valid hex color code (e.g., #FF0000)')
-    }
-
-    if (data.icon && data.icon.length > 100) {
-      errors.push('Icon name cannot exceed 100 characters')
-    }
-
-    if (data.sort_order !== undefined && (data.sort_order < 0 || !Number.isInteger(data.sort_order))) {
-      errors.push('Sort order must be a non-negative integer')
-    }
-
-    return { valid: errors.length === 0, errors }
-  }
-
-  // PRIVATE: Helper methods
-  private getCurrentUserRole(): string {
-    try {
-      const userStr = localStorage.getItem('user');
-      if (userStr) {
-        const user = JSON.parse(userStr);
-        return user.role || 'student';
-      }
-    } catch (error) {
-      console.error('Failed to get user role:', error);
-    }
-    return 'student';
-  }
-
-  private getAuthToken(): string | null {
-    try {
-      return localStorage.getItem('auth_token');
-    } catch (error) {
-      console.error('Failed to get auth token:', error);
-      return null;
-    }
-  }
-
-  // Time formatting utility
   formatTimeAgo(dateString: string): string {
     try {
       const date = new Date(dateString);
@@ -1104,20 +950,91 @@ class ResourcesService {
 
       if (diffInMinutes < 1) return 'Just now';
       if (diffInMinutes < 60) return `${diffInMinutes} min ago`;
-      
+
       const diffInHours = Math.floor(diffInMinutes / 60);
       if (diffInHours < 24) return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
-      
+
       const diffInDays = Math.floor(diffInHours / 24);
       if (diffInDays < 7) return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
-      
-      const diffInWeeks = Math.floor(diffInDays / 7);
-      if (diffInWeeks < 4) return `${diffInWeeks} week${diffInWeeks > 1 ? 's' : ''} ago`;
-      
+
       return date.toLocaleDateString();
     } catch (error) {
-      console.error('Failed to calculate time ago:', error);
       return 'Unknown time';
+    }
+  }
+
+  // Permission helpers
+  canManageResources(userRole?: string): boolean {
+    return userRole === 'admin';
+  }
+
+  canSuggestContent(userRole?: string): boolean {
+    return ['counselor', 'admin'].includes(userRole || '');
+  }
+
+  // Validation helpers
+  validateResourceData(data: Partial<Resource>): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!data.title?.trim() || data.title.length < 5) {
+      errors.push('Title must be at least 5 characters long');
+    }
+
+    if (!data.description?.trim() || data.description.length < 20) {
+      errors.push('Description must be at least 20 characters long');
+    }
+
+    if (!data.category_id) {
+      errors.push('Category is required');
+    }
+
+    if (!data.external_url?.trim()) {
+      errors.push('External URL is required');
+    }
+
+    if (!data.type) {
+      errors.push('Resource type is required');
+    }
+
+    if (!data.difficulty) {
+      errors.push('Difficulty level is required');
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  validateCategoryData(data: Partial<ResourceCategory>): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!data.name?.trim() || data.name.length < 3) {
+      errors.push('Category name must be at least 3 characters long');
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  isValidResourceUrl(url: string): boolean {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  getCacheStats(): { cacheSize: number; totalItems: number } {
+    return {
+      cacheSize: this.cache.size,
+      totalItems: this.cache.size,
+    };
+  }
+
+  async healthCheck(): Promise<boolean> {
+    try {
+      const response = await this.apiClient.get('/health');
+      return response.success;
+    } catch {
+      return false;
     }
   }
 }

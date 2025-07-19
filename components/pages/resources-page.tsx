@@ -45,6 +45,8 @@ import {
   X
 } from "lucide-react"
 
+import { EnhancedPagination } from "@/components/common/enhanced-pagination"
+
 // Import hooks following the help pattern
 import { useAuth } from "@/contexts/AuthContext"
 import { cn } from "@/lib/utils"
@@ -373,7 +375,18 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
   const [loadingStates, setLoadingStates] = useState<Record<number, string>>({})
   
   // FIXED: Use proper filter hooks following help pattern
-  const { filters, updateFilter, clearFilters, hasActiveFilters } = useResourceFilters()
+  // UPDATED: Use proper filter hooks with pagination support
+  const { 
+    filters, 
+    updateFilter, 
+    updatePage, 
+    updatePerPage, 
+    clearFilters, 
+    hasActiveFilters 
+  } = useResourceFilters({
+    per_page: 25, // Default to 25 per page
+    sort_by: 'featured'
+  })
   const { 
     recentSearches, 
     addRecentSearch, 
@@ -396,6 +409,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
   } = useResourceUtils()
   
   // FIXED: Data fetching with proper hook usage
+  // Data fetching with proper pagination
   const {
     categories,
     featured,
@@ -409,14 +423,15 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
     forceRefresh
   } = useResourcesDashboard({ enabled: true })
   
-  // FIXED: Resources query using the updated hook
+  // UPDATED: Resources query with pagination
   const {
     resources,
+    pagination,
     isLoading: resourcesLoading,
     error: resourcesError,
     refetch: refetchResources,
     totalCount,
-    publishedCount
+    currentPageCount
   } = useResources(filters, { enabled: true })
 
   // FIXED: Mutations with proper hook usage
@@ -457,13 +472,47 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
     }
   }, [updateFilter, addRecentSearch, trackResourceSearch, resources])
 
+  // UPDATED: Filter handlers with auto-fetch
+  const handleFilterChange = useCallback((key: keyof ResourceFilters, value: string) => {
+    updateFilter(key, value === 'all' ? '' : value)
+    // Auto-fetch with new filter
+    setTimeout(() => refetchResources(), 100)
+  }, [updateFilter, refetchResources])
+
   const handleCategorySelect = useCallback((categorySlug: string) => {
     const category = categories.find((c: ResourceCategory) => c.slug === categorySlug)
     if (category) {
       updateFilter('category', categorySlug)
       trackResourceCategoryClick(categorySlug, category.name)
+      // Auto-fetch with new category
+      setTimeout(() => refetchResources(), 100)
     }
-  }, [categories, updateFilter, trackResourceCategoryClick])
+  }, [categories, updateFilter, trackResourceCategoryClick, refetchResources])
+
+  // UPDATED: Pagination handlers
+  const handlePageChange = useCallback((page: number) => {
+    updatePage(page)
+    // Auto-fetch with new page
+    setTimeout(() => refetchResources(), 100)
+    // Scroll to top of results
+    const resultsSection = document.getElementById('resources-results')
+    if (resultsSection) {
+      resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [updatePage, refetchResources])
+
+  const handlePerPageChange = useCallback((perPage: number) => {
+    updatePerPage(perPage)
+    // Auto-fetch with new per page
+    setTimeout(() => refetchResources(), 100)
+  }, [updatePerPage, refetchResources])
+
+  // UPDATED: Clear filters handler
+  const handleClearFilters = useCallback(() => {
+    clearFilters()
+    // Auto-fetch after clearing
+    setTimeout(() => refetchResources(), 100)
+  }, [clearFilters, refetchResources])
 
   // FIXED: Handle resource access with proper loading state
   const handleResourceAccess = useCallback(async (resource: ResourceItem, event: React.MouseEvent) => {
@@ -759,7 +808,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             <CardContent className="p-4 sm:p-6">
               <div className="flex flex-col space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                  <Select value={filters.category || 'all'} onValueChange={(value) => updateFilter('category', value === 'all' ? '' : value)}>
+                  <Select 
+                    value={filters.category || 'all'} 
+                    onValueChange={(value) => handleFilterChange('category', value)}
+                  >
                     <SelectTrigger className="w-full">
                       <Filter className="h-4 w-4 mr-2" />
                       <SelectValue placeholder="Category" />
@@ -774,7 +826,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                     </SelectContent>
                   </Select>
                   
-                  <Select value={filters.type || 'all'} onValueChange={(value) => updateFilter('type', value)}>
+                  <Select 
+                    value={filters.type || 'all'} 
+                    onValueChange={(value) => handleFilterChange('type', value)}
+                  >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Resource Type" />
                     </SelectTrigger>
@@ -789,7 +844,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                     </SelectContent>
                   </Select>
                   
-                  <Select value={filters.difficulty || 'all'} onValueChange={(value) => updateFilter('difficulty', value)}>
+                  <Select 
+                    value={filters.difficulty || 'all'} 
+                    onValueChange={(value) => handleFilterChange('difficulty', value)}
+                  >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Difficulty" />
                     </SelectTrigger>
@@ -801,7 +859,10 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                     </SelectContent>
                   </Select>
                   
-                  <Select value={filters.sort_by || 'featured'} onValueChange={(value) => updateFilter('sort_by', value)}>
+                  <Select 
+                    value={filters.sort_by || 'featured'} 
+                    onValueChange={(value) => handleFilterChange('sort_by', value)}
+                  >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Sort By" />
                     </SelectTrigger>
@@ -837,7 +898,7 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                   </div>
                   
                   {hasActiveFilters && (
-                    <Button variant="outline" onClick={clearFilters} size="sm">
+                    <Button variant="outline" onClick={handleClearFilters} size="sm">
                       <X className="h-4 w-4 mr-2" />
                       Clear Filters
                     </Button>
@@ -847,20 +908,29 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
             </CardContent>
           </Card>
 
-          {/* Resources Grid/List */}
-          <div className="space-y-4 sm:space-y-6">
+          {/* UPDATED: Resources Grid/List with Pagination */}
+          <div className="space-y-4 sm:space-y-6" id="resources-results">
+            {/* Results Header with Pagination Info */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
               <h2 className="text-xl sm:text-2xl font-bold">All Resources</h2>
-              {resources && (
-                <Badge variant="secondary" className="text-sm sm:text-lg px-2 sm:px-3 py-1">
-                  {resources.length} resources found
-                </Badge>
+              {pagination && (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm text-gray-600">
+                  <Badge variant="secondary" className="text-sm px-3 py-1 w-fit">
+                    {pagination.total.toLocaleString()} total resources
+                  </Badge>
+                  {pagination.total > pagination.per_page && (
+                    <Badge variant="outline" className="text-sm px-3 py-1 w-fit">
+                      Page {pagination.current_page} of {pagination.last_page}
+                    </Badge>
+                  )}
+                </div>
               )}
             </div>
 
+            {/* Resources List/Grid */}
             {resourcesLoading && !resources ? (
               <div className="space-y-4">
-                {[...Array(6)].map((_, i) => (
+                {[...Array(filters.per_page || 25)].map((_, i) => (
                   <div key={i} className="animate-pulse">
                     <div className="h-32 sm:h-48 bg-gray-200 rounded-lg"></div>
                   </div>
@@ -881,52 +951,98 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
                 </CardContent>
               </Card>
             ) : resources && resources.length > 0 ? (
-              <div className={cn(
-                viewMode === 'grid' 
-                  ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
-                  : "space-y-3 sm:space-y-4"
-              )}>
-                {resources.map((resource: ResourceItem) => (
+              <>
+                {/* Resources Display */}
+                <div className={cn(
                   viewMode === 'grid' 
-                    ? <ResourceCard 
-                        key={resource.id} 
-                        resource={resource}
-                        onResourceClick={handleResourceClick}
-                        onResourceAccess={handleResourceAccess}
-                        onBookmarkToggle={handleBookmarkToggle}
-                        loadingStates={loadingStates}
-                        getTypeIcon={getTypeIcon}
-                        getTypeLabel={getTypeLabel}
-                        getDifficultyColor={getDifficultyColor}
-                        formatDuration={formatDuration}
-                        formatCount={formatCount}
-                        formatRatingDisplay={formatRatingDisplay}
+                    ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
+                    : "space-y-3 sm:space-y-4"
+                )}>
+                  {resources.map((resource: ResourceItem) => (
+                    viewMode === 'grid' 
+                      ? <ResourceCard 
+                          key={resource.id} 
+                          resource={resource}
+                          onResourceClick={handleResourceClick}
+                          onResourceAccess={handleResourceAccess}
+                          onBookmarkToggle={handleBookmarkToggle}
+                          loadingStates={loadingStates}
+                          getTypeIcon={getTypeIcon}
+                          getTypeLabel={getTypeLabel}
+                          getDifficultyColor={getDifficultyColor}
+                          formatDuration={formatDuration}
+                          formatCount={formatCount}
+                          formatRatingDisplay={formatRatingDisplay}
+                        />
+                      : <ResourceListItem 
+                          key={resource.id} 
+                          resource={resource}
+                          onResourceClick={handleResourceClick}
+                          onResourceAccess={handleResourceAccess}
+                          onBookmarkToggle={handleBookmarkToggle}
+                          loadingStates={loadingStates}
+                          getTypeIcon={getTypeIcon}
+                          getTypeLabel={getTypeLabel}
+                          getDifficultyColor={getDifficultyColor}
+                          formatDuration={formatDuration}
+                          formatCount={formatCount}
+                        />
+                  ))}
+                </div>
+
+                {/* UPDATED: Enhanced Pagination Component */}
+                {pagination && pagination.total > pagination.per_page && (
+                  <Card className="border-0 shadow-lg">
+                    <CardContent className="p-4 sm:p-6">
+                      <EnhancedPagination
+                        pagination={pagination}
+                        onPageChange={handlePageChange}
+                        onPerPageChange={handlePerPageChange}
+                        isLoading={resourcesLoading}
+                        showPerPageSelector={true}
+                        showResultsInfo={true}
+                        perPageOptions={[10, 25, 50, 100]}
+                        className="w-full"
                       />
-                    : <ResourceListItem 
-                        key={resource.id} 
-                        resource={resource}
-                        onResourceClick={handleResourceClick}
-                        onResourceAccess={handleResourceAccess}
-                        onBookmarkToggle={handleBookmarkToggle}
-                        loadingStates={loadingStates}
-                        getTypeIcon={getTypeIcon}
-                        getTypeLabel={getTypeLabel}
-                        getDifficultyColor={getDifficultyColor}
-                        formatDuration={formatDuration}
-                        formatCount={formatCount}
-                      />
-                ))}
-              </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Loading state for pagination */}
+                {resourcesLoading && resources.length > 0 && (
+                  <Card className="border-blue-200 bg-blue-50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-center space-x-2">
+                        <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+                        <span className="text-blue-800">Loading resources...</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
             ) : (
               <Card>
                 <CardContent className="pt-6">
                   <div className="text-center py-8 sm:py-12">
                     <BookOpen className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-gray-300" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No resources found</h3>
-                    <p className="text-gray-600 mb-4">Try adjusting your search terms or filters</p>
-                    <Button onClick={clearFilters}>
-                      Clear Filters
-                    </Button>
+                    <p className="text-gray-600 mb-4">
+                      {hasActiveFilters 
+                        ? 'No resources match your current filters. Try adjusting your search criteria.'
+                        : 'No resources available at the moment.'
+                      }
+                    </p>
+                    {hasActiveFilters ? (
+                      <Button onClick={handleClearFilters}>
+                        <X className="h-4 w-4 mr-2" />
+                        Clear Filters
+                      </Button>
+                    ) : (
+                      <Button onClick={() => refetchResources()}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Refresh
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -934,14 +1050,17 @@ export function ResourcesPage({ onNavigate }: ResourcesPageProps) {
           </div>
         </TabsContent>
 
+        {/* UPDATED: Bookmarks Tab with Pagination */}
         <TabsContent value="bookmarks" className="space-y-4 sm:space-y-6">
           <BookmarkManagerComponent 
             viewMode={viewMode}
             showFilters={true}
             onResourceClick={handleResourceClick}
+            showPagination={true} // Enable pagination for bookmarks too
           />
         </TabsContent>
 
+        {/* Popular Tab - Keep as is since these are curated lists */}
         <TabsContent value="popular" className="space-y-4 sm:space-y-6">
           {/* Top Rated Resources */}
           <Card className="border-0 shadow-lg">
