@@ -1,4 +1,4 @@
-// app/page.tsx -  SIMPLIFIED: Fixed router integration without slug complexity
+// app/page.tsx - SIMPLIFIED: Fixed router integration without slug complexity
 
 "use client"
 
