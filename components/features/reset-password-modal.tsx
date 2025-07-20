@@ -1,4 +1,4 @@
-// components/features/reset-password-modal.tsx
+// components/features/reset-password-modal.tsx - IMPROVED UI & Responsive Design
 
 "use client"
 
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { 
@@ -21,7 +21,9 @@ import {
   Eye,
   EyeOff,
   CheckCircle,
-  Info
+  Info,
+  Copy,
+  AlertTriangle
 } from "lucide-react"
 
 import { useUserActions } from "@/stores/user-store"
@@ -43,7 +45,6 @@ export function ResetPasswordModal({ open, onClose, user, onPasswordReset }: Res
   const [error, setError] = useState("")
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
   const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [autoGenerate, setAutoGenerate] = useState(true)
   
   const [passwordData, setPasswordData] = useState({
@@ -77,7 +78,6 @@ export function ResetPasswordModal({ open, onClose, user, onPasswordReset }: Res
     setError("")
     setValidationErrors({})
     setShowPassword(false)
-    setShowConfirmPassword(false)
     setAutoGenerate(true)
   }
 
@@ -238,9 +238,9 @@ export function ResetPasswordModal({ open, onClose, user, onPasswordReset }: Res
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center space-x-2">
+          <DialogTitle className="flex items-center space-x-2 text-lg">
             <Key className="h-5 w-5 text-violet-600" />
             <span>Reset Password</span>
           </DialogTitle>
@@ -249,40 +249,44 @@ export function ResetPasswordModal({ open, onClose, user, onPasswordReset }: Res
         {error && (
           <Alert className="border-red-200 bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">
+            <AlertDescription className="text-red-800 text-sm">
               {error}
             </AlertDescription>
           </Alert>
         )}
 
+        {/* IMPROVED: Compact User Info Card */}
         <Card className="border-blue-200 bg-blue-50">
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-full flex items-center justify-center text-white font-medium text-sm">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-full flex items-center justify-center text-white font-medium text-xs">
                 {user.initials}
               </div>
-              <div>
-                <div className="font-medium text-blue-900">{user.display_name}</div>
-                <div className="text-sm text-blue-700">{user.email}</div>
-                <Badge variant="outline" className={userService.getRoleColor(user.role)}>
-                  {user.role}
-                </Badge>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-blue-900 text-sm truncate">{user.display_name}</div>
+                <div className="text-xs text-blue-700 truncate">{user.email}</div>
               </div>
+              <Badge variant="outline" className={`${userService.getRoleColor(user.role)} text-xs`}>
+                {user.role}
+              </Badge>
             </div>
           </CardContent>
         </Card>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="auto-generate"
-              checked={autoGenerate}
-              onCheckedChange={(checked) => setAutoGenerate(checked as boolean)}
-              disabled={loading}
-            />
-            <Label htmlFor="auto-generate" className="text-sm">
-              Auto-generate secure password
-            </Label>
+          {/* IMPROVED: Auto-generate option */}
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="auto-generate"
+                checked={autoGenerate}
+                onCheckedChange={(checked) => setAutoGenerate(checked as boolean)}
+                disabled={loading}
+              />
+              <Label htmlFor="auto-generate" className="text-sm font-medium">
+                Auto-generate secure password
+              </Label>
+            </div>
             {autoGenerate && (
               <Button
                 type="button"
@@ -290,144 +294,142 @@ export function ResetPasswordModal({ open, onClose, user, onPasswordReset }: Res
                 size="sm"
                 onClick={generatePassword}
                 disabled={loading}
-                className="ml-auto"
+                className="h-8"
               >
                 <RefreshCw className="h-3 w-3 mr-1" />
-                Generate New
+                New
               </Button>
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="reset-password">New Password *</Label>
-            <div className="relative">
-              <Input
-                id="reset-password"
-                type={showPassword ? "text" : "password"}
-                value={passwordData.password}
-                onChange={(e) => updatePasswordData('password', e.target.value)}
-                placeholder="Enter new password"
-                required
-                disabled={loading || autoGenerate}
-                className={getFieldError('password') ? 'border-red-300 focus:border-red-500 pr-20' : 'pr-20'}
-              />
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center space-x-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="h-8 w-8 p-0"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-                {passwordData.password && (
+          {/* IMPROVED: Compact password fields */}
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="reset-password" className="text-sm font-medium">New Password</Label>
+              <div className="relative">
+                <Input
+                  id="reset-password"
+                  type={showPassword ? "text" : "password"}
+                  value={passwordData.password}
+                  onChange={(e) => updatePasswordData('password', e.target.value)}
+                  placeholder="Enter new password"
+                  required
+                  disabled={loading || autoGenerate}
+                  className={`pr-20 ${getFieldError('password') ? 'border-red-300 focus:border-red-500' : ''}`}
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center space-x-1">
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => copyToClipboard(passwordData.password)}
-                    className="h-8 w-8 p-0"
-                    title="Copy password"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="h-7 w-7 p-0"
+                    disabled={loading}
                   >
-                    📋
+                    {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                   </Button>
-                )}
+                  {passwordData.password && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => copyToClipboard(passwordData.password)}
+                      className="h-7 w-7 p-0"
+                      title="Copy password"
+                      disabled={loading}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
               </div>
+              {getFieldError('password') && (
+                <p className="text-xs text-red-600">{getFieldError('password')}</p>
+              )}
+              
+              {/* IMPROVED: Compact Password Strength Indicator */}
+              {passwordData.password && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-600">Strength:</span>
+                    <span className={`font-medium ${
+                      passwordStrength.color === 'bg-red-500' ? 'text-red-600' : 
+                      passwordStrength.color === 'bg-yellow-500' ? 'text-yellow-600' : 'text-green-600'
+                    }`}>
+                      {passwordStrength.label}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5">
+                    <div 
+                      className={`h-1.5 rounded-full transition-all duration-300 ${passwordStrength.color}`}
+                      style={{ width: `${(passwordStrength.score / 6) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
             </div>
-            {getFieldError('password') && (
-              <p className="text-sm text-red-600">{getFieldError('password')}</p>
-            )}
-            
-            {/* Password Strength Indicator */}
-            {passwordData.password && (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span>Password Strength:</span>
-                  <span className={passwordStrength.color === 'bg-red-500' ? 'text-red-600' : 
-                                   passwordStrength.color === 'bg-yellow-500' ? 'text-yellow-600' : 'text-green-600'}>
-                    {passwordStrength.label}
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full transition-all duration-300 ${passwordStrength.color}`}
-                    style={{ width: `${(passwordStrength.score / 6) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-            )}
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="reset-confirm-password">Confirm New Password *</Label>
-            <div className="relative">
+            <div className="space-y-2">
+              <Label htmlFor="reset-confirm-password" className="text-sm font-medium">Confirm Password</Label>
               <Input
                 id="reset-confirm-password"
-                type={showConfirmPassword ? "text" : "password"}
+                type={showPassword ? "text" : "password"}
                 value={passwordData.confirmPassword}
                 onChange={(e) => updatePasswordData('confirmPassword', e.target.value)}
                 placeholder="Confirm new password"
                 required
                 disabled={loading || autoGenerate}
-                className={getFieldError('confirmPassword') ? 'border-red-300 focus:border-red-500 pr-10' : 'pr-10'}
+                className={getFieldError('confirmPassword') ? 'border-red-300 focus:border-red-500' : ''}
               />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-              >
-                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
+              {getFieldError('confirmPassword') && (
+                <p className="text-xs text-red-600">{getFieldError('confirmPassword')}</p>
+              )}
+              
+              {/* IMPROVED: Compact Password Match Indicator */}
+              {passwordData.password && passwordData.confirmPassword && (
+                <div className="flex items-center space-x-1 text-xs">
+                  {passwordData.password === passwordData.confirmPassword ? (
+                    <>
+                      <CheckCircle className="h-3 w-3 text-green-600" />
+                      <span className="text-green-600">Passwords match</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-3 w-3 text-red-600" />
+                      <span className="text-red-600">Passwords do not match</span>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
-            {getFieldError('confirmPassword') && (
-              <p className="text-sm text-red-600">{getFieldError('confirmPassword')}</p>
-            )}
-            
-            {/* Password Match Indicator */}
-            {passwordData.password && passwordData.confirmPassword && (
-              <div className="flex items-center space-x-1 text-xs">
-                {passwordData.password === passwordData.confirmPassword ? (
-                  <>
-                    <CheckCircle className="h-3 w-3 text-green-600" />
-                    <span className="text-green-600">Passwords match</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="h-3 w-3 text-red-600" />
-                    <span className="text-red-600">Passwords do not match</span>
-                  </>
-                )}
-              </div>
-            )}
           </div>
 
-          <Alert className="border-yellow-200 bg-yellow-50">
-            <Info className="h-4 w-4 text-yellow-600" />
-            <AlertDescription className="text-yellow-800 text-sm">
-              <div className="space-y-1">
+          {/* IMPROVED: Compact Warning */}
+          <Alert className="border-yellow-200 bg-yellow-50 py-2">
+            <AlertTriangle className="h-4 w-4 text-yellow-600" />
+            <AlertDescription className="text-yellow-800 text-xs">
+              <div className="space-y-0.5">
                 <div>• User will be required to log in again</div>
                 <div>• All existing sessions will be invalidated</div>
-                <div>• User should change this password on first login</div>
+                <div>• Notification email will be sent if enabled</div>
               </div>
             </AlertDescription>
           </Alert>
 
-          <DialogFooter className="flex space-x-2 pt-4 border-t">
+          <DialogFooter className="flex space-x-2 pt-2">
             <Button
               type="button"
               variant="outline"
               onClick={handleClose}
               disabled={loading}
+              className="flex-1 sm:flex-none"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               disabled={loading || !passwordData.password || !passwordData.confirmPassword}
-              className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
+              className="flex-1 sm:flex-none bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
             >
               {loading ? (
                 <>

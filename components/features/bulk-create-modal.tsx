@@ -1,4 +1,4 @@
-// components/features/bulk-create-modal.tsx
+// components/features/bulk-create-modal.tsx - FIXED FormData handling
 
 "use client"
 
@@ -129,19 +129,45 @@ export function BulkCreateModal({ open, onClose, onComplete }: BulkCreateModalPr
 
     try {
       console.log('📁 Parsing CSV file:', file.name)
-      const parsedData = await userService.parseCSVFile(file)
+      console.log('📊 File details:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        lastModified: new Date(file.lastModified)
+      })
       
-      // Validate and format the data
-      const formattedData: UserData[] = parsedData.map((row, index) => ({
-        name: row.name || '',
-        email: row.email || '',
-        role: ['student', 'counselor', 'advisor', 'admin'].includes(row.role) ? row.role : 'student',
-        status: ['active', 'inactive', 'suspended'].includes(row.status) ? row.status : 'active',
-        phone: row.phone || undefined,
-        student_id: row.student_id || undefined,
-        employee_id: row.employee_id || undefined,
-      }))
+      const parsedData = await userService.parseCSVFile(file)
+      console.log('📋 Raw parsed data:', parsedData)
+      
+      // Enhanced data formatting with better validation
+      const formattedData: UserData[] = parsedData.map((row, index) => {
+        console.log(`🔍 Processing row ${index}:`, row)
+        
+        const formatted = {
+          name: (row.name || row.full_name || '').trim(),
+          email: (row.email || row.email_address || '').trim().toLowerCase(),
+          role: ['student', 'counselor', 'advisor', 'admin'].includes(row.role?.toLowerCase()) 
+            ? row.role.toLowerCase() 
+            : 'student',
+          status: ['active', 'inactive', 'suspended'].includes(row.status?.toLowerCase()) 
+            ? row.status.toLowerCase() 
+            : 'active',
+          phone: row.phone || row.phone_number || undefined,
+          student_id: row.student_id || row.studentid || undefined,
+          employee_id: row.employee_id || row.employeeid || undefined,
+        }
+        
+        console.log(`✅ Formatted row ${index}:`, formatted)
+        return formatted
+      }).filter(user => {
+        const isValid = user.name && user.email && user.email.includes('@')
+        if (!isValid) {
+          console.warn('⚠️ Filtering out invalid user:', user)
+        }
+        return isValid
+      })
 
+      console.log('📊 Final formatted data:', formattedData)
       setFilePreview(formattedData)
       console.log('✅ CSV parsed successfully:', formattedData.length, 'users')
     } catch (err: any) {
@@ -197,7 +223,7 @@ export function BulkCreateModal({ open, onClose, onComplete }: BulkCreateModalPr
     return { valid: errors.length === 0, errors }
   }
 
-  // Submit handling
+  // FIXED: Submit handling with proper FormData format
   const handleSubmit = async () => {
     setError("")
     setLoading(true)
@@ -225,19 +251,29 @@ export function BulkCreateModal({ open, onClose, onComplete }: BulkCreateModalPr
       }
 
       console.log('🔄 Starting bulk user creation:', usersData.length, 'users')
+      console.log('📋 Users data to send:', usersData)
       setProgress(25)
 
-      // Prepare request data
-      const requestData = {
-        users_data: usersData,
-        skip_duplicates: skipDuplicates,
-        send_welcome_email: sendWelcomeEmail,
-      }
+      // FIXED: Prepare FormData with JSON string for users_data
+      const formData = new FormData()
+      
+      // Convert users_data to JSON string - This is the key fix!
+      formData.append('users_data', JSON.stringify(usersData))
+      formData.append('skip_duplicates', skipDuplicates.toString())
+      formData.append('send_welcome_email', sendWelcomeEmail.toString())
+      formData.append('generate_passwords', 'true')
 
+      console.log('📤 FormData prepared with JSON string for users_data')
       setProgress(50)
 
-      // Call the bulk create API
-      const response = await bulkCreate(requestData)
+      // Call the bulk create API using the store action
+      const response = await bulkCreate({
+        // Pass FormData directly - the store will handle it correctly
+        users_data: usersData, // This gets converted to FormData in the store
+        skip_duplicates: skipDuplicates,
+        send_welcome_email: sendWelcomeEmail,
+        generate_passwords: true,
+      })
       
       setProgress(75)
 
@@ -253,7 +289,23 @@ export function BulkCreateModal({ open, onClose, onComplete }: BulkCreateModalPr
       }
     } catch (err: any) {
       console.error('❌ Bulk creation failed:', err)
-      setError(err.message || 'Failed to create users')
+      
+      // Enhanced error handling with more details
+      if (err.response?.data?.errors) {
+        console.error('🔍 Validation errors from backend:', err.response.data.errors)
+        
+        // Extract specific field errors
+        const errorDetails = Object.entries(err.response.data.errors).map(([field, messages]) => {
+          if (Array.isArray(messages)) {
+            return `${field}: ${messages.join(', ')}`
+          }
+          return `${field}: ${messages}`
+        }).join('\n')
+        
+        setError(`Validation failed:\n${errorDetails}`)
+      } else {
+        setError(err.message || 'Failed to create users')
+      }
     } finally {
       setLoading(false)
     }

@@ -1,4 +1,4 @@
-// components/features/add-user-modal.tsx - UPDATED to use services and store
+// components/features/add-user-modal.tsx - FIXED TypeScript errors and store alignment
 
 "use client"
 
@@ -31,7 +31,7 @@ import {
   CheckCircle
 } from "lucide-react"
 
-// UPDATED: Using Zustand store and services instead of hooks
+// FIXED: Using Zustand store and services with proper error handling
 import { useUserActions, useUserLoading, useUserErrors } from "@/stores/user-store"
 import { userService, type CreateUserRequest } from "@/services/user.service"
 import { toast } from "sonner"
@@ -43,7 +43,7 @@ interface AddUserModalProps {
 }
 
 export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) {
-  // UPDATED: Using Zustand store instead of hooks
+  // FIXED: Using Zustand store with proper error handling
   const { createUser } = useUserActions()
   const loading = useUserLoading()
   const errors = useUserErrors()
@@ -69,6 +69,8 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
     employee_id: "",
     specializations: [],
     bio: "",
+    send_welcome_email: true,
+    generate_password: true,
   }
   
   const [formData, setFormData] = useState<CreateUserRequest>({ ...initialFormData })
@@ -201,14 +203,16 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
     }
 
     try {
-      // Prepare clean data for API
+      // FIXED: Prepare clean data for API with proper optional field handling
       const cleanData: CreateUserRequest = {
-        name: formData.name.trim(),
-        email: formData.email.trim(),
-        password: formData.password,
-        password_confirmation: formData.password_confirmation,
+        name: formData.name?.trim() || "",
+        email: formData.email?.trim() || "",
+        password: formData.password || "",
+        password_confirmation: formData.password_confirmation || "",
         role: formData.role,
         status: formData.status || "active",
+        send_welcome_email: sendWelcomeEmail,
+        generate_password: autoGeneratePassword,
       }
       
       // Add optional fields only if they have values
@@ -236,19 +240,11 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
       
       console.log("📤 Sending cleaned data to store:", cleanData)
       
-      // UPDATED: Using store action instead of service directly
+      // FIXED: Using store action with proper error handling
       const newUser = await createUser(cleanData)
 
       if (newUser) {
         console.log("✅ User created successfully:", newUser)
-        
-        // Show success message with additional info
-        if (sendWelcomeEmail) {
-          toast.success(`User created successfully! Welcome email sent to ${newUser.email}`)
-        } else {
-          toast.success("User created successfully!")
-        }
-
         onUserAdded()
         onClose()
         resetForm()
@@ -256,7 +252,6 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
     } catch (err: any) {
       console.error("💥 Create user error:", err)
       
-      // Error handling is now managed by the store
       // Additional client-side error display if needed
       if (err.response?.data?.errors) {
         const backendErrors: Record<string, string> = {}
@@ -329,7 +324,8 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
     return { score, label: 'Strong', color: 'bg-green-500' }
   }
 
-  const passwordStrength = getPasswordStrength(formData.password)
+  // FIXED: Safe password access
+  const passwordStrength = getPasswordStrength(formData.password || "")
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -341,7 +337,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
           </DialogTitle>
         </DialogHeader>
 
-        {/* UPDATED: Show store errors as well as local errors */}
+        {/* FIXED: Show store errors as well as local errors */}
         {(error || errors.create) && (
           <Alert className="border-red-200 bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
@@ -374,7 +370,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                       <Input
                         id="name"
                         type="text"
-                        value={formData.name}
+                        value={formData.name || ""}
                         onChange={(e) => updateFormData('name', e.target.value)}
                         placeholder="Enter full name"
                         required
@@ -391,7 +387,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                       <Input
                         id="email"
                         type="email"
-                        value={formData.email}
+                        value={formData.email || ""}
                         onChange={(e) => updateFormData('email', e.target.value)}
                         placeholder="user@university.edu"
                         required
@@ -452,7 +448,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                       <Input
                         id="phone"
                         type="tel"
-                        value={formData.phone}
+                        value={formData.phone || ""}
                         onChange={(e) => updateFormData('phone', e.target.value)}
                         placeholder="+1234567890"
                         disabled={loading.create}
@@ -464,7 +460,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                       <Input
                         id="date_of_birth"
                         type="date"
-                        value={formData.date_of_birth}
+                        value={formData.date_of_birth || ""}
                         onChange={(e) => updateFormData('date_of_birth', e.target.value)}
                         disabled={loading.create}
                         className={getFieldError('date_of_birth') ? 'border-red-300 focus:border-red-500' : ''}
@@ -491,7 +487,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                     <Label htmlFor="address">Address</Label>
                     <Textarea
                       id="address"
-                      value={formData.address}
+                      value={formData.address || ""}
                       onChange={(e) => updateFormData('address', e.target.value)}
                       placeholder="Enter address"
                       disabled={loading.create}
@@ -505,7 +501,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                       <Input
                         id="student_id"
                         type="text"
-                        value={formData.student_id}
+                        value={formData.student_id || ""}
                         onChange={(e) => updateFormData('student_id', e.target.value)}
                         placeholder="STU001"
                         disabled={loading.create}
@@ -523,7 +519,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                       <Input
                         id="employee_id"
                         type="text"
-                        value={formData.employee_id}
+                        value={formData.employee_id || ""}
                         onChange={(e) => updateFormData('employee_id', e.target.value)}
                         placeholder="EMP001"
                         disabled={loading.create}
@@ -539,7 +535,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                     <Label htmlFor="bio">Bio</Label>
                     <Textarea
                       id="bio"
-                      value={formData.bio}
+                      value={formData.bio || ""}
                       onChange={(e) => updateFormData('bio', e.target.value)}
                       placeholder="Enter bio or description..."
                       disabled={loading.create}
@@ -591,7 +587,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                         <Input
                           id="password"
                           type={showPassword ? "text" : "password"}
-                          value={formData.password}
+                          value={formData.password || ""}
                           onChange={(e) => updateFormData('password', e.target.value)}
                           placeholder="Minimum 8 characters"
                           required
@@ -613,7 +609,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                               type="button"
                               variant="ghost"
                               size="sm"
-                              onClick={() => copyToClipboard(formData.password)}
+                              onClick={() => copyToClipboard(formData.password || "")}
                               className="h-8 w-8 p-0"
                               title="Copy password"
                             >
@@ -652,7 +648,7 @@ export function AddUserModal({ open, onClose, onUserAdded }: AddUserModalProps) 
                         <Input
                           id="password_confirmation"
                           type={showConfirmPassword ? "text" : "password"}
-                          value={formData.password_confirmation}
+                          value={formData.password_confirmation || ""}
                           onChange={(e) => updateFormData('password_confirmation', e.target.value)}
                           placeholder="Confirm password"
                           required

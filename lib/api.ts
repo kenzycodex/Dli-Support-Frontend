@@ -44,11 +44,11 @@ class ApiClient {
     return headers
   }
 
-  // ENHANCED: Better Laravel standardized response handling with file download support
+  // ENHANCED: Better response handling with bulk operation support
   private async handleResponse<T>(response: Response, url: string): Promise<StandardizedApiResponse<T>> {
     const contentType = response.headers.get("content-type")
     
-    // FIXED: Enhanced file download detection for attachment downloads
+    // Handle file downloads (keep existing logic)
     const isFileDownload = (
       contentType && (
         contentType.includes("application/pdf") ||
@@ -61,7 +61,6 @@ class ApiClient {
       )
     ) || response.headers.get("content-disposition")?.includes("attachment")
 
-    // Handle file downloads with proper blob creation
     if (isFileDownload && response.ok) {
       console.log('📁 ApiClient: Processing file download response')
       try {
@@ -102,23 +101,35 @@ class ApiClient {
           }
         }
       } else {
-        // FIXED: Handle backend PHP errors gracefully
+        // ENHANCED: Better PHP/Laravel error detection
         try {
           const errorText = await response.text()
           console.error('❌ Backend Error Response:', errorText)
           
-          // Check for specific PHP errors
-          if (errorText.includes('Cannot modify header information')) {
+          // Check for specific Laravel/PHP errors
+          if (errorText.includes('419') || errorText.includes('CSRF')) {
+            return {
+              success: false,
+              status: 419,
+              message: "Session expired. Please refresh the page and try again."
+            }
+          } else if (errorText.includes('Cannot modify header information')) {
             return {
               success: false,
               status: response.status,
               message: "Server configuration error. Please try again or contact support."
             }
-          } else if (errorText.includes('Fatal error')) {
+          } else if (errorText.includes('Fatal error') || errorText.includes('Parse error')) {
             return {
               success: false,
               status: response.status,
               message: "Server error occurred. Please try again later."
+            }
+          } else if (errorText.includes('validation') || errorText.includes('required')) {
+            return {
+              success: false,
+              status: 422,
+              message: "Please check your input data and try again."
             }
           }
           
@@ -140,11 +151,18 @@ class ApiClient {
     // Handle JSON responses
     let data: any
     try {
-      data = await response.json()
+      const responseText = await response.text()
+      
+      // DEBUGGING: Log raw response for bulk operations
+      if (url.includes('bulk-create') && responseText) {
+        console.log('📥 Raw bulk-create response:', responseText.substring(0, 500) + '...')
+      }
+      
+      data = responseText ? JSON.parse(responseText) : {}
     } catch (parseError) {
       console.error('❌ JSON Parse Error:', parseError)
       
-      // FIXED: If JSON parsing fails, try to read as text for better error info
+      // Try to get more info about the response
       try {
         const text = await response.text()
         console.error('❌ Raw response text:', text.substring(0, 500))
@@ -167,14 +185,13 @@ class ApiClient {
       }
     }
 
-    // ENHANCED: Handle Laravel's standardized response format
+    // Handle error responses
     if (!response.ok) {
       // Handle authentication errors
       if (response.status === 401) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token')
           localStorage.removeItem('user')
-          // Don't auto-redirect - let the app handle it
         }
         
         return {
@@ -205,25 +222,50 @@ class ApiClient {
         }
       }
       
-      // ENHANCED: Handle Laravel validation errors (422) with new format
+      // CRITICAL FIX: Enhanced Laravel validation error handling for bulk operations
       if (response.status === 422) {
-        console.warn('⚠️ Validation Error:', data?.errors)
+        console.warn('⚠️ Validation Error Details:', {
+          message: data?.message,
+          errors: data?.errors,
+          errorCount: data?.error_count,
+          url: url
+        })
+        
+        // Format validation errors better for bulk operations
+        let formattedMessage = data?.message || 'Validation failed'
+        
+        if (data?.errors && typeof data.errors === 'object') {
+          const errorMessages = Object.entries(data.errors).map(([field, messages]) => {
+            if (Array.isArray(messages)) {
+              return `${field}: ${messages.join(', ')}`
+            } else if (typeof messages === 'string') {
+              return `${field}: ${messages}`
+            } else if (messages && typeof messages === 'object' && 'first' in messages) {
+              return `${field}: ${(messages as any).first}`
+            }
+            return `${field}: Invalid value`
+          })
+          
+          if (errorMessages.length > 0) {
+            formattedMessage += '\n' + errorMessages.join('\n')
+          }
+        }
+        
         return {
           success: false,
           status: 422,
-          message: data?.message || 'Validation failed',
+          message: formattedMessage,
           errors: data?.errors || {},
           error_count: data?.error_count || 0
         }
       }
       
-      // Handle server errors with better messaging
+      // Handle server errors
       if (response.status >= 500) {
         console.error('🚨 Server Error:', data)
         
         let errorMessage = 'Server error occurred. Please try again later.'
         
-        // Provide more specific error messages for common server issues
         if (data?.message) {
           if (data.message.includes('header') || data.message.includes('output')) {
             errorMessage = 'Server configuration issue detected. Please contact support.'
@@ -249,7 +291,7 @@ class ApiClient {
       }
     }
     
-    // SUCCESS: Return Laravel's standardized response - handle both old and new formats
+    // SUCCESS: Return Laravel's standardized response
     if (data && typeof data === 'object' && 'success' in data) {
       // New standardized format
       return {
@@ -272,7 +314,7 @@ class ApiClient {
     }
   }
 
-  // ENHANCED: Better request handling with improved error resilience
+  // ENHANCED: Better request handling with improved FormData support
   private async makeRequest<T>(
     endpoint: string, 
     method: string, 
@@ -293,15 +335,31 @@ class ApiClient {
     try {
       const headers = this.getAuthHeaders()
       
-      // Handle different data types properly
+      // FIXED: Handle different data types properly with special handling for FormData
       let body: string | FormData | undefined
       
       if (data instanceof FormData) {
         body = data
-        // Don't set Content-Type for FormData - let browser set boundary
+        // CRITICAL: Don't set Content-Type for FormData - let browser set boundary
+        // Remove Content-Type if it exists to prevent boundary issues
+        delete headers['Content-Type']
+        
+        console.log('📤 Sending FormData with entries:', Array.from(data.keys()))
       } else if (data !== undefined) {
-        body = JSON.stringify(data)
-        headers['Content-Type'] = 'application/json'
+        // CRITICAL FIX: Ensure proper JSON serialization for nested objects
+        try {
+          body = JSON.stringify(data)
+          headers['Content-Type'] = 'application/json'
+          
+          // DEBUGGING: Log the actual JSON being sent for bulk operations
+          if (endpoint.includes('bulk-create')) {
+            console.log('📤 Bulk Create JSON Payload length:', body.length)
+            console.log('📊 Data preview:', body.substring(0, 200) + '...')
+          }
+        } catch (jsonError) {
+          console.error('❌ JSON serialization failed:', jsonError)
+          throw new Error('Failed to serialize request data')
+        }
       }
 
       // Laravel method spoofing support
@@ -314,7 +372,9 @@ class ApiClient {
       console.log(`🌐 API Request: ${method} ${endpoint}`, {
         hasAuth: !!this.getAuthToken(),
         dataType: data instanceof FormData ? 'FormData' : typeof data,
-        timeout: requestTimeout / 1000 + 's'
+        timeout: requestTimeout / 1000 + 's',
+        contentType: headers['Content-Type'] || 'multipart/form-data (FormData)',
+        ...(endpoint.includes('bulk') && { dataSize: typeof body === 'string' ? body.length : 'FormData' })
       })
 
       const response = await fetch(url, {
@@ -331,18 +391,22 @@ class ApiClient {
       
       const result = await this.handleResponse<T>(response, url)
       
-      // Log response for debugging
+      // ENHANCED: Better logging for bulk operations
       if (result.success) {
         console.log(`✅ API Success: ${method} ${endpoint}`, {
           status: result.status,
           message: result.message,
-          hasData: !!result.data
+          hasData: !!result.data,
+          ...(endpoint.includes('bulk') && result.data && { 
+            bulkResults: (result.data as any)?.results || (result.data as any)?.summary 
+          })
         })
       } else {
         console.warn(`❌ API Error: ${method} ${endpoint}`, {
           status: result.status,
           message: result.message,
-          errors: result.errors
+          errors: result.errors,
+          ...(endpoint.includes('bulk') && { endpoint, method, dataType: typeof data })
         })
       }
       
@@ -368,6 +432,16 @@ class ApiClient {
         }
       }
       
+      // FIXED: Better error handling for JSON serialization errors
+      if (error.message.includes('serialize') || error.message.includes('JSON')) {
+        console.error(`📋 Data serialization error: ${method} ${endpoint}`, error)
+        return {
+          success: false,
+          status: 400,
+          message: "Invalid data format. Please check your input and try again.",
+        }
+      }
+      
       console.error(`🚨 Unexpected error: ${method} ${endpoint}`, error)
       return {
         success: false,
@@ -383,8 +457,60 @@ class ApiClient {
     return this.makeRequest<T>(endpoint, "GET", undefined, options, 60000)
   }
 
+  // ENHANCED: Better POST method with bulk operation support and FormData handling
   async post<T = any>(endpoint: string, data?: any, options?: RequestInit): Promise<StandardizedApiResponse<T>> {
-    const timeout = data instanceof FormData ? 120000 : 60000
+    // FIXED: Increase timeout for bulk operations
+    let timeout = 60000 // Default 60 seconds
+    
+    if (endpoint.includes('bulk') || (data instanceof FormData)) {
+      timeout = 300000 // 5 minutes for bulk operations
+    } else if (endpoint.includes('upload') || endpoint.includes('import')) {
+      timeout = 120000 // 2 minutes for uploads
+    }
+    
+    // CRITICAL FIX: Handle bulk create data properly
+    if (endpoint.includes('bulk-create') && data && !(data instanceof FormData)) {
+      console.log('🔧 Converting bulk create data to FormData with JSON string')
+      
+      const formData = new FormData()
+      
+      // Convert users_data to JSON string - THIS IS THE KEY FIX!
+      if (data.users_data) {
+        formData.append('users_data', JSON.stringify(data.users_data))
+        console.log('📤 Added users_data as JSON string:', data.users_data.length, 'users')
+      }
+      
+      // Add other fields as strings
+      const otherFields = ['skip_duplicates', 'send_welcome_email', 'generate_passwords', 'dry_run']
+      otherFields.forEach(field => {
+        if (data[field] !== undefined) {
+          formData.append(field, data[field].toString())
+          console.log(`📤 Added ${field}:`, data[field])
+        }
+      })
+      
+      // Add CSV file if present
+      if (data.csv_file) {
+        formData.append('csv_file', data.csv_file)
+        console.log('📤 Added csv_file:', data.csv_file.name)
+      }
+      
+      data = formData
+      console.log('✅ Converted to FormData for bulk create operation')
+    }
+    
+    // DEBUGGING: Extra logging for bulk operations
+    if (endpoint.includes('bulk-create') && data) {
+      console.log('🔍 Bulk Create Debug Info:', {
+        endpoint,
+        dataType: typeof data,
+        isFormData: data instanceof FormData,
+        // Show FormData entries if possible
+        formDataEntries: data instanceof FormData ? Array.from(data.keys()) : 'N/A',
+        usersDataLength: data?.users_data?.length || 'N/A'
+      })
+    }
+    
     return this.makeRequest<T>(endpoint, "POST", data, options, timeout)
   }
 

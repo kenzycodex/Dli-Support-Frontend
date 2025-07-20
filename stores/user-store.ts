@@ -1,18 +1,34 @@
-// stores/user-store.ts - Complete Zustand Store for User Management
+// stores/user-store.ts - FIXED TypeScript Errors
 
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import { userService, type User, type UserListParams, type UserStats, type CreateUserRequest, type UpdateUserRequest, type BulkActionRequest, type BulkCreateRequest } from '@/services/user.service'
+import { 
+  userService, 
+  type User, 
+  type UserListParams, 
+  type UserStats, 
+  type CreateUserRequest, 
+  type UpdateUserRequest, 
+  type BulkActionRequest, 
+  type BulkCreateRequest 
+} from '@/services/user.service'
 import { toast } from 'sonner'
 
-// Interfaces
+// FIXED: Enhanced interfaces with proper typing
 export interface UserItem extends User {
   display_name: string
   initials: string
 }
 
 export interface UserFilters extends UserListParams {
-  // Additional filter options can be added here
+  // FIXED: Properly typed filter options
+  search?: string
+  role?: string
+  status?: string
+  sort_by?: string
+  sort_direction?: 'asc' | 'desc' // FIXED: Proper typing instead of generic string
+  page?: number
+  per_page?: number
 }
 
 interface PaginationState {
@@ -25,11 +41,11 @@ interface PaginationState {
   has_more_pages?: boolean
 }
 
-// Default values
+// FIXED: Default values with proper typing
 const defaultPagination: PaginationState = {
   current_page: 1,
   last_page: 1,
-  per_page: 15,
+  per_page: 25,
   total: 0,
   from: 0,
   to: 0,
@@ -38,11 +54,11 @@ const defaultPagination: PaginationState = {
 
 const defaultFilters: UserFilters = {
   page: 1,
-  per_page: 15,
+  per_page: 25,
   role: 'all',
   status: 'all',
   sort_by: 'created_at',
-  sort_direction: 'desc'
+  sort_direction: 'desc' as 'desc' // FIXED: Explicit typing
 }
 
 const defaultStats: UserStats = {
@@ -63,7 +79,9 @@ const defaultStats: UserStats = {
 // Store State Interface
 interface UserState {
   // Core data
-  users: UserItem[]
+  allUsers: UserItem[]
+  filteredUsers: UserItem[]
+  displayedUsers: UserItem[]
   currentUser: UserItem | null
   userStats: UserStats
   filters: UserFilters
@@ -100,9 +118,13 @@ interface UserState {
   pagination: PaginationState
   
   // Cache management
-  lastFetch: {
-    users: number
-    stats: number
+  cache: {
+    lastFetch: {
+      users: number
+      stats: number
+    }
+    isInitialized: boolean
+    needsRefresh: boolean
   }
   
   // UI state
@@ -111,8 +133,8 @@ interface UserState {
   // Actions
   actions: {
     // Data fetching
-    fetchUsers: (params?: Partial<UserFilters>) => Promise<void>
-    fetchUserStats: () => Promise<void>
+    fetchUsers: (params?: Partial<UserFilters>, forceRefresh?: boolean) => Promise<void>
+    fetchUserStats: (forceRefresh?: boolean) => Promise<void>
     refreshAll: () => Promise<void>
     
     // User CRUD
@@ -122,7 +144,7 @@ interface UserState {
     
     // User operations
     toggleUserStatus: (id: number) => Promise<void>
-    resetUserPassword: (id: number, newPassword: string, confirmPassword: string) => Promise<void>
+    resetUserPassword: (id: number, newPassword?: string, confirmPassword?: string, generatePassword?: boolean, notifyUser?: boolean) => Promise<void>
     
     // Bulk operations
     bulkAction: (action: string, userIds: number[], reason?: string) => Promise<void>
@@ -131,10 +153,11 @@ interface UserState {
     // Export
     exportUsers: (params?: UserFilters) => Promise<void>
     
-    // Filter management
-    setFilters: (filters: Partial<UserFilters>, autoFetch?: boolean) => void
-    clearFilters: (autoFetch?: boolean) => void
+    // Local filtering management
+    setFilters: (filters: Partial<UserFilters>, autoApply?: boolean) => void
+    clearFilters: (autoApply?: boolean) => void
     setPage: (page: number) => void
+    applyFilters: () => void
     
     // UI state
     setCurrentUser: (user: UserItem | null) => void
@@ -150,6 +173,7 @@ interface UserState {
     // Cache management
     invalidateCache: () => void
     clearCache: () => void
+    markNeedsRefresh: () => void
   }
 }
 
@@ -164,12 +188,106 @@ const generateUsersFromResponse = (users: User[]): UserItem[] => {
   return users.map(processUser)
 }
 
+// FIXED: Local filtering function with proper typing
+const applyLocalFilters = (
+  users: UserItem[], 
+  filters: UserFilters
+): { filtered: UserItem[], pagination: PaginationState } => {
+  let filtered = [...users]
+
+  // Search filter
+  if (filters.search && filters.search.trim()) {
+    const searchLower = filters.search.toLowerCase()
+    filtered = filtered.filter(user => 
+      user.name.toLowerCase().includes(searchLower) ||
+      user.email.toLowerCase().includes(searchLower) ||
+      user.student_id?.toLowerCase().includes(searchLower) ||
+      user.employee_id?.toLowerCase().includes(searchLower)
+    )
+  }
+
+  // Role filter
+  if (filters.role && filters.role !== 'all') {
+    filtered = filtered.filter(user => user.role === filters.role)
+  }
+
+  // Status filter
+  if (filters.status && filters.status !== 'all') {
+    filtered = filtered.filter(user => user.status === filters.status)
+  }
+
+  // FIXED: Sorting with proper typing
+  const sortBy = filters.sort_by || 'created_at'
+  const sortDirection: 'asc' | 'desc' = filters.sort_direction || 'desc' // FIXED: Explicit typing
+  
+  filtered.sort((a, b) => {
+    let aValue: any, bValue: any
+    
+    switch (sortBy) {
+      case 'name':
+        aValue = a.name.toLowerCase()
+        bValue = b.name.toLowerCase()
+        break
+      case 'email':
+        aValue = a.email.toLowerCase()
+        bValue = b.email.toLowerCase()
+        break
+      case 'role':
+        aValue = a.role
+        bValue = b.role
+        break
+      case 'status':
+        aValue = a.status
+        bValue = b.status
+        break
+      case 'last_login_at':
+        aValue = new Date(a.last_login_at || 0).getTime()
+        bValue = new Date(b.last_login_at || 0).getTime()
+        break
+      default: // created_at
+        aValue = new Date(a.created_at).getTime()
+        bValue = new Date(b.created_at).getTime()
+        break
+    }
+    
+    if (sortDirection === 'asc') {
+      return aValue > bValue ? 1 : aValue < bValue ? -1 : 0
+    } else {
+      return aValue < bValue ? 1 : aValue > bValue ? -1 : 0
+    }
+  })
+
+  // Pagination
+  const page = filters.page || 1
+  const perPage = filters.per_page || 25
+  const totalPages = Math.ceil(filtered.length / perPage)
+  const startIndex = (page - 1) * perPage
+  const endIndex = startIndex + perPage
+
+  const pagination: PaginationState = {
+    current_page: page,
+    last_page: Math.max(1, totalPages),
+    per_page: perPage,
+    total: filtered.length,
+    from: filtered.length > 0 ? startIndex + 1 : 0,
+    to: Math.min(endIndex, filtered.length),
+    has_more_pages: page < totalPages
+  }
+
+  return { 
+    filtered: filtered.slice(startIndex, endIndex), 
+    pagination 
+  }
+}
+
 // Zustand Store
 export const useUserStore = create<UserState>()(
   devtools(
     (set, get) => ({
       // Initial state
-      users: [],
+      allUsers: [],
+      filteredUsers: [],
+      displayedUsers: [],
       currentUser: null,
       userStats: { ...defaultStats },
       filters: { ...defaultFilters },
@@ -202,24 +320,42 @@ export const useUserStore = create<UserState>()(
 
       pagination: { ...defaultPagination },
 
-      lastFetch: {
-        users: 0,
-        stats: 0,
+      cache: {
+        lastFetch: {
+          users: 0,
+          stats: 0,
+        },
+        isInitialized: false,
+        needsRefresh: false,
       },
 
       selectedUsers: new Set<number>(),
 
       actions: {
-        // Data fetching
-        fetchUsers: async (params?: Partial<UserFilters>) => {
+        // FIXED: Smart data fetching with proper API limits
+        fetchUsers: async (params?: Partial<UserFilters>, forceRefresh = false) => {
           const state = get()
-          const mergedFilters = params ? { ...state.filters, ...params } : state.filters
+          
+          // Smart caching
+          const timeSinceLastFetch = Date.now() - state.cache.lastFetch.users
+          const shouldUseCache = !forceRefresh && 
+                               state.cache.isInitialized && 
+                               timeSinceLastFetch < 30000 &&
+                               state.allUsers.length > 0 &&
+                               !state.cache.needsRefresh
 
-          // Prevent rapid calls
-          if (Date.now() - state.lastFetch.users < 1000) {
-            console.log('🎯 UserStore: Skipping user fetch (too recent)')
+          if (shouldUseCache) {
+            console.log('🎯 UserStore: Using cached data, applying filters locally')
+            
+            if (params) {
+              const mergedFilters = { ...state.filters, ...params }
+              set(() => ({ filters: mergedFilters }))
+              get().actions.applyFilters()
+            }
             return
           }
+
+          const mergedFilters = params ? { ...state.filters, ...params } : state.filters
 
           set((state) => ({
             loading: { ...state.loading, users: true },
@@ -228,22 +364,36 @@ export const useUserStore = create<UserState>()(
           }))
 
           try {
-            console.log('🎯 UserStore: Fetching users with filters:', mergedFilters)
+            console.log('🎯 UserStore: Fetching users from API:', mergedFilters)
 
-            const response = await userService.getUsers(mergedFilters)
+            // FIXED: Respect API limits - use per_page: 100 instead of 1000
+            const apiFilters: UserListParams = { 
+              per_page: 100, // FIXED: Changed from 1000 to 100 to respect API limits
+              sort_by: 'created_at',
+              sort_direction: 'desc' as 'desc' // FIXED: Explicit typing
+            }
+
+            const response = await userService.getUsers(apiFilters)
 
             if (response.success && response.data) {
-              const processedUsers = generateUsersFromResponse(response.data.users || [])
+              const rawUsers = response.data.users || []
+              const processedUsers = generateUsersFromResponse(rawUsers)
 
               set(() => ({
-                users: processedUsers,
-                userStats: response.data!.stats || defaultStats,
-                pagination: response.data!.pagination || defaultPagination,
-                lastFetch: { ...get().lastFetch, users: Date.now() },
+                allUsers: processedUsers,
+                cache: {
+                  ...get().cache,
+                  lastFetch: { ...get().cache.lastFetch, users: Date.now() },
+                  isInitialized: true,
+                  needsRefresh: false,
+                },
                 loading: { ...get().loading, users: false },
               }))
 
-              console.log('✅ UserStore: Users fetched successfully:', processedUsers.length)
+              // Apply filters locally
+              get().actions.applyFilters()
+
+              console.log('✅ UserStore: Users fetched and cached successfully:', processedUsers.length)
             } else {
               throw new Error(response.message || 'Failed to fetch users')
             }
@@ -256,10 +406,34 @@ export const useUserStore = create<UserState>()(
           }
         },
 
-        fetchUserStats: async () => {
+        // Apply filters locally
+        applyFilters: () => {
+          const state = get()
+          
+          try {
+            const { filtered, pagination } = applyLocalFilters(state.allUsers, state.filters)
+            
+            set(() => ({
+              filteredUsers: filtered,
+              displayedUsers: filtered,
+              pagination: pagination,
+            }))
+
+            console.log('✅ UserStore: Local filters applied:', {
+              totalUsers: state.allUsers.length,
+              filteredUsers: filtered.length,
+              currentPage: pagination.current_page,
+              filters: state.filters
+            })
+          } catch (error: any) {
+            console.error('❌ UserStore: Failed to apply local filters:', error)
+          }
+        },
+
+        fetchUserStats: async (forceRefresh = false) => {
           const state = get()
 
-          if (Date.now() - state.lastFetch.stats < 5000) {
+          if (!forceRefresh && Date.now() - state.cache.lastFetch.stats < 10000) {
             return
           }
 
@@ -274,7 +448,10 @@ export const useUserStore = create<UserState>()(
             if (response.success && response.data) {
               set((state) => ({
                 userStats: response.data!.stats || defaultStats,
-                lastFetch: { ...state.lastFetch, stats: Date.now() },
+                cache: {
+                  ...state.cache,
+                  lastFetch: { ...state.cache.lastFetch, stats: Date.now() },
+                },
                 loading: { ...state.loading, stats: false },
               }))
             } else {
@@ -289,18 +466,22 @@ export const useUserStore = create<UserState>()(
         },
 
         refreshAll: async () => {
-          set(() => ({
-            lastFetch: { users: 0, stats: 0 },
+          set((state) => ({
+            cache: {
+              ...state.cache,
+              lastFetch: { users: 0, stats: 0 },
+              needsRefresh: true,
+            },
           }))
 
           const actions = get().actions
           await Promise.all([
-            actions.fetchUsers(),
-            actions.fetchUserStats(),
+            actions.fetchUsers({}, true),
+            actions.fetchUserStats(true),
           ])
         },
 
-        // User CRUD
+        // User CRUD with local state updates
         createUser: async (data: CreateUserRequest) => {
           set((state) => ({
             loading: { ...state.loading, create: true },
@@ -315,15 +496,24 @@ export const useUserStore = create<UserState>()(
             if (response.success && response.data?.user) {
               const newUser = processUser(response.data.user)
 
-              // Add to the beginning of the list
+              // IMMEDIATE local state update
               set((state) => ({
-                users: [newUser, ...state.users],
+                allUsers: [newUser, ...state.allUsers],
                 currentUser: newUser,
                 loading: { ...state.loading, create: false },
               }))
 
+              // Reapply filters
+              get().actions.applyFilters()
+
               console.log('✅ UserStore: User created successfully')
-              toast.success('User created successfully!')
+              
+              if (response.data.email_sent) {
+                toast.success('User created successfully! Welcome email sent.')
+              } else {
+                toast.success('User created successfully!')
+              }
+              
               return newUser
             } else {
               throw new Error(response.message || 'Failed to create user')
@@ -353,11 +543,15 @@ export const useUserStore = create<UserState>()(
             if (response.success && response.data?.user) {
               const updatedUser = processUser(response.data.user)
 
+              // IMMEDIATE local state update
               set((state) => ({
-                users: state.users.map((u) => (u.id === id ? updatedUser : u)),
+                allUsers: state.allUsers.map((u) => (u.id === id ? updatedUser : u)),
                 currentUser: state.currentUser?.id === id ? updatedUser : state.currentUser,
                 loading: { ...state.loading, update: false },
               }))
+
+              // Reapply filters
+              get().actions.applyFilters()
 
               console.log('✅ UserStore: User updated successfully')
               toast.success('User updated successfully!')
@@ -387,17 +581,21 @@ export const useUserStore = create<UserState>()(
             const response = await userService.deleteUser(id)
 
             if (response.success) {
+              // IMMEDIATE local state cleanup
               set((state) => {
                 const newSelectedUsers = new Set(state.selectedUsers)
                 newSelectedUsers.delete(id)
 
                 return {
-                  users: state.users.filter((u) => u.id !== id),
+                  allUsers: state.allUsers.filter((u) => u.id !== id),
                   currentUser: state.currentUser?.id === id ? null : state.currentUser,
                   selectedUsers: newSelectedUsers,
                   loading: { ...state.loading, delete: false },
                 }
               })
+
+              // Reapply filters
+              get().actions.applyFilters()
 
               console.log('✅ UserStore: User deleted successfully')
               toast.success('User deleted successfully!')
@@ -429,11 +627,15 @@ export const useUserStore = create<UserState>()(
             if (response.success && response.data?.user) {
               const updatedUser = processUser(response.data.user)
 
+              // IMMEDIATE local state update
               set((state) => ({
-                users: state.users.map((u) => (u.id === id ? updatedUser : u)),
+                allUsers: state.allUsers.map((u) => (u.id === id ? updatedUser : u)),
                 currentUser: state.currentUser?.id === id ? updatedUser : state.currentUser,
                 loading: { ...state.loading, toggleStatus: false },
               }))
+
+              // Reapply filters
+              get().actions.applyFilters()
 
               console.log('✅ UserStore: User status toggled successfully')
               toast.success(`User ${updatedUser.status === 'active' ? 'activated' : 'deactivated'} successfully!`)
@@ -450,7 +652,13 @@ export const useUserStore = create<UserState>()(
           }
         },
 
-        resetUserPassword: async (id: number, newPassword: string, confirmPassword: string) => {
+        resetUserPassword: async (
+          id: number, 
+          newPassword?: string, 
+          confirmPassword?: string, 
+          generatePassword: boolean = true, 
+          notifyUser: boolean = true
+        ) => {
           set((state) => ({
             loading: { ...state.loading, resetPassword: true },
             errors: { ...state.errors, resetPassword: null },
@@ -459,7 +667,7 @@ export const useUserStore = create<UserState>()(
           try {
             console.log('🎯 UserStore: Resetting password for user:', id)
 
-            const response = await userService.resetPassword(id, newPassword, confirmPassword)
+            const response = await userService.resetPassword(id, newPassword, confirmPassword, generatePassword, notifyUser)
 
             if (response.success) {
               set((state) => ({
@@ -467,7 +675,12 @@ export const useUserStore = create<UserState>()(
               }))
 
               console.log('✅ UserStore: Password reset successfully')
-              toast.success('Password reset successfully!')
+              
+              if (response.data?.email_sent) {
+                toast.success('Password reset successfully! Notification email sent to user.')
+              } else {
+                toast.success('Password reset successfully!')
+              }
             } else {
               throw new Error(response.message || 'Failed to reset password')
             }
@@ -500,13 +713,38 @@ export const useUserStore = create<UserState>()(
             const response = await userService.bulkAction(bulkData)
 
             if (response.success) {
-              // Refresh users to get updated data
-              await get().actions.fetchUsers()
+              // IMMEDIATE local state update
+              set((state) => {
+                let updatedUsers = [...state.allUsers]
+                const newSelectedUsers = new Set<number>()
 
-              set((state) => ({
-                selectedUsers: new Set(), // Clear selection
-                loading: { ...state.loading, bulkAction: false },
-              }))
+                if (action === 'delete') {
+                  // Remove deleted users
+                  updatedUsers = updatedUsers.filter(user => !userIds.includes(user.id))
+                } else {
+                  // Update status for other actions
+                  const newStatus = action === 'activate' ? 'active' : 
+                                   action === 'deactivate' ? 'inactive' : 
+                                   action === 'suspend' ? 'suspended' : 
+                                   'active' // FIXED: Default fallback instead of referencing undefined 'user'
+
+                  updatedUsers = updatedUsers.map(user => {
+                    if (userIds.includes(user.id)) {
+                      return { ...user, status: newStatus as any }
+                    }
+                    return user
+                  })
+                }
+
+                return {
+                  allUsers: updatedUsers,
+                  selectedUsers: newSelectedUsers,
+                  loading: { ...state.loading, bulkAction: false },
+                }
+              })
+
+              // Reapply filters
+              get().actions.applyFilters()
 
               console.log('✅ UserStore: Bulk action completed successfully')
               toast.success(`Bulk ${action} completed successfully!`)
@@ -535,15 +773,28 @@ export const useUserStore = create<UserState>()(
             const response = await userService.bulkCreate(data)
 
             if (response.success) {
-              // Refresh users to show new ones
-              await get().actions.fetchUsers()
-
+              // Mark cache as needing refresh
               set((state) => ({
                 loading: { ...state.loading, bulkCreate: false },
+                cache: { ...state.cache, needsRefresh: true },
               }))
 
+              // Refresh users
+              await get().actions.fetchUsers({}, true)
+
               console.log('✅ UserStore: Bulk user creation completed')
-              toast.success('Bulk user creation completed!')
+              
+              if (response.data?.summary) {
+                const { successful, failed, skipped, emails_queued } = response.data.summary
+                let message = `Bulk creation completed: ${successful} created`
+                if (failed > 0) message += `, ${failed} failed`
+                if (skipped > 0) message += `, ${skipped} skipped`
+                if (emails_queued && emails_queued > 0) message += `. ${emails_queued} welcome emails queued.`
+                toast.success(message)
+              } else {
+                toast.success('Bulk user creation completed!')
+              }
+              
               return response.data
             } else {
               throw new Error(response.message || 'Failed to create users in bulk')
@@ -554,7 +805,24 @@ export const useUserStore = create<UserState>()(
               loading: { ...state.loading, bulkCreate: false },
               errors: { ...state.errors, bulkCreate: error.message || 'Failed to create users in bulk' },
             }))
-            toast.error(error.message || 'Failed to create users in bulk')
+            
+            let errorMessage = error.message || 'Failed to create users in bulk'
+            
+            if (error.response?.data?.errors || error.errors) {
+              const errors = error.response?.data?.errors || error.errors
+              if (typeof errors === 'object') {
+                const errorDetails = Object.entries(errors).map(([field, messages]) => {
+                  if (Array.isArray(messages)) {
+                    return `${field}: ${messages.join(', ')}`
+                  }
+                  return `${field}: ${messages}`
+                }).join('; ')
+                
+                errorMessage = `Validation failed: ${errorDetails}`
+              }
+            }
+            
+            toast.error(errorMessage)
             return null
           }
         },
@@ -574,15 +842,15 @@ export const useUserStore = create<UserState>()(
 
             if (response.success && response.data?.users) {
               // Generate and download CSV
-              const csvContent = this.generateCSV(response.data.users)
-              this.downloadCSV(csvContent, `users-export-${new Date().toISOString().split('T')[0]}.csv`)
+              const csvContent = generateCSV(response.data.users)
+              downloadCSV(csvContent, `users-export-${new Date().toISOString().split('T')[0]}.csv`)
 
               set((state) => ({
                 loading: { ...state.loading, export: false },
               }))
 
               console.log('✅ UserStore: Users exported successfully')
-              toast.success('Users exported successfully!')
+              toast.success(`${response.data.total_exported} users exported successfully!`)
             } else {
               throw new Error(response.message || 'Failed to export users')
             }
@@ -596,8 +864,8 @@ export const useUserStore = create<UserState>()(
           }
         },
 
-        // Filter management
-        setFilters: (newFilters: Partial<UserFilters>, autoFetch = false) => {
+        // Local filter management
+        setFilters: (newFilters: Partial<UserFilters>, autoApply = true) => {
           const state = get()
           
           // Reset to page 1 when changing non-pagination filters
@@ -615,23 +883,22 @@ export const useUserStore = create<UserState>()(
             filters: updatedFilters,
           }))
 
-          if (autoFetch) {
+          if (autoApply) {
             setTimeout(() => {
-              get().actions.fetchUsers()
-            }, 100)
+              get().actions.applyFilters()
+            }, 50)
           }
         },
 
-        clearFilters: (autoFetch = false) => {
+        clearFilters: (autoApply = true) => {
           set(() => ({
             filters: { ...defaultFilters },
-            pagination: { ...defaultPagination }
           }))
 
-          if (autoFetch) {
+          if (autoApply) {
             setTimeout(() => {
-              get().actions.fetchUsers()
-            }, 100)
+              get().actions.applyFilters()
+            }, 50)
           }
         },
 
@@ -663,7 +930,7 @@ export const useUserStore = create<UserState>()(
 
         selectAllUsers: () => {
           set((state) => {
-            const allUserIds = state.users.map((user) => user.id)
+            const allUserIds = state.displayedUsers.map((user) => user.id)
             return { selectedUsers: new Set(allUserIds) }
           })
         },
@@ -687,86 +954,104 @@ export const useUserStore = create<UserState>()(
 
         // Cache management
         invalidateCache: () => {
-          set(() => ({
-            lastFetch: { users: 0, stats: 0 },
+          set((state) => ({
+            cache: {
+              ...state.cache,
+              lastFetch: { users: 0, stats: 0 },
+              needsRefresh: true,
+            },
           }))
         },
 
         clearCache: () => {
           set(() => ({
-            users: [],
+            allUsers: [],
+            filteredUsers: [],
+            displayedUsers: [],
             currentUser: null,
             userStats: { ...defaultStats },
             selectedUsers: new Set(),
             pagination: { ...defaultPagination },
-            lastFetch: { users: 0, stats: 0 },
+            cache: {
+              lastFetch: { users: 0, stats: 0 },
+              isInitialized: false,
+              needsRefresh: false,
+            },
+          }))
+        },
+
+        markNeedsRefresh: () => {
+          set((state) => ({
+            cache: { ...state.cache, needsRefresh: true },
           }))
         },
       },
-
-      // Helper methods (private-like)
-      generateCSV: (users: User[]): string => {
-        const headers = ['ID', 'Name', 'Email', 'Role', 'Status', 'Phone', 'Last Login', 'Created At']
-        const rows = users.map((user: User) => [
-          user.id.toString(),
-          `"${user.name}"`,
-          user.email,
-          user.role,
-          user.status,
-          user.phone || '',
-          user.last_login_at || 'Never',
-          user.created_at
-        ])
-        
-        return [headers, ...rows]
-          .map((row: string[]) => row.join(','))
-          .join('\n')
-      },
-
-      downloadCSV: (content: string, filename: string) => {
-        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
-        const url = window.URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        
-        link.href = url
-        link.download = filename
-        link.style.display = 'none'
-        
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        
-        window.URL.revokeObjectURL(url)
-      }
     }),
     { name: 'user-store' }
   )
 )
 
+// Helper functions for CSV export
+function generateCSV(users: User[]): string {
+  const headers = ['ID', 'Name', 'Email', 'Role', 'Status', 'Phone', 'Last Login', 'Created At']
+  const rows = users.map((user: User) => [
+    user.id.toString(),
+    `"${user.name}"`,
+    user.email,
+    user.role,
+    user.status,
+    user.phone || '',
+    user.last_login_at || 'Never',
+    user.created_at
+  ])
+  
+  return [headers, ...rows]
+    .map((row: string[]) => row.join(','))
+    .join('\n')
+}
+
+function downloadCSV(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  
+  link.href = url
+  link.download = filename
+  link.style.display = 'none'
+  
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  
+  window.URL.revokeObjectURL(url)
+}
+
 // Export selectors and hooks
 export const useUserSelectors = () => {
-  const users = useUserStore((state) => state.users)
+  const allUsers = useUserStore((state) => state.allUsers)
+  const displayedUsers = useUserStore((state) => state.displayedUsers)
   const userStats = useUserStore((state) => state.userStats)
   const selectedUsers = useUserStore((state) => state.selectedUsers)
   const pagination = useUserStore((state) => state.pagination)
 
   return {
-    users,
+    // Use displayedUsers for current page, allUsers for stats
+    users: displayedUsers,
+    allUsers: allUsers,
     userStats,
     pagination,
     selectedUsersArray: Array.from(selectedUsers)
-      .map((id) => users.find((u) => u.id === id))
+      .map((id) => allUsers.find((u) => u.id === id))
       .filter(Boolean) as UserItem[],
 
-    // Computed data
-    activeUsers: users.filter((u) => u.status === 'active'),
-    inactiveUsers: users.filter((u) => u.status === 'inactive'),
-    suspendedUsers: users.filter((u) => u.status === 'suspended'),
-    
-    studentUsers: users.filter((u) => u.role === 'student'),
-    counselorUsers: users.filter((u) => u.role === 'counselor'),
-    advisorUsers: users.filter((u) => u.role === 'advisor'),
-    adminUsers: users.filter((u) => u.role === 'admin'),
+    // Computed data from all users
+    activeUsers: allUsers.filter((u) => u.status === 'active'),
+    inactiveUsers: allUsers.filter((u) => u.status === 'inactive'),
+    suspendedUsers: allUsers.filter((u) => u.status === 'suspended'),
+    studentUsers: allUsers.filter((u) => u.role === 'student'),
+    counselorUsers: allUsers.filter((u) => u.role === 'counselor'),
+    advisorUsers: allUsers.filter((u) => u.role === 'advisor'),
+    adminUsers: allUsers.filter((u) => u.role === 'admin'),
 
     // Pagination helpers
     hasNextPage: pagination.current_page < pagination.last_page,
@@ -798,28 +1083,28 @@ export const useUserFilters = () => {
     setFilters,
     clearFilters,
     hasActiveFilters: Object.entries(filters).some(([key, value]) => {
-      if (['page', 'per_page'].includes(key)) return false;
-      return value !== undefined && value !== null && value !== '' && value !== 'all';
+      if (['page', 'per_page'].includes(key)) return false
+      return value !== undefined && value !== null && value !== '' && value !== 'all'
     }),
   }
 }
 
 export const useUserStats = () => {
   const userStats = useUserStore((state) => state.userStats)
-  const users = useUserStore((state) => state.users)
+  const allUsers = useUserStore((state) => state.allUsers)
 
   return {
     stats: userStats,
     // Real-time computed stats from current data
     computed: {
-      total_users: users.length,
-      active_users: users.filter((u) => u.status === 'active').length,
-      inactive_users: users.filter((u) => u.status === 'inactive').length,
-      suspended_users: users.filter((u) => u.status === 'suspended').length,
-      students: users.filter((u) => u.role === 'student').length,
-      counselors: users.filter((u) => u.role === 'counselor').length,
-      advisors: users.filter((u) => u.role === 'advisor').length,
-      admins: users.filter((u) => u.role === 'admin').length,
+      total_users: allUsers.length,
+      active_users: allUsers.filter((u) => u.status === 'active').length,
+      inactive_users: allUsers.filter((u) => u.status === 'inactive').length,
+      suspended_users: allUsers.filter((u) => u.status === 'suspended').length,
+      students: allUsers.filter((u) => u.role === 'student').length,
+      counselors: allUsers.filter((u) => u.role === 'counselor').length,
+      advisors: allUsers.filter((u) => u.role === 'advisor').length,
+      admins: allUsers.filter((u) => u.role === 'admin').length,
     },
   }
 }
