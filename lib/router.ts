@@ -1,4 +1,4 @@
-// lib/router.ts - SIMPLIFIED: Removed complex slug logic to fix navigation issues
+// lib/router.ts - FIXED: Immediate navigation without loading delays
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
@@ -16,7 +16,6 @@ class AppRouter {
   private listeners: Set<(route: ParsedRoute) => void> = new Set()
   private currentRoute: ParsedRoute = { page: 'dashboard', params: {} }
   private isInitialized = false
-  private isNavigating = false
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -31,11 +30,6 @@ class AppRouter {
   }
 
   private handlePopState = () => {
-    if (this.isNavigating) {
-      console.log('🌐 Router: Ignoring popstate during navigation')
-      return
-    }
-
     const newRoute = this.parseURL()
     console.log('🌐 Router: Browser navigation detected:', newRoute)
     this.currentRoute = newRoute
@@ -59,7 +53,7 @@ class AppRouter {
 
     const [firstSegment, ...restSegments] = segments
 
-    // SIMPLIFIED: Handle route patterns without complex slug logic
+    // Handle route patterns
     switch (firstSegment) {
       case 'dashboard':
         return { page: 'dashboard', params: {} }
@@ -69,11 +63,11 @@ class AppRouter {
           return { page: 'tickets', params: {} }
         }
         
-        // SIMPLIFIED: Just use ticket ID, no slug complexity
+        // Parse ticket ID from URL
         const ticketIdentifier = restSegments[0]
         const ticketId = parseInt(ticketIdentifier)
         
-        if (!isNaN(ticketId)) {
+        if (!isNaN(ticketId) && ticketId > 0) {
           console.log('🌐 Router: Parsed ticket ID:', ticketId)
           return {
             page: 'ticket-details',
@@ -121,71 +115,41 @@ class AppRouter {
     return { page: 'dashboard', params: {} }
   }
 
-  // SIMPLIFIED: Navigation without complex slug handling
+  // FIXED: Immediate navigation without delays
   public navigate(page: string, params: RouteParams = {}) {
-    if (this.isNavigating) {
-      console.warn('🌐 Router: Navigation blocked - already navigating')
-      return
-    }
-
-    this.isNavigating = true
+    const newRoute = { page, params }
+    const url = this.buildURL(page, params)
     
-    try {
-      const newRoute = { page, params }
-      const url = this.buildURL(page, params)
-      
-      console.log('🌐 Router: Navigating to:', page, params, '-> URL:', url)
-      
-      // Update browser URL
-      if (typeof window !== 'undefined') {
-        window.history.pushState(null, '', url)
-      }
-      
-      // Update current route and notify listeners
-      this.currentRoute = newRoute
-      
-      setTimeout(() => {
-        this.notifyListeners()
-        this.isNavigating = false
-      }, 0)
-      
-    } catch (error) {
-      console.error('🌐 Router: Navigation error:', error)
-      this.isNavigating = false
+    console.log('🌐 Router: Immediate navigation to:', page, params, '-> URL:', url)
+    
+    // Update browser URL immediately
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', url)
     }
+    
+    // Update current route immediately
+    this.currentRoute = newRoute
+    
+    // Notify listeners immediately (synchronously)
+    this.notifyListeners()
   }
 
   public replace(page: string, params: RouteParams = {}) {
-    if (this.isNavigating) {
-      console.warn('🌐 Router: Replace blocked - already navigating')
-      return
-    }
-
-    this.isNavigating = true
+    const newRoute = { page, params }
+    const url = this.buildURL(page, params)
     
-    try {
-      const newRoute = { page, params }
-      const url = this.buildURL(page, params)
-      
-      console.log('🌐 Router: Replacing route to:', page, params, '-> URL:', url)
-      
-      // Replace browser URL
-      if (typeof window !== 'undefined') {
-        window.history.replaceState(null, '', url)
-      }
-      
-      // Update current route and notify listeners
-      this.currentRoute = newRoute
-      
-      setTimeout(() => {
-        this.notifyListeners()
-        this.isNavigating = false
-      }, 0)
-      
-    } catch (error) {
-      console.error('🌐 Router: Replace error:', error)
-      this.isNavigating = false
+    console.log('🌐 Router: Immediate replace to:', page, params, '-> URL:', url)
+    
+    // Replace browser URL immediately
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', url)
     }
+    
+    // Update current route immediately
+    this.currentRoute = newRoute
+    
+    // Notify listeners immediately (synchronously)
+    this.notifyListeners()
   }
 
   private buildURL(page: string, params: RouteParams): string {
@@ -200,7 +164,7 @@ class AppRouter {
         return '/submit-ticket'
       
       case 'ticket-details':
-        // SIMPLIFIED: Just use ticket ID in URL
+        // Just use ticket ID in URL
         if (params.ticketId) {
           return `/tickets/${params.ticketId}`
         }
@@ -241,15 +205,13 @@ class AppRouter {
   public subscribe(listener: (route: ParsedRoute) => void) {
     this.listeners.add(listener)
     
-    // Immediately call the listener with current route if initialized
+    // Immediately call the listener with current route
     if (this.isInitialized) {
-      setTimeout(() => {
-        try {
-          listener(this.currentRoute)
-        } catch (error) {
-          console.error('🌐 Router: Error in initial listener call:', error)
-        }
-      }, 0)
+      try {
+        listener(this.currentRoute)
+      } catch (error) {
+        console.error('🌐 Router: Error in initial listener call:', error)
+      }
     }
     
     // Return unsubscribe function
@@ -258,20 +220,15 @@ class AppRouter {
     }
   }
 
+  // FIXED: Immediate synchronous notification
   private notifyListeners() {
-    console.log('🌐 Router: Notifying listeners of route change:', this.currentRoute)
+    console.log('🌐 Router: Notifying listeners immediately:', this.currentRoute)
     
     this.listeners.forEach(listener => {
       try {
-        setTimeout(() => {
-          try {
-            listener(this.currentRoute)
-          } catch (error) {
-            console.error('🌐 Router: Error in route listener:', error)
-          }
-        }, 0)
+        listener(this.currentRoute)
       } catch (error) {
-        console.error('🌐 Router: Error scheduling listener:', error)
+        console.error('🌐 Router: Error in route listener:', error)
       }
     })
   }
@@ -280,13 +237,11 @@ class AppRouter {
     return this.currentRoute
   }
 
-  // SIMPLIFIED: Generate ticket URLs without slug complexity
   public generateTicketURL(ticketId: number): string {
     const baseURL = typeof window !== 'undefined' ? window.location.origin : ''
     return `${baseURL}/tickets/${ticketId}`
   }
 
-  // SIMPLIFIED: Validate ticket URLs
   public isValidTicketURL(url: string): boolean {
     try {
       const urlObj = new URL(url)
@@ -306,18 +261,10 @@ class AppRouter {
 
   // Force re-parse of current URL
   public refreshRoute() {
-    if (this.isNavigating) {
-      console.warn('🌐 Router: Cannot refresh during navigation')
-      return
-    }
-    
     console.log('🌐 Router: Force refreshing route')
     const newRoute = this.parseURL()
     this.currentRoute = newRoute
-    
-    setTimeout(() => {
-      this.notifyListeners()
-    }, 0)
+    this.notifyListeners()
   }
 
   public destroy() {
@@ -325,51 +272,36 @@ class AppRouter {
       window.removeEventListener('popstate', this.handlePopState)
     }
     this.listeners.clear()
-    this.isNavigating = false
     console.log('🌐 Router: Destroyed')
-  }
-
-  public resetNavigationState() {
-    this.isNavigating = false
   }
 }
 
 // Singleton instance
 export const appRouter = new AppRouter()
 
-// SIMPLIFIED React hook for using the router
+// FIXED React hook for immediate router updates
 export function useAppRouter() {
   const [currentRoute, setCurrentRoute] = useState<ParsedRoute>(() => {
     return appRouter.getCurrentRoute()
   })
-  const [isReady, setIsReady] = useState(false)
+  const [isReady, setIsReady] = useState(true) // Always ready for immediate navigation
 
   useEffect(() => {
     console.log('🌐 useAppRouter: Setting up router subscription')
-    let mounted = true
     
     // Subscribe to route changes
     const unsubscribe = appRouter.subscribe((route) => {
-      if (mounted) {
-        console.log('🌐 useAppRouter: Route changed to:', route)
-        setCurrentRoute(route)
-        setIsReady(true)
-      }
+      console.log('🌐 useAppRouter: Route changed to:', route)
+      setCurrentRoute(route)
     })
     
-    // Set initial route and mark as ready
+    // Set initial route
     const initialRoute = appRouter.getCurrentRoute()
-    if (mounted) {
-      setCurrentRoute(initialRoute)
-      setIsReady(true)
-    }
+    setCurrentRoute(initialRoute)
     
     console.log('🌐 useAppRouter: Initial route set:', initialRoute)
     
-    return () => {
-      mounted = false
-      unsubscribe()
-    }
+    return unsubscribe
   }, [])
 
   const navigate = useCallback((page: string, params: RouteParams = {}) => {
@@ -408,7 +340,7 @@ export function useAppRouter() {
   }
 }
 
-// SIMPLIFIED: Utility function to handle ticket navigation
+// Utility function to handle ticket navigation
 export function navigateToTicket(ticketId: number) {
   console.log('🌐 navigateToTicket:', ticketId)
   appRouter.navigate('ticket-details', { ticketId })
@@ -441,74 +373,6 @@ export function handleTicketNavigation(onTicketChange: (ticketId: number | null)
       console.error('🌐 handleTicketNavigation: Error in ticket navigation handler:', error)
       onTicketChange(null)
     }
-  })
-}
-
-// Safe page transition helper
-export function safePageTransition(page: string, params: RouteParams = {}, timeout: number = 5000): Promise<boolean> {
-  return new Promise((resolve) => {
-    let timeoutId: NodeJS.Timeout
-    let unsubscribe: (() => void) | null = null
-    
-    try {
-      // Set up timeout to prevent hanging
-      timeoutId = setTimeout(() => {
-        console.warn('🌐 Router: Page transition timeout')
-        if (unsubscribe) unsubscribe()
-        resolve(false)
-      }, timeout)
-      
-      // Subscribe to route changes
-      unsubscribe = appRouter.subscribe((route) => {
-        if (route.page === page) {
-          console.log('✅ Router: Page transition completed:', page)
-          clearTimeout(timeoutId)
-          if (unsubscribe) unsubscribe()
-          resolve(true)
-        }
-      })
-      
-      // Trigger navigation
-      appRouter.navigate(page, params)
-      
-    } catch (error) {
-      console.error('❌ Router: Page transition failed:', error)
-      clearTimeout(timeoutId!)
-      if (unsubscribe) unsubscribe()
-      resolve(false)
-    }
-  })
-}
-
-// Check if current navigation is safe
-export function isNavigationSafe(): boolean {
-  try {
-    const router = appRouter as any
-    return !router.isNavigating && router.isInitialized
-  } catch {
-    return false
-  }
-}
-
-// Wait for safe navigation state
-export function waitForSafeNavigation(timeout: number = 3000): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (isNavigationSafe()) {
-      resolve(true)
-      return
-    }
-    
-    const startTime = Date.now()
-    const checkInterval = setInterval(() => {
-      if (isNavigationSafe()) {
-        clearInterval(checkInterval)
-        resolve(true)
-      } else if (Date.now() - startTime > timeout) {
-        clearInterval(checkInterval)
-        console.warn('🌐 Router: Wait for safe navigation timeout')
-        resolve(false)
-      }
-    }, 100)
   })
 }
 

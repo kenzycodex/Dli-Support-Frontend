@@ -1,4 +1,4 @@
-// app/page.tsx - SIMPLIFIED: Fixed router integration without slug complexity
+// app/page.tsx - FIXED: Immediate navigation without loading delays
 
 "use client"
 
@@ -30,20 +30,18 @@ function AppContent() {
   const { page, params, navigate, isReady } = useAppRouter()
   const [isInitialized, setIsInitialized] = useState(false)
 
-  // Wait for router to be ready before rendering
+  // FIXED: Immediate initialization without waiting
   useEffect(() => {
-    if (isReady) {
-      console.log('🌐 App: Router is ready, current route:', { page, params })
-      setIsInitialized(true)
-    }
-  }, [isReady, page, params])
+    console.log('🌐 App: Router state:', { page, params, isReady })
+    setIsInitialized(true)
+  }, [page, params, isReady])
 
   const handleLogout = () => {
     logout()
     navigate('dashboard')
   }
 
-  // SIMPLIFIED: Page rendering without complex slug handling
+  // FIXED: Immediate page rendering
   const renderPage = () => {
     console.log('🌐 App: Rendering page:', page, 'with params:', params)
     
@@ -71,14 +69,15 @@ function AppContent() {
         return <SubmitTicketPage onNavigate={navigate} />
       
       case "ticket-details":
-        // SIMPLIFIED: Only use ticket ID, no slug complexity
+        // FIXED: Immediate ticket details rendering
         const ticketId = params.ticketId as number
         
         console.log('🌐 App: Rendering ticket details with ID:', ticketId)
         
-        if (!ticketId || isNaN(ticketId)) {
+        if (!ticketId || isNaN(ticketId) || ticketId <= 0) {
           console.warn('🌐 App: Invalid ticket ID, redirecting to tickets')
-          navigate('tickets')
+          // Use setTimeout to avoid infinite redirect loops
+          setTimeout(() => navigate('tickets'), 0)
           return <TicketsPage onNavigate={navigate} />
         }
         
@@ -118,20 +117,20 @@ function AppContent() {
       
       default:
         console.warn('🌐 App: Unknown page:', page, 'redirecting to dashboard')
-        // Redirect to dashboard for unknown pages
-        setTimeout(() => navigate('dashboard'), 100)
+        // Use setTimeout to avoid infinite redirect loops
+        setTimeout(() => navigate('dashboard'), 0)
         return <StudentDashboard user={user!} onNavigate={navigate} />
     }
   }
 
-  // Show loading state while router initializes
-  if (!isInitialized || !isReady) {
+  // FIXED: Only show loading on first mount, not on route changes
+  if (!isInitialized && !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Initializing Application</h3>
-          <p className="text-gray-600">Setting up your workspace...</p>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Loading Application</h3>
+          <p className="text-gray-600">Please wait...</p>
         </div>
       </div>
     )

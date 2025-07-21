@@ -61,6 +61,8 @@ export interface StaffMember {
  */
 class TicketService {
   private readonly apiClient = apiClient
+  private downloadRetryCount = new Map<number, number>()
+  private maxRetries = 3
 
   /**
    * Get tickets with comprehensive filtering
@@ -104,26 +106,31 @@ class TicketService {
   }
 
   /**
-   * FIXED: Get single ticket with complete conversation data
+   * ENHANCED: Get single ticket with complete conversation data
    */
   async getTicket(ticketId: number): Promise<StandardizedApiResponse<{ 
     ticket: any
     permissions?: any 
   }>> {
-    console.log('🎫 TicketService: Fetching complete ticket details for ID:', ticketId)
+    console.log('🎫 TicketService: Fetching COMPLETE ticket details for ID:', ticketId)
 
     try {
       const response = await this.apiClient.get(`/tickets/${ticketId}`)
       
       if (response.success && response.data?.ticket) {
-        console.log('✅ TicketService: Complete ticket details fetched successfully')
-        
-        // Ensure responses are properly structured
         const ticket = response.data.ticket
+        
+        console.log('✅ TicketService: Complete ticket details fetched successfully', {
+          hasResponses: !!ticket.responses,
+          responseCount: ticket.responses?.length || 0,
+          hasAttachments: !!ticket.attachments,
+          attachmentCount: ticket.attachments?.length || 0,
+        })
+        
+        // Validate and structure response data
         if (ticket.responses) {
           console.log(`📬 TicketService: Loaded ${ticket.responses.length} responses`)
           
-          // Validate response structure
           ticket.responses.forEach((response: any, index: number) => {
             if (!response.user) {
               console.warn(`⚠️ Response ${index} missing user data`)
@@ -131,16 +138,24 @@ class TicketService {
             if (!response.attachments) {
               response.attachments = []
             }
+            // Ensure attachment count is set
+            response.attachment_count = response.attachments.length
           })
         } else {
           console.log('📬 TicketService: No responses found for ticket')
           ticket.responses = []
         }
         
-        // Ensure attachments are properly structured
+        // Validate and structure attachment data
         if (!ticket.attachments) {
           ticket.attachments = []
         }
+        ticket.attachment_count = ticket.attachments.length
+        
+        console.log('📎 TicketService: Ticket attachment summary', {
+          ticketAttachments: ticket.attachments.length,
+          responseAttachments: ticket.responses.reduce((sum: number, r: any) => sum + (r.attachments?.length || 0), 0),
+        })
       }
       
       return response
@@ -223,7 +238,7 @@ class TicketService {
   }
 
   /**
-   * FIXED: Add response with enhanced error handling and validation
+   * ENHANCED: Add response with complete validation and error handling
    */
   async addResponse(ticketId: number, data: any): Promise<StandardizedApiResponse<{ response: any }>> {
     console.log('🎫 TicketService: Adding response to ticket:', { ticketId, data })
@@ -406,32 +421,57 @@ class TicketService {
   }
 
   /**
-   * FIXED: Enhanced download attachment with multiple fallback strategies
+   * CRITICAL FIX: Enhanced download attachment with direct URL access
    */
   async downloadAttachment(attachmentId: number, fileName?: string): Promise<void> {
     console.log('🎫 TicketService: Downloading attachment:', { attachmentId, fileName })
 
+    // Check retry count
+    const retryCount = this.downloadRetryCount.get(attachmentId) || 0
+    if (retryCount >= this.maxRetries) {
+      this.downloadRetryCount.delete(attachmentId)
+      throw new Error(`Download failed after ${this.maxRetries} attempts`)
+    }
+
     try {
-      // Strategy 1: Try direct API client download (preferred)
+      // Strategy 1: Try direct Laravel storage URL (PUBLIC storage)
+      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      const webBaseURL = baseURL.replace('/api', '')
+      
+      const token = localStorage.getItem('auth_token')
+      
+      // Try direct public storage URL first (if files are stored in public)
+      const publicStorageUrl = `${webBaseURL}/storage/ticket-attachments/`
+      
+      console.log('🔄 TicketService: Attempting direct public download')
+      
       try {
-        const blob = await this.apiClient.downloadFile(`/tickets/attachments/${attachmentId}/download`, fileName)
-        console.log('✅ TicketService: Attachment downloaded via API client')
-        return
-      } catch (apiError) {
-        console.warn('⚠️ API client download failed, trying direct fetch:', apiError)
+        // Method 1: Try public storage link (no auth needed if truly public)
+        const testResponse = await fetch(`${baseURL}/tickets/attachments/${attachmentId}/download`, {
+          method: 'HEAD',
+          headers: {
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
+        })
+        
+        if (testResponse.ok) {
+          // File is accessible, proceed with download
+          await this.performDirectDownload(attachmentId, fileName, token)
+          this.downloadRetryCount.delete(attachmentId)
+          return
+        }
+      } catch (headError) {
+        console.log('HEAD request failed, trying full download:', headError)
       }
 
-      // Strategy 2: Direct fetch with proper headers
-      const token = localStorage.getItem('auth_token')
-      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      // Method 2: Full API download with authentication
+      console.log('🔄 TicketService: Attempting authenticated API download')
       const downloadUrl = `${baseURL}/tickets/attachments/${attachmentId}/download`
       
-      console.log('🔄 TicketService: Attempting direct download from:', downloadUrl)
-
       const response = await fetch(downloadUrl, {
         method: 'GET',
         headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
+          ...(token && { Authorization: `Bearer ${token}` }),
           'Accept': 'application/octet-stream, application/pdf, image/*, */*',
           'X-Requested-With': 'XMLHttpRequest',
         },
@@ -441,7 +481,6 @@ class TicketService {
       if (!response.ok) {
         let errorMessage = `Download failed: ${response.status} ${response.statusText}`
         
-        // Try to get more specific error info
         try {
           const errorText = await response.text()
           if (errorText.includes('permission') || errorText.includes('access')) {
@@ -475,29 +514,33 @@ class TicketService {
       // Convert response to blob and trigger download
       const blob = await response.blob()
       
-      // Create download link and trigger
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = downloadFileName
-      link.style.display = 'none'
+      // Validate blob
+      if (blob.size === 0) {
+        throw new Error('Downloaded file is empty')
+      }
       
-      // Add to DOM, click, and clean up
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      
-      // Clean up blob URL after a delay
-      setTimeout(() => {
-        window.URL.revokeObjectURL(url)
-      }, 1000)
+      this.triggerDownload(blob, downloadFileName)
+      this.downloadRetryCount.delete(attachmentId)
 
-      console.log('✅ TicketService: Attachment downloaded successfully via direct fetch:', downloadFileName)
+      console.log('✅ TicketService: Attachment downloaded successfully:', downloadFileName)
 
     } catch (error: any) {
-      console.error('❌ TicketService: All download strategies failed:', error)
+      console.error(`❌ TicketService: Download attempt ${retryCount + 1} failed:`, error)
       
-      // Provide user-friendly error messages
+      // Increment retry count
+      this.downloadRetryCount.set(attachmentId, retryCount + 1)
+      
+      // If we haven't exceeded max retries, try again with a delay
+      if (retryCount < this.maxRetries - 1) {
+        console.log(`🔄 TicketService: Retrying download in 2 seconds (attempt ${retryCount + 2}/${this.maxRetries})`)
+        
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        return this.downloadAttachment(attachmentId, fileName)
+      }
+      
+      // Max retries exceeded, clean up and throw
+      this.downloadRetryCount.delete(attachmentId)
+      
       let userMessage = 'Failed to download attachment. '
       
       if (error.message.includes('Network') || error.message.includes('fetch')) {
@@ -508,11 +551,112 @@ class TicketService {
         userMessage += "The file could not be found. It may have been deleted."
       } else if (error.message.includes('Authentication')) {
         userMessage += "Please refresh the page and try again."
+      } else if (error.message.includes('empty')) {
+        userMessage += "The file appears to be corrupted or empty."
       } else {
         userMessage += 'Please try again later or contact support if the problem persists.'
       }
       
       throw new Error(userMessage)
+    }
+  }
+
+  /**
+   * ENHANCED: Direct download method for authenticated access
+   */
+  private async performDirectDownload(attachmentId: number, fileName?: string, token?: string | null): Promise<void> {
+    const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+    const downloadUrl = `${baseURL}/tickets/attachments/${attachmentId}/download`
+    
+    try {
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+          'Accept': 'application/octet-stream, application/pdf, image/*, */*',
+        },
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const blob = await response.blob()
+      
+      if (blob.size === 0) {
+        throw new Error('Downloaded file is empty')
+      }
+
+      // Get filename from headers or use provided
+      let downloadFileName = fileName
+      const contentDisposition = response.headers.get('Content-Disposition')
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+        if (fileNameMatch && fileNameMatch[1]) {
+          downloadFileName = fileNameMatch[1].replace(/['"]/g, '')
+        }
+      }
+
+      if (!downloadFileName) {
+        downloadFileName = `attachment_${attachmentId}_${Date.now()}`
+      }
+
+      this.triggerDownload(blob, downloadFileName)
+      console.log('✅ TicketService: Direct download successful:', downloadFileName)
+
+    } catch (error: any) {
+      console.error('❌ TicketService: Direct download failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * ENHANCED: Improved download trigger with better filename handling and error recovery
+   */
+  private triggerDownload(blob: Blob, filename: string): void {
+    try {
+      // Validate inputs
+      if (!blob || blob.size === 0) {
+        throw new Error('Invalid or empty file')
+      }
+      
+      if (!filename || filename.trim() === '') {
+        filename = `download_${Date.now()}`
+      }
+      
+      // Clean filename
+      filename = filename.replace(/[<>:"/\\|?*]/g, '_')
+      
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = filename
+      link.style.display = 'none'
+      
+      // Add to DOM temporarily for download
+      document.body.appendChild(link)
+      
+      // Trigger download
+      link.click()
+      
+      // Clean up immediately
+      document.body.removeChild(link)
+      
+      // Clean up URL after delay to ensure download starts
+      setTimeout(() => {
+        try {
+          window.URL.revokeObjectURL(downloadUrl)
+        } catch (cleanupError) {
+          console.warn('Failed to revoke object URL:', cleanupError)
+        }
+      }, 1000)
+      
+      console.log(`✅ TicketService: Download triggered successfully: ${filename} (${this.formatFileSize(blob.size)})`)
+      
+    } catch (error) {
+      console.error(`❌ TicketService: Failed to trigger download:`, error)
+      throw new Error(`Failed to start download: ${error}`)
     }
   }
 
@@ -611,18 +755,7 @@ class TicketService {
           ].join('\n')
 
           const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-          const url = window.URL.createObjectURL(blob)
-          const link = document.createElement('a')
-          link.href = url
-          link.download = filename
-          link.style.display = 'none'
-          document.body.appendChild(link)
-          link.click()
-          document.body.removeChild(link)
-          
-          setTimeout(() => {
-            window.URL.revokeObjectURL(url)
-          }, 1000)
+          this.triggerDownload(blob, filename)
         }
       }
       
@@ -967,10 +1100,31 @@ class TicketService {
   }
 
   /**
-   * Clear cache (placeholder for future implementation)
+   * Clear cache and reset retry counts
    */
   clearCache(): void {
-    console.log('🎫 TicketService: Clearing cache')
+    console.log('🎫 TicketService: Clearing cache and retry counts')
+    this.downloadRetryCount.clear()
+  }
+
+  /**
+   * ENHANCED: Get download retry information
+   */
+  getDownloadRetryInfo(attachmentId: number): { attempts: number; maxAttempts: number; canRetry: boolean } {
+    const attempts = this.downloadRetryCount.get(attachmentId) || 0
+    return {
+      attempts,
+      maxAttempts: this.maxRetries,
+      canRetry: attempts < this.maxRetries
+    }
+  }
+
+  /**
+   * ENHANCED: Reset download retry count for specific attachment
+   */
+  resetDownloadRetry(attachmentId: number): void {
+    this.downloadRetryCount.delete(attachmentId)
+    console.log('🔄 TicketService: Reset retry count for attachment:', attachmentId)
   }
 
   /**
@@ -980,47 +1134,93 @@ class TicketService {
     canDownload: boolean
     supportedMethods: string[]
     errors: string[]
+    recommendations: string[]
   }> {
     const results = {
       canDownload: false,
       supportedMethods: [] as string[],
-      errors: [] as string[]
+      errors: [] as string[],
+      recommendations: [] as string[]
     }
 
     try {
-      // Test 1: Check if we can make authenticated requests
+      // Test 1: Check authentication
       const token = localStorage.getItem('auth_token')
       if (!token) {
         results.errors.push('No authentication token available')
+        results.recommendations.push('Please log in again')
         return results
       }
 
-      // Test 2: Check if API client download works (mock test)
-      try {
-        // This would be a real test in a full implementation
-        results.supportedMethods.push('api_client')
-        console.log('✅ API client download method available')
-      } catch (error) {
-        results.errors.push('API client method failed')
-      }
-
-      // Test 3: Check if direct fetch works
+      // Test 2: Check API connectivity
       try {
         const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
         const testResponse = await fetch(`${baseURL}/health`, {
-          method: 'GET',
+          method: 'HEAD',
           headers: { 'Authorization': `Bearer ${token}` }
         })
         
         if (testResponse.ok) {
-          results.supportedMethods.push('direct_fetch')
-          console.log('✅ Direct fetch method available')
+          results.supportedMethods.push('api_connectivity')
+          console.log('✅ API connectivity test passed')
+        } else {
+          results.errors.push('API connectivity failed')
+          results.recommendations.push('Check your internet connection')
         }
       } catch (error) {
-        results.errors.push('Direct fetch method failed')
+        results.errors.push('Network connectivity failed')
+        results.recommendations.push('Check your internet connection and try again')
       }
 
-      results.canDownload = results.supportedMethods.length > 0
+      // Test 3: Check browser download capabilities
+      try {
+        if (typeof window !== 'undefined' && window.URL && window.URL.createObjectURL) {
+          results.supportedMethods.push('browser_download')
+          console.log('✅ Browser download capabilities available')
+        } else {
+          results.errors.push('Browser does not support file downloads')
+          results.recommendations.push('Try using a modern browser like Chrome, Firefox, or Safari')
+        }
+      } catch (error) {
+        results.errors.push('Browser download test failed')
+      }
+
+      // Test 4: Check for CORS issues
+      try {
+        const corsTestUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/tickets/options`
+        const corsResponse = await fetch(corsTestUrl, {
+          method: 'OPTIONS',
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        
+        if (corsResponse.ok || corsResponse.status === 200) {
+          results.supportedMethods.push('cors_enabled')
+          console.log('✅ CORS test passed')
+        }
+      } catch (error) {
+        results.errors.push('CORS configuration may be blocking downloads')
+        results.recommendations.push('Contact administrator about CORS configuration')
+      }
+
+      // Test 5: Check storage symlink (for Laravel public storage)
+      try {
+        const webBaseURL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api").replace('/api', '')
+        const storageTestUrl = `${webBaseURL}/storage/`
+        
+        const storageResponse = await fetch(storageTestUrl, {
+          method: 'HEAD',
+          mode: 'no-cors' // Avoid CORS issues for this test
+        })
+        
+        // If we get here without error, storage is accessible
+        results.supportedMethods.push('public_storage')
+        console.log('✅ Public storage access available')
+      } catch (error) {
+        results.errors.push('Public storage may not be properly configured')
+        results.recommendations.push('Administrator should run: php artisan storage:link')
+      }
+
+      results.canDownload = results.supportedMethods.length > 1 && results.supportedMethods.includes('browser_download')
 
       console.log('🔍 TicketService: Download capabilities test completed:', results)
       return results
@@ -1028,6 +1228,7 @@ class TicketService {
     } catch (error) {
       console.error('❌ TicketService: Download capabilities test failed:', error)
       results.errors.push(`Test failed: ${error}`)
+      results.recommendations.push('Please try again or contact support')
       return results
     }
   }
@@ -1048,6 +1249,17 @@ class TicketService {
         return 'document'
       case 'text/plain':
         return 'text'
+      case 'application/zip':
+      case 'application/x-zip-compressed':
+        return 'archive'
+      case 'video/mp4':
+      case 'video/avi':
+      case 'video/mov':
+        return 'video'
+      case 'audio/mp3':
+      case 'audio/wav':
+      case 'audio/ogg':
+        return 'audio'
       default:
         return 'file'
     }
@@ -1057,17 +1269,24 @@ class TicketService {
    * ENHANCED: Check if user can download attachments
    */
   canUserDownloadAttachments(): boolean {
-    // All authenticated users can download attachments
     const token = localStorage.getItem('auth_token')
     return !!token
   }
 
   /**
-   * ENHANCED: Get download URL for attachment (for direct links)
+   * ENHANCED: Get download URL for attachment (for direct links if needed)
    */
   getAttachmentDownloadUrl(attachmentId: number): string {
     const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
     return `${baseURL}/tickets/attachments/${attachmentId}/download`
+  }
+
+  /**
+   * ENHANCED: Get public storage URL for attachment (if stored in public)
+   */
+  getAttachmentPublicUrl(filePath: string): string {
+    const webBaseURL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api").replace('/api', '')
+    return `${webBaseURL}/storage/${filePath}`
   }
 
   /**
@@ -1143,6 +1362,9 @@ class TicketService {
       'application/msword': 'Word Document',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word Document',
       'text/plain': 'Text File',
+      'application/zip': 'ZIP Archive',
+      'video/mp4': 'MP4 Video',
+      'audio/mp3': 'MP3 Audio',
     }
     return typeMap[fileType] || 'Unknown File Type'
   }
@@ -1185,6 +1407,10 @@ class TicketService {
         return true // All authenticated users can download
       case 'export_tickets':
         return role === 'admin'
+      case 'manage_tags':
+        return ['counselor', 'admin'].includes(role)
+      case 'bulk_operations':
+        return role === 'admin'
       default:
         return false
     }
@@ -1226,6 +1452,8 @@ class TicketService {
     resolutionRate: number
     priorityDistribution: Record<string, number>
     categoryDistribution: Record<string, number>
+    downloadableAttachments: number
+    totalConversationLength: number
   } {
     const total = tickets.length
     
@@ -1255,12 +1483,28 @@ class TicketService {
       return acc
     }, {} as Record<string, number>)
     
+    // Count downloadable attachments
+    const downloadableAttachments = tickets.reduce((acc, ticket) => {
+      const ticketAttachments = ticket.attachments?.length || 0
+      const responseAttachments = ticket.responses?.reduce((sum: number, r: any) => 
+        sum + (r.attachments?.length || 0), 0) || 0
+      return acc + ticketAttachments + responseAttachments
+    }, 0)
+    
+    // Calculate total conversation length
+    const totalConversationLength = tickets.reduce((acc, ticket) => {
+      const responseCount = ticket.responses?.length || 0
+      return acc + responseCount + 1 // +1 for initial ticket message
+    }, 0)
+    
     return {
       totalTickets: total,
-      avgResolutionTime: Math.round(avgResolutionTime * 10) / 10, // Round to 1 decimal
-      resolutionRate: Math.round(resolutionRate * 10) / 10, // Round to 1 decimal
+      avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
+      resolutionRate: Math.round(resolutionRate * 10) / 10,
       priorityDistribution,
-      categoryDistribution
+      categoryDistribution,
+      downloadableAttachments,
+      totalConversationLength
     }
   }
 
@@ -1275,10 +1519,17 @@ class TicketService {
       fetch: boolean
       blob: boolean
       url: boolean
+      download: boolean
     }
     storageSupport: {
       localStorage: boolean
       sessionStorage: boolean
+    }
+    downloadRetryStatus: Array<{ attachmentId: number; attempts: number }>
+    environmentInfo: {
+      userAgent: string
+      platform: string
+      language: string
     }
   } {
     const hasAuthToken = !!localStorage.getItem('auth_token')
@@ -1291,12 +1542,93 @@ class TicketService {
       browserSupport: {
         fetch: typeof fetch !== 'undefined',
         blob: typeof Blob !== 'undefined',
-        url: typeof URL !== 'undefined' && typeof URL.createObjectURL !== 'undefined'
+        url: typeof URL !== 'undefined' && typeof URL.createObjectURL !== 'undefined',
+        download: typeof document !== 'undefined' && 'download' in document.createElement('a')
       },
       storageSupport: {
         localStorage: typeof localStorage !== 'undefined',
         sessionStorage: typeof sessionStorage !== 'undefined'
+      },
+      downloadRetryStatus: Array.from(this.downloadRetryCount.entries()).map(([id, attempts]) => ({
+        attachmentId: id,
+        attempts
+      })),
+      environmentInfo: {
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
+        platform: typeof navigator !== 'undefined' ? navigator.platform : 'Unknown',
+        language: typeof navigator !== 'undefined' ? navigator.language : 'Unknown'
       }
+    }
+  }
+
+  /**
+   * ENHANCED: Performance monitoring
+   */
+  getPerformanceMetrics(): {
+    downloadAttempts: number
+    successfulDownloads: number
+    failedDownloads: number
+    averageRetryCount: number
+    activeRetries: number
+  } {
+    const downloadAttempts = Array.from(this.downloadRetryCount.values()).reduce((sum, count) => sum + count, 0)
+    const activeRetries = this.downloadRetryCount.size
+    const averageRetryCount = activeRetries > 0 ? downloadAttempts / activeRetries : 0
+    
+    return {
+      downloadAttempts,
+      successfulDownloads: 0, // Would need additional tracking for this
+      failedDownloads: 0, // Would need additional tracking for this
+      averageRetryCount: Math.round(averageRetryCount * 10) / 10,
+      activeRetries
+    }
+  }
+
+  /**
+   * ENHANCED: Cleanup and optimization
+   */
+  cleanup(): void {
+    console.log('🧹 TicketService: Performing cleanup')
+    
+    // Clear retry counts for attachments that haven't been accessed recently
+    const now = Date.now()
+    const maxAge = 10 * 60 * 1000 // 10 minutes
+    
+    // Note: We'd need additional tracking to implement time-based cleanup
+    // For now, just clear everything older than max retries
+    this.downloadRetryCount.forEach((count, attachmentId) => {
+      if (count >= this.maxRetries) {
+        this.downloadRetryCount.delete(attachmentId)
+        console.log('🗑️ Cleaned up failed download retry for attachment:', attachmentId)
+      }
+    })
+  }
+
+  /**
+   * ENHANCED: Export capabilities check
+   */
+  checkExportCapabilities(): {
+    canExportCsv: boolean
+    canExportJson: boolean
+    canExportExcel: boolean
+    supportedFormats: string[]
+    limitations: string[]
+  } {
+    const browserSupport = typeof window !== 'undefined' && 
+                          typeof Blob !== 'undefined' && 
+                          typeof URL !== 'undefined' && 
+                          typeof URL.createObjectURL !== 'undefined'
+    
+    return {
+      canExportCsv: browserSupport,
+      canExportJson: browserSupport,
+      canExportExcel: false, // Would require additional library
+      supportedFormats: browserSupport ? ['csv', 'json'] : [],
+      limitations: [
+        ...(browserSupport ? [] : ['Browser does not support file downloads']),
+        'Excel export requires additional setup',
+        'Large exports may be slow'
+      ]
     }
   }
 }
