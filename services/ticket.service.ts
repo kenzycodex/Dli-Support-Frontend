@@ -421,7 +421,7 @@ class TicketService {
   }
 
   /**
-   * CRITICAL FIX: Enhanced download attachment with direct URL access
+   * CRITICAL FIX: Enhanced download attachment with proper error handling and retry logic
    */
   async downloadAttachment(attachmentId: number, fileName?: string): Promise<void> {
     console.log('🎫 TicketService: Downloading attachment:', { attachmentId, fileName })
@@ -434,37 +434,9 @@ class TicketService {
     }
 
     try {
-      // Strategy 1: Try direct Laravel storage URL (PUBLIC storage)
       const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
-      const webBaseURL = baseURL.replace('/api', '')
-      
       const token = localStorage.getItem('auth_token')
       
-      // Try direct public storage URL first (if files are stored in public)
-      const publicStorageUrl = `${webBaseURL}/storage/ticket-attachments/`
-      
-      console.log('🔄 TicketService: Attempting direct public download')
-      
-      try {
-        // Method 1: Try public storage link (no auth needed if truly public)
-        const testResponse = await fetch(`${baseURL}/tickets/attachments/${attachmentId}/download`, {
-          method: 'HEAD',
-          headers: {
-            ...(token && { Authorization: `Bearer ${token}` }),
-          },
-        })
-        
-        if (testResponse.ok) {
-          // File is accessible, proceed with download
-          await this.performDirectDownload(attachmentId, fileName, token)
-          this.downloadRetryCount.delete(attachmentId)
-          return
-        }
-      } catch (headError) {
-        console.log('HEAD request failed, trying full download:', headError)
-      }
-
-      // Method 2: Full API download with authentication
       console.log('🔄 TicketService: Attempting authenticated API download')
       const downloadUrl = `${baseURL}/tickets/attachments/${attachmentId}/download`
       
@@ -478,23 +450,45 @@ class TicketService {
         credentials: 'include',
       })
 
+      // CRITICAL FIX: Handle JSON error responses from backend
+      const contentType = response.headers.get('Content-Type') || ''
+      
       if (!response.ok) {
         let errorMessage = `Download failed: ${response.status} ${response.statusText}`
         
-        try {
-          const errorText = await response.text()
-          if (errorText.includes('permission') || errorText.includes('access')) {
-            errorMessage = "You don't have permission to download this file"
-          } else if (errorText.includes('not found') || response.status === 404) {
-            errorMessage = "File not found or no longer available"
-          } else if (errorText.includes('token') || response.status === 401) {
-            errorMessage = "Authentication required. Please refresh the page and try again."
+        // Check if response is JSON (error response)
+        if (contentType.includes('application/json')) {
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.message || errorMessage
+            
+            if (errorMessage.includes('permission') || errorMessage.includes('access')) {
+              errorMessage = "You don't have permission to download this file"
+            } else if (errorMessage.includes('not found') || response.status === 404) {
+              errorMessage = "File not found or no longer available"
+            } else if (errorMessage.includes('token') || response.status === 401) {
+              errorMessage = "Authentication required. Please refresh the page and try again."
+            } else if (response.status === 500) {
+              errorMessage = "Server error occurred while downloading. Please try again."
+            }
+          } catch (jsonError) {
+            console.warn('Failed to parse error response as JSON:', jsonError)
           }
-        } catch {
-          // Ignore text parsing errors
         }
         
         throw new Error(errorMessage)
+      }
+
+      // FIXED: Validate response is actually a file, not JSON error
+      if (contentType.includes('application/json')) {
+        // Backend returned JSON instead of file - this is an error
+        try {
+          const jsonResponse = await response.json()
+          const errorMessage = jsonResponse.message || 'Server returned invalid response for download'
+          throw new Error(errorMessage)
+        } catch (jsonError) {
+          throw new Error('Server returned invalid response for download')
+        }
       }
 
       // Get filename from response headers or use provided name
@@ -553,6 +547,8 @@ class TicketService {
         userMessage += "Please refresh the page and try again."
       } else if (error.message.includes('empty')) {
         userMessage += "The file appears to be corrupted or empty."
+      } else if (error.message.includes('Server error')) {
+        userMessage += "Server error occurred. Please try again in a few moments."
       } else {
         userMessage += 'Please try again later or contact support if the problem persists.'
       }
@@ -1174,7 +1170,11 @@ class TicketService {
 
       // Test 3: Check browser download capabilities
       try {
-        if (typeof window !== 'undefined' && window.URL && window.URL.createObjectURL) {
+        if (
+          typeof window !== 'undefined' &&
+          window.URL &&
+          typeof window.URL.createObjectURL === 'function'
+        ) {
           results.supportedMethods.push('browser_download')
           console.log('✅ Browser download capabilities available')
         } else {
