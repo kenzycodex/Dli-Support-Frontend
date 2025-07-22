@@ -1,4 +1,4 @@
-// app/page.tsx - FIXED: Immediate navigation without loading delays
+// app/page.tsx - UPDATED: Added admin-tickets route
 
 "use client"
 
@@ -10,6 +10,7 @@ import { CounselorDashboard } from "@/components/dashboards/counselor-dashboard"
 import { AdminDashboard } from "@/components/dashboards/admin-dashboard"
 import { AppointmentsPage } from "@/components/pages/appointments-page"
 import { TicketsPage } from "@/components/pages/tickets-page"
+import { AdminTicketsPage } from "@/components/pages/admin-tickets-page" // NEW: Admin tickets page
 import { SubmitTicketPage } from "@/components/pages/submit-ticket-page"
 import { TicketDetailsPage } from "@/components/pages/ticket-details-page"
 import { CounselingPage } from "@/components/pages/counseling-page"
@@ -30,7 +31,7 @@ function AppContent() {
   const { page, params, navigate, isReady } = useAppRouter()
   const [isInitialized, setIsInitialized] = useState(false)
 
-  // FIXED: Immediate initialization without waiting
+  // Immediate initialization without waiting
   useEffect(() => {
     console.log('🌐 App: Router state:', { page, params, isReady })
     setIsInitialized(true)
@@ -41,7 +42,7 @@ function AppContent() {
     navigate('dashboard')
   }
 
-  // FIXED: Immediate page rendering
+  // Immediate page rendering
   const renderPage = () => {
     console.log('🌐 App: Rendering page:', page, 'with params:', params)
     
@@ -65,11 +66,15 @@ function AppContent() {
       case "tickets":
         return <TicketsPage onNavigate={navigate} />
       
+      // NEW: Admin tickets management page
+      case "admin-tickets":
+        return <AdminTicketsPage onNavigate={navigate} />
+      
       case "submit-ticket":
         return <SubmitTicketPage onNavigate={navigate} />
       
       case "ticket-details":
-        // FIXED: Immediate ticket details rendering
+        // Immediate ticket details rendering
         const ticketId = params.ticketId as number
         
         console.log('🌐 App: Rendering ticket details with ID:', ticketId)
@@ -123,7 +128,7 @@ function AppContent() {
     }
   }
 
-  // FIXED: Only show loading on first mount, not on route changes
+  // Only show loading on first mount, not on route changes
   if (!isInitialized && !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -139,7 +144,7 @@ function AppContent() {
   return (
     <AppLayout 
       user={user!} 
-      onLogout={handleLogout} 
+      onLogout={handleLogout}
       currentPage={page} 
       onNavigate={navigate}
     >

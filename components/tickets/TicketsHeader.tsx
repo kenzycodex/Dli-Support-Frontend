@@ -1,4 +1,6 @@
-// components/tickets/TicketsHeader.tsx
+// components/tickets/TicketsHeader.tsx - UPDATED with Enhanced Props
+// Replace the existing TicketsHeader interface and component with this enhanced version:
+
 "use client"
 
 import { Button } from "@/components/ui/button"
@@ -23,6 +25,9 @@ interface TicketsHeaderProps {
   onBulkActions: () => void
   onExport: () => void
   onCreate: () => void
+  // ENHANCED: Optional category props
+  categoriesCount?: number
+  activeCategoriesCount?: number
 }
 
 export function TicketsHeader({
@@ -35,7 +40,9 @@ export function TicketsHeader({
   onRefresh,
   onBulkActions,
   onExport,
-  onCreate
+  onCreate,
+  categoriesCount = 0, // ENHANCED: Default values for optional props
+  activeCategoriesCount = 0
 }: TicketsHeaderProps) {
   return (
     <div className="relative bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 rounded-2xl p-6 lg:p-8 text-white overflow-hidden">
@@ -50,6 +57,12 @@ export function TicketsHeader({
               <div>
                 <h1 className="text-2xl lg:text-3xl font-bold">{pageInfo.title}</h1>
                 <p className="text-blue-100 text-sm lg:text-lg">{pageInfo.description}</p>
+                {/* ENHANCED: Category info */}
+                {categoriesCount > 0 && (
+                  <p className="text-blue-200 text-xs lg:text-sm mt-1">
+                    {activeCategoriesCount} of {categoriesCount} categories active
+                  </p>
+                )}
               </div>
             </div>
             
@@ -82,8 +95,8 @@ export function TicketsHeader({
               variant="ghost"
               size="sm"
               onClick={onRefresh}
-							className="text-white hover:bg-white/20 backdrop-blur-sm"
-							disabled={loading}
+              className="text-white hover:bg-white/20 backdrop-blur-sm"
+              disabled={loading}
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

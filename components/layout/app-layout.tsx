@@ -1,9 +1,9 @@
-// components/layout/app-layout.tsx (UPDATED WITH MANUAL FETCH)
+// components/layout/app-layout.tsx - FIXED: TypeScript errors and expand icon visibility
 
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +24,10 @@ import {
   ChevronRight,
   X,
   BookOpen,
+  Plus,
+  FolderOpen,
+  Cog,
+  Shield,
 } from "lucide-react"
 import { ChatBot } from "@/components/features/chat-bot"
 import { NotificationCenter } from "@/components/features/notification-center"
@@ -31,6 +35,38 @@ import { NotificationBell } from "@/components/layout/notification-bell"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useNotifications } from "@/hooks/use-notifications"
 import { cn } from "@/lib/utils"
+
+// FIXED: Proper type definitions for navigation items
+type BaseNavigationItem = {
+  name: string
+  href: string
+  page: string
+  current: boolean
+  roles: string[]
+  badge?: number
+}
+
+type RegularNavigationItem = BaseNavigationItem & {
+  icon: React.ComponentType<any>
+  isSeparator?: never
+  label?: never
+  description?: string
+}
+
+type SeparatorNavigationItem = {
+  name: 'separator'
+  href: '#'
+  page: 'separator'
+  icon: null
+  current: false
+  roles: string[]
+  isSeparator: true
+  label: string
+  badge?: never
+  description?: never
+}
+
+type NavigationItem = RegularNavigationItem | SeparatorNavigationItem
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -48,41 +84,168 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
   const [showChatBot, setShowChatBot] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const isMobile = useIsMobile()
   
-  // Get unread count for mobile display only
+  // Get unread count for notifications
   const { unreadCount, refreshUnreadCount } = useNotifications()
 
-  const getNavigationItems = () => {
-    const baseItems = [
-      { icon: Home, label: "Dashboard", page: "dashboard" },
-      { icon: Calendar, label: "Appointments", page: "appointments" },
-      { icon: Ticket, label: "Support Tickets", page: "tickets" },
-      { icon: Heart, label: "Counseling", page: "counseling" },
-      { 
-        icon: Bell, 
-        label: "Notifications", 
-        page: "notifications",
-        badge: unreadCount > 0 ? unreadCount : undefined
+  // Mock function for my tickets count (you can implement this based on your ticket store)
+  const getMyTicketsCount = () => {
+    // This should be implemented to get actual count from your ticket store
+    return 0
+  }
+
+  // FIXED: Navigation items with proper typing
+  const navigationItems = useMemo((): NavigationItem[] => {
+    const baseItems: NavigationItem[] = [
+      {
+        name: 'Dashboard',
+        href: '/dashboard',
+        page: 'dashboard',
+        icon: Home,
+        current: currentPage === 'dashboard',
+        roles: ['student', 'counselor', 'advisor', 'admin']
       },
-      { icon: HelpCircle, label: "Help & FAQs", page: "help" },
-      { icon: BookOpen, label: "Resources", page: "resources" },
+      {
+        name: 'Tickets',
+        href: '/tickets',
+        page: 'tickets',
+        icon: Ticket,
+        current: currentPage === 'tickets' || currentPage === 'ticket-details',
+        roles: ['student', 'counselor', 'advisor', 'admin'],
+        badge: user?.role === 'student' ? getMyTicketsCount() : undefined
+      },
+      {
+        name: 'Submit Ticket',
+        href: '/submit-ticket',
+        page: 'submit-ticket',
+        icon: Plus,
+        current: currentPage === 'submit-ticket',
+        roles: ['student', 'admin']
+      },
+      {
+        name: 'Appointments',
+        href: '/appointments',
+        page: 'appointments',
+        icon: Calendar,
+        current: currentPage === 'appointments',
+        roles: ['student', 'counselor', 'advisor', 'admin']
+      },
+      {
+        name: 'Resources',
+        href: '/resources',
+        page: 'resources',
+        icon: BookOpen,
+        current: currentPage === 'resources',
+        roles: ['student', 'counselor', 'advisor', 'admin']
+      },
+      {
+        name: 'Counseling',
+        href: '/counseling',
+        page: 'counseling',
+        icon: Heart,
+        current: currentPage === 'counseling',
+        roles: ['student', 'counselor', 'advisor', 'admin']
+      },
+      {
+        name: 'Help Center',
+        href: '/help',
+        page: 'help',
+        icon: HelpCircle,
+        current: currentPage === 'help',
+        roles: ['student', 'counselor', 'advisor', 'admin']
+      },
+      {
+        name: 'Notifications',
+        href: '/notifications',
+        page: 'notifications',
+        icon: Bell,
+        current: currentPage === 'notifications',
+        roles: ['student', 'counselor', 'advisor', 'admin'],
+        badge: unreadCount > 0 ? unreadCount : undefined
+      }
     ]
 
-    if (user.role === "admin") {
+    // Add admin-only items
+    if (user?.role === 'admin') {
       baseItems.push(
-        { icon: Users, label: "User Management", page: "admin-users" },
-        { icon: BarChart3, label: "Reports", page: "admin-reports" },
-        { icon: Settings, label: "System Config", page: "admin-settings" },
+        // SEPARATOR
+        {
+          name: 'separator',
+          href: '#',
+          page: 'separator',
+          icon: null,
+          current: false,
+          roles: ['admin'],
+          isSeparator: true,
+          label: 'Administration'
+        },
+        // Admin items with proper typing
+        {
+          name: 'Ticket Management',
+          href: '/admin-tickets',
+          page: 'admin-tickets',
+          icon: Settings,
+          current: currentPage === 'admin-tickets',
+          roles: ['admin'],
+          description: 'Manage tickets and categories'
+        },
+        {
+          name: 'Resource Management',
+          href: '/admin-resources',
+          page: 'admin-resources',
+          icon: FolderOpen,
+          current: currentPage === 'admin-resources',
+          roles: ['admin'],
+          description: 'Manage resources and content'
+        },
+        {
+          name: 'User Management',
+          href: '/admin-users',
+          page: 'admin-users',
+          icon: Users,
+          current: currentPage === 'admin-users',
+          roles: ['admin']
+        },
+        {
+          name: 'Reports & Analytics',
+          href: '/admin-reports',
+          page: 'admin-reports',
+          icon: BarChart3,
+          current: currentPage === 'admin-reports',
+          roles: ['admin']
+        },
+        {
+          name: 'System Settings',
+          href: '/admin-settings',
+          page: 'admin-settings',
+          icon: Cog,
+          current: currentPage === 'admin-settings',
+          roles: ['admin']
+        },
+        {
+          name: 'Admin Help',
+          href: '/admin-help',
+          page: 'admin-help',
+          icon: Shield,
+          current: currentPage === 'admin-help',
+          roles: ['admin']
+        }
       )
     }
 
-    return baseItems
-  }
+    return baseItems.filter(item => 
+      item.roles.includes(user?.role || 'student')
+    )
+  }, [currentPage, user?.role, unreadCount])
 
   const handleNavigation = (page: string) => {
+    // Close mobile menu when navigating
+    setMobileMenuOpen(false)
+    
     // Refresh unread count when navigating to notifications
-    if (page === "notifications") {
+    if (page === 'notifications') {
       refreshUnreadCount()
     }
     onNavigate(page)
@@ -94,96 +257,124 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
     setShowNotifications(true)
   }
 
-  const navigationItems = getNavigationItems()
-
   return (
-    <div className="relative min-h-screen bg-background">
+    <div className="relative min-h-screen bg-gray-50">
       {/* Mobile Header */}
-      <header className="bg-card border-b border-border px-4 py-3 flex items-center justify-between lg:hidden sticky top-0 z-50">
-        <Sheet>
+      <header className="bg-white border-b border-gray-200 px-2 sm:px-3 py-2 sm:py-3 flex items-center justify-between lg:hidden sticky top-0 z-50 shadow-sm">
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full">
+            <Button variant="ghost" size="icon" className="rounded-lg hover:bg-gray-100">
               <Menu className="h-5 w-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[280px] p-0">
+          <SheetContent side="left" className="w-[280px] p-0 bg-white">
             <div className="flex h-full flex-col">
-              <div className="px-6 pt-6 pb-2 flex justify-center">
-                <img 
-                  src="/logo-dark.png" 
-                  alt="Logo" 
-                  className="h-16 w-16 object-contain rounded-lg"
-                />
-              </div>
-
-              <div className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-                {navigationItems.map((item) => (
-                  <Button
-                    key={item.page}
-                    variant={currentPage === item.page ? "default" : "ghost"}
-                    className={cn(
-                      "w-full justify-start rounded-lg relative",
-                      currentPage === item.page
-                        ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
-                        : "hover:bg-accent hover:text-accent-foreground text-foreground"
-                    )}
-                    onClick={() => handleNavigation(item.page)}
-                  >
-                    <item.icon className="h-4 w-4 mr-3" />
-                    {item.label}
-                    {item.badge && (
-                      <Badge className="absolute top-1/2 -translate-y-1/2 right-2 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-destructive text-destructive-foreground">
-                        {item.badge > 99 ? '99+' : item.badge}
-                      </Badge>
-                    )}
-                  </Button>
-                ))}
-              </div>
-
-              <div className="border-t border-border p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="h-9 w-9 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 flex items-center justify-center text-white font-medium text-sm">
-                      {user.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{user.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
-                    </div>
+              {/* Header in Mobile Menu */}
+              <div className="px-4 py-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600">
+                <div className="flex items-center space-x-3">
+                  <img 
+                    src="/favicon.png" 
+                    alt="Logo" 
+                    className="h-10 w-10 object-contain rounded-lg bg-white/10 p-1"
+                  />
+                  <div className="text-white">
+                    <p className="font-semibold text-sm">{user.name}</p>
+                    <p className="text-xs text-blue-100 capitalize">{user.role}</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={onLogout}
-                    className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg"
-                  >
-                    <LogOut className="h-4 w-4 mr-2" />
-                    Sign Out
-                  </Button>
                 </div>
+              </div>
+
+              {/* Navigation Items */}
+              <div className="flex-1 py-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
+                <nav className="px-2 space-y-1">
+                  {navigationItems.map((item) => {
+                    // Handle separator items
+                    if (item.isSeparator) {
+                      return (
+                        <div key={item.name} className="pt-4 pb-2 px-2">
+                          <div className="flex items-center">
+                            <div className="flex-1 border-t border-gray-300"></div>
+                            <span className="px-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {item.label}
+                            </span>
+                            <div className="flex-1 border-t border-gray-300"></div>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    const IconComponent = item.icon
+                    return (
+                      <button
+                        key={item.page}
+                        onClick={() => handleNavigation(item.page)}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150",
+                          item.current
+                            ? "bg-blue-50 text-blue-700 border-l-4 border-blue-500"
+                            : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                        )}
+                      >
+                        <div className="flex items-center">
+                          <IconComponent
+                            className={cn(
+                              "mr-3 h-4 w-4 flex-shrink-0",
+                              item.current ? "text-blue-600" : "text-gray-500"
+                            )}
+                          />
+                          <div className="flex flex-col items-start">
+                            <span>{item.name}</span>
+                            {item.description && (
+                              <span className="text-xs text-gray-500 mt-0.5">{item.description}</span>
+                            )}
+                          </div>
+                        </div>
+                        {item.badge && (
+                          <Badge className="h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white">
+                            {item.badge > 99 ? '99+' : item.badge}
+                          </Badge>
+                        )}
+                      </button>
+                    )
+                  })}
+                </nav>
+              </div>
+
+              {/* Footer */}
+              <div className="border-t border-gray-200 p-4">
+                <Button
+                  variant="ghost"
+                  onClick={onLogout}
+                  className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg"
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </Button>
               </div>
             </div>
           </SheetContent>
         </Sheet>
 
-        <div className="flex items-center space-x-2">
+        {/* Logo */}
+        <div className="flex justify-center items-center w-full h-full m-0 p-0">
           <img 
             src="/logo-dark.png" 
             alt="Logo" 
-            className="h-9 w-9 object-contain rounded-lg"
+            className="w-[180px] h-auto object-contain"
           />
         </div>
 
+        {/* Action Buttons */}
         <div className="flex items-center space-x-1">
           <Button 
             variant="ghost" 
             size="icon" 
             onClick={handleMobileNotificationClick}
-            className="rounded-full relative"
+            className="rounded-lg relative hover:bg-gray-100"
           >
             <Bell className="h-5 w-5" />
             {unreadCount > 0 && (
-              <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-destructive animate-pulse">
+              <Badge className="absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 animate-pulse">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </Badge>
             )}
@@ -195,130 +386,146 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
       {!isMobile && (
         <div
           className={cn(
-            "fixed left-0 top-0 bottom-0 z-40 bg-card border-r border-border transition-all duration-300",
-            sidebarCollapsed ? "w-20" : "w-64"
+            "fixed left-0 top-0 bottom-0 z-40 bg-white border-r border-gray-200 transition-all duration-300 shadow-sm",
+            sidebarCollapsed ? "w-16" : "w-64"
           )}
         >
           <div className="flex min-h-0 flex-1 flex-col h-full">
-            <div className="flex flex-1 flex-col pt-5 pb-4 overflow-y-auto">
-              <div className="flex items-center justify-between flex-shrink-0 px-4 mb-6">
-                <div className={cn("flex items-center w-full", sidebarCollapsed ? "justify-center" : "justify-center")}>
-                  <img 
-                    src={sidebarCollapsed ? "/favicon.png" : "/logo-dark.png"}
-                    alt="Logo" 
-                    className={cn(
-                      "object-contain rounded-lg",
-                      sidebarCollapsed ? "h-14 w-14" : "h-[95%] w-[95%] max-w-[220px]"
-                    )}
-                  />
-                </div>
+            {/* Header - Logo */}
+            <div className="flex items-center justify-between flex-shrink-0 px-4 py-6 border-b border-gray-200 relative">
+              {/* Logo - Always Centered */}
+              <div className={cn("flex items-center", sidebarCollapsed ? "justify-center w-full" : "flex-1 justify-center")}>
+                <img 
+                  src={sidebarCollapsed ? "/favicon.png" : "/logo-dark.png"}
+                  alt="Logo" 
+                  className={cn(
+                    "object-contain rounded-lg transition-transform duration-300",
+                    sidebarCollapsed ? "h-10 w-10 scale-100" : "h-10 w-10 scale-[5]"
+                  )}
+                />
+              </div>
+              
+              {/* Expand Button - Overlaid on right edge when collapsed */}
+              {sidebarCollapsed && (
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                  className="h-8 w-8 rounded-full hover:bg-accent hover:text-accent-foreground absolute right-2 top-5"
+                  onClick={() => setSidebarCollapsed(false)}
+                  className="absolute -right-3 top-1/2 transform -translate-y-1/2 h-12 w-6 rounded-r-xl rounded-l-lg bg-white hover:bg-gray-50 shadow-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 hover:scale-105 z-10"
+                  title="Expand Sidebar"
                 >
-                  {sidebarCollapsed ? (
-                    <ChevronRight className="h-4 w-4" />
-                  ) : (
-                    <ChevronLeft className="h-4 w-4" />
-                  )}
+                  <ChevronRight className="h-5 w-5 text-gray-700" />
                 </Button>
-              </div>
+              )}
+              
+              {/* Collapse Button - Only when expanded */}
+              {!sidebarCollapsed && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSidebarCollapsed(true)}
+                  className="h-9 w-9 rounded-xl hover:bg-gray-100 hover:scale-105 transition-all duration-200 shadow-sm border border-gray-200"
+                >
+                  <ChevronLeft className="h-5 w-5 text-gray-600" />
+                </Button>
+              )}
+            </div>
 
-              <nav className="mt-2 flex-1 px-2 space-y-1">
-                {navigationItems.map((item) => (
-                  <Button
-                    key={item.page}
-                    variant={currentPage === item.page ? "default" : "ghost"}
-                    className={cn(
-                      "w-full transition-all rounded-lg relative",
-                      sidebarCollapsed ? "justify-center px-2 h-10" : "justify-start h-10",
-                      currentPage === item.page
-                        ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
-                        : "hover:bg-accent hover:text-accent-foreground text-foreground"
-                    )}
-                    onClick={() => handleNavigation(item.page)}
-                  >
-                    <item.icon className={cn("h-4 w-4 flex-shrink-0", !sidebarCollapsed && "mr-3")} />
-                    {!sidebarCollapsed && <span>{item.label}</span>}
-                    {item.badge && (
-                      <Badge className={cn(
-                        "absolute h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-destructive text-destructive-foreground animate-pulse",
-                        sidebarCollapsed ? "-top-1 -right-1" : "top-1/2 -translate-y-1/2 right-2"
-                      )}>
-                        {item.badge > 99 ? '99+' : item.badge}
-                      </Badge>
-                    )}
-                  </Button>
-                ))}
+            {/* Navigation */}
+            <div className="flex-1 px-3 py-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
+              <nav className="space-y-1">
+                {navigationItems.map((item) => {
+                  // Handle separator items
+                  if (item.isSeparator) {
+                    return (
+                      <div key={item.name} className="pt-4 pb-2">
+                        {!sidebarCollapsed ? (
+                          <div className="flex items-center px-1">
+                            <div className="flex-1 border-t border-gray-300"></div>
+                            <span className="px-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {item.label}
+                            </span>
+                            <div className="flex-1 border-t border-gray-300"></div>
+                          </div>
+                        ) : (
+                          <div className="border-t border-gray-300 mx-2"></div>
+                        )}
+                      </div>
+                    )
+                  }
+
+                  const IconComponent = item.icon
+                  return (
+                    <button
+                      key={item.page}
+                      onClick={() => handleNavigation(item.page)}
+                      className={cn(
+                        "group flex items-center w-full px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150 relative",
+                        sidebarCollapsed ? "justify-center" : "",
+                        item.current
+                          ? "bg-blue-50 text-blue-700 border-l-4 border-blue-500 ml-0 pl-3"
+                          : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                      )}
+                      title={sidebarCollapsed ? item.name : undefined}
+                    >
+                      <IconComponent
+                        className={cn(
+                          "h-4 w-4 flex-shrink-0",
+                          !sidebarCollapsed && "mr-3",
+                          item.current ? "text-blue-600" : "text-gray-500 group-hover:text-gray-700"
+                        )}
+                      />
+                      {!sidebarCollapsed && (
+                        <div className="flex flex-col items-start flex-1">
+                          <span>{item.name}</span>
+                          {item.description && (
+                            <span className="text-xs text-gray-500 mt-0.5">{item.description}</span>
+                          )}
+                        </div>
+                      )}
+                      {item.badge && (
+                        <Badge className={cn(
+                          "h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white animate-pulse",
+                          sidebarCollapsed ? "absolute -top-1 -right-1" : ""
+                        )}>
+                          {item.badge > 99 ? '99+' : item.badge}
+                        </Badge>
+                      )}
+                    </button>
+                  )
+                })}
               </nav>
             </div>
 
-            <div className="flex-shrink-0 border-t border-border p-4">
-              <div className={cn("flex items-center w-full", sidebarCollapsed ? "justify-center" : "")}>
-                {!sidebarCollapsed && (
-                  <div className="flex items-center space-x-3 flex-1">
-                    <div className="h-9 w-9 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 flex items-center justify-center text-white font-medium text-sm">
+            {/* User Section */}
+            {!sidebarCollapsed && (
+              <div className="border-t border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="h-9 w-9 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 flex items-center justify-center text-white font-medium text-sm">
                       {user.name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-foreground">{user.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
+                      <p className="text-sm font-medium text-gray-900">{user.name}</p>
+                      <p className="text-xs text-gray-500 capitalize">{user.role}</p>
                     </div>
                   </div>
-                )}
+                  
+                  <NotificationBell className="mr-1" />
+                </div>
                 
-                {/* Desktop Notification Bell */}
-                {!sidebarCollapsed && (
-                  <NotificationBell className="mr-2" />
-                )}
-                
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={onLogout} 
-                  className={cn(
-                    "text-destructive hover:text-destructive hover:bg-destructive/10 rounded-full",
-                    sidebarCollapsed ? "ml-0" : "ml-2"
-                  )}
-                  title={sidebarCollapsed ? "Sign Out" : ""}
+                <Button
+                  variant="ghost"
+                  onClick={onLogout}
+                  className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
                 </Button>
               </div>
-            </div>
+            )}
           </div>
         </div>
-      )}
-
-      {/* Mobile Bottom Navigation */}
-      {isMobile && (
-        <nav className="fixed bottom-0 left-0 right-0 bg-card border-t border-border px-2 py-2 z-40">
-          <div className="flex items-center justify-around">
-            {navigationItems.slice(0, 5).map((item) => (
-              <Button
-                key={item.page}
-                variant="ghost"
-                size="sm"
-                onClick={() => handleNavigation(item.page)}
-                className={cn(
-                  "flex flex-col items-center space-y-1 h-auto py-2 px-2 rounded-lg relative",
-                  currentPage === item.page
-                    ? "text-primary bg-primary/10"
-                    : "text-muted-foreground hover:text-primary hover:bg-primary/10"
-                )}
-              >
-                <item.icon className="h-5 w-5" />
-                {item.badge && (
-                  <Badge className="absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 flex items-center justify-center text-[10px] bg-destructive animate-pulse">
-                    {item.badge > 99 ? '99+' : item.badge}
-                  </Badge>
-                )}
-              </Button>
-            ))}
-          </div>
-        </nav>
       )}
 
       {/* Chat Bot */}
@@ -327,34 +534,37 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
       {/* Notification Center */}
       <NotificationCenter open={showNotifications} onClose={() => setShowNotifications(false)} />
 
-      {/* Chat Bot Toggle Button */}
+      {/* Chat Bot Toggle */}
       <Button
         className={cn(
-          "fixed z-50 h-14 w-14 rounded-full shadow-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-transform hover:scale-105",
-          isMobile ? "bottom-24 right-4" : "bottom-6 right-6"
+          "fixed z-50 h-12 w-12 rounded-full shadow-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 hover:scale-105",
+          isMobile ? "bottom-4 right-4" : "bottom-6 right-6"
         )}
         onClick={() => setShowChatBot(!showChatBot)}
         size="icon"
       >
         {showChatBot ? (
-          <X className="h-6 w-6 text-white" />
+          <X className="h-5 w-5 text-white" />
         ) : (
-          <MessageCircle className="h-6 w-6 text-white" />
+          <MessageCircle className="h-5 w-5 text-white" />
         )}
       </Button>
 
       {/* Main Content */}
       <main
         className={cn(
-          "min-h-screen bg-background transition-all duration-300 pb-24 pt-4 sm:pt-6 md:pt-8",
+          "min-h-screen bg-gray-50 transition-all duration-300",
           isMobile
-            ? "px-4"
+            ? "px-2 sm:px-3 pt-2 sm:pt-3"
             : sidebarCollapsed
-            ? "ml-20 px-6 lg:px-8 xl:px-10"
-            : "ml-64 px-6 lg:px-8 xl:px-10"
+            ? "ml-16 px-4 sm:px-6 lg:px-8 pt-6"
+            : "ml-64 px-4 sm:px-6 lg:px-8 pt-6"
         )}
       >
-        <div className="max-w-7xl mx-auto w-full">
+        <div className={cn(
+          "w-full mx-auto",
+          isMobile ? "max-w-none" : "max-w-7xl"
+        )}>
           {children}
         </div>
       </main>

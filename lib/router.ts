@@ -1,4 +1,5 @@
-// lib/router.ts - FIXED: Immediate navigation without loading delays
+// lib/router.ts - UPDATED: Added admin-tickets route
+
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
@@ -79,6 +80,10 @@ class AppRouter {
         console.warn('🌐 Router: Failed to parse ticket ID:', ticketIdentifier)
         return { page: 'tickets', params: {} }
       
+      // NEW: Admin tickets route
+      case 'admin-tickets':
+        return { page: 'admin-tickets', params: {} }
+      
       case 'submit-ticket':
         return { page: 'submit-ticket', params: {} }
       
@@ -105,7 +110,26 @@ class AppRouter {
       
       case 'admin':
         if (restSegments.length > 0) {
-          return { page: `admin-${restSegments[0]}`, params: {} }
+          // Handle admin sub-routes
+          const adminPage = restSegments[0]
+          
+          // Map admin routes
+          switch (adminPage) {
+            case 'tickets':
+              return { page: 'admin-tickets', params: {} }
+            case 'resources':
+              return { page: 'admin-resources', params: {} }
+            case 'users':
+              return { page: 'admin-users', params: {} }
+            case 'reports':
+              return { page: 'admin-reports', params: {} }
+            case 'settings':
+              return { page: 'admin-settings', params: {} }
+            case 'help':
+              return { page: 'admin-help', params: {} }
+            default:
+              return { page: `admin-${adminPage}`, params: {} }
+          }
         }
         break
     }
@@ -115,7 +139,7 @@ class AppRouter {
     return { page: 'dashboard', params: {} }
   }
 
-  // FIXED: Immediate navigation without delays
+  // Immediate navigation without delays
   public navigate(page: string, params: RouteParams = {}) {
     const newRoute = { page, params }
     const url = this.buildURL(page, params)
@@ -159,6 +183,10 @@ class AppRouter {
       
       case 'tickets':
         return '/tickets'
+      
+      // NEW: Admin tickets URL
+      case 'admin-tickets':
+        return '/admin-tickets'
       
       case 'submit-ticket':
         return '/submit-ticket'
@@ -220,7 +248,7 @@ class AppRouter {
     }
   }
 
-  // FIXED: Immediate synchronous notification
+  // Immediate synchronous notification
   private notifyListeners() {
     console.log('🌐 Router: Notifying listeners immediately:', this.currentRoute)
     
@@ -279,7 +307,7 @@ class AppRouter {
 // Singleton instance
 export const appRouter = new AppRouter()
 
-// FIXED React hook for immediate router updates
+// React hook for immediate router updates
 export function useAppRouter() {
   const [currentRoute, setCurrentRoute] = useState<ParsedRoute>(() => {
     return appRouter.getCurrentRoute()

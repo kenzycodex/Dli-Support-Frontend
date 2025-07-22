@@ -1,4 +1,4 @@
-// services/ticket.service.ts - FIXED: Enhanced download handling and response integration
+// services/ticket.service.ts - ENHANCED: Dynamic Categories & Crisis Detection
 
 import { apiClient, StandardizedApiResponse } from '@/lib/api'
 
@@ -12,6 +12,83 @@ export type {
   AddResponseRequest,
   UpdateTicketRequest
 } from '@/stores/ticket-store'
+
+// ENHANCED: New interfaces for dynamic categories
+export interface TicketCategory {
+  id: number
+  name: string
+  slug: string
+  description?: string
+  color: string
+  icon: string
+  is_active: boolean
+  auto_assign: boolean
+  crisis_detection_enabled: boolean
+  sla_response_hours: number
+  max_priority_level: number
+  sort_order: number
+  counselor_count?: number
+  tickets_count?: number
+  open_tickets_count?: number
+}
+
+export interface TicketOptions {
+  categories: TicketCategory[]
+  priorities: Array<{
+    value: string
+    label: string
+    color: string
+    description?: string
+  }>
+  statuses: Array<{
+    value: string
+    label: string
+    color: string
+  }>
+  available_staff?: Array<{
+    id: number
+    name: string
+    email: string
+    role: string
+  }>
+  user_permissions: {
+    can_create: boolean
+    can_view_all: boolean
+    can_assign: boolean
+    can_modify: boolean
+    can_delete: boolean
+    can_add_internal_notes: boolean
+    can_manage_tags: boolean
+  }
+  system_features: {
+    crisis_detection_enabled: boolean
+    auto_assignment_enabled: boolean
+    categories_count: number
+    counselors_available: number
+  }
+}
+
+// ENHANCED: Crisis detection interfaces
+export interface CrisisDetectionResult {
+  is_crisis: boolean
+  crisis_score: number
+  detected_keywords: Array<{
+    keyword: string
+    severity_level: string
+    severity_weight: number
+  }>
+  recommendation: string
+}
+
+// Enhanced request interfaces
+export interface EnhancedCreateTicketRequest {
+  subject: string
+  description: string
+  category_id: number // CHANGED: Now uses category ID instead of string
+  priority?: 'Low' | 'Medium' | 'High' | 'Urgent'
+  attachments?: File[]
+  created_for?: number
+}
 
 export interface AssignTicketRequest {
   assigned_to: number | null
@@ -57,12 +134,106 @@ export interface StaffMember {
 }
 
 /**
- * ENHANCED Ticket Service - Fixed download handling and response integration
+ * ENHANCED Ticket Service - Dynamic Categories & Crisis Detection Support
  */
 class TicketService {
   private readonly apiClient = apiClient
   private downloadRetryCount = new Map<number, number>()
   private maxRetries = 3
+  
+  // ENHANCED: Cache for categories and options
+  private categoriesCache: { data: TicketCategory[]; timestamp: number } | null = null
+  private optionsCache: { data: TicketOptions; timestamp: number } | null = null
+  private readonly CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
+  /**
+   * ENHANCED: Get ticket categories with caching
+   */
+  async getCategories(forceRefresh = false): Promise<StandardizedApiResponse<{
+    categories: TicketCategory[]
+  }>> {
+    console.log('🎫 TicketService: Fetching ticket categories')
+
+    // Check cache first
+    if (!forceRefresh && this.categoriesCache) {
+      const age = Date.now() - this.categoriesCache.timestamp
+      if (age < this.CACHE_DURATION) {
+        console.log('✅ TicketService: Using cached categories')
+        return {
+          success: true,
+          status: 200,
+          message: 'Categories retrieved from cache',
+          data: { categories: this.categoriesCache.data }
+        }
+      }
+    }
+
+    try {
+      const response = await this.apiClient.get('/ticket-categories')
+      
+      if (response.success && response.data?.categories) {
+        // Cache the result
+        this.categoriesCache = {
+          data: response.data.categories,
+          timestamp: Date.now()
+        }
+        
+        console.log('✅ TicketService: Categories fetched and cached:', response.data.categories.length)
+        return response
+      }
+      
+      return response
+    } catch (error) {
+      console.error('❌ TicketService: Failed to fetch categories:', error)
+      
+      // Return cached data if available on error
+      if (this.categoriesCache) {
+        console.log('⚠️ TicketService: Using stale cached categories due to error')
+        return {
+          success: true,
+          status: 200,
+          message: 'Categories retrieved from cache (stale)',
+          data: { categories: this.categoriesCache.data }
+        }
+      }
+      
+      return {
+        success: false,
+        status: 0,
+        message: 'Failed to fetch categories. Please try again.',
+      }
+    }
+  }
+
+  /**
+   * ENHANCED: Get single category with details
+   */
+  async getCategory(categoryId: number): Promise<StandardizedApiResponse<{
+    category: TicketCategory & {
+      counselorSpecializations?: any[]
+      crisisKeywords?: any[]
+      tickets?: any[]
+    }
+  }>> {
+    console.log('🎫 TicketService: Fetching category details:', categoryId)
+
+    try {
+      const response = await this.apiClient.get(`/ticket-categories/${categoryId}`)
+      
+      if (response.success) {
+        console.log('✅ TicketService: Category details fetched successfully')
+      }
+      
+      return response
+    } catch (error) {
+      console.error('❌ TicketService: Failed to fetch category details:', error)
+      return {
+        success: false,
+        status: 0,
+        message: 'Failed to fetch category details.',
+      }
+    }
+  }
 
   /**
    * Get tickets with comprehensive filtering
@@ -125,9 +296,11 @@ class TicketService {
           responseCount: ticket.responses?.length || 0,
           hasAttachments: !!ticket.attachments,
           attachmentCount: ticket.attachments?.length || 0,
+          hasCrisisDetection: !!ticket.detected_crisis_keywords,
+          autoAssigned: ticket.auto_assigned || 'no'
         })
         
-        // Validate and structure response data
+        // ENHANCED: Validate and structure response data
         if (ticket.responses) {
           console.log(`📬 TicketService: Loaded ${ticket.responses.length} responses`)
           
@@ -138,23 +311,34 @@ class TicketService {
             if (!response.attachments) {
               response.attachments = []
             }
-            // Ensure attachment count is set
             response.attachment_count = response.attachments.length
           })
         } else {
-          console.log('📬 TicketService: No responses found for ticket')
           ticket.responses = []
         }
         
-        // Validate and structure attachment data
+        // ENHANCED: Validate and structure attachment data
         if (!ticket.attachments) {
           ticket.attachments = []
         }
         ticket.attachment_count = ticket.attachments.length
         
-        console.log('📎 TicketService: Ticket attachment summary', {
+        // ENHANCED: Ensure crisis detection fields
+        if (!ticket.detected_crisis_keywords) {
+          ticket.detected_crisis_keywords = []
+        }
+        
+        // ENHANCED: Ensure assignment tracking fields
+        if (!ticket.auto_assigned) {
+          ticket.auto_assigned = 'no'
+        }
+        
+        console.log('📎 TicketService: Ticket data summary', {
           ticketAttachments: ticket.attachments.length,
           responseAttachments: ticket.responses.reduce((sum: number, r: any) => sum + (r.attachments?.length || 0), 0),
+          crisisKeywords: ticket.detected_crisis_keywords.length,
+          priorityScore: ticket.priority_score || 0,
+          assignmentType: ticket.auto_assigned
         })
       }
       
@@ -170,17 +354,26 @@ class TicketService {
   }
 
   /**
-   * Create new ticket
+   * ENHANCED: Create new ticket with dynamic categories
    */
-  async createTicket(data: any): Promise<StandardizedApiResponse<{ ticket: any }>> {
+  async createTicket(data: EnhancedCreateTicketRequest): Promise<StandardizedApiResponse<{ ticket: any }>> {
     console.log('🎫 TicketService: Creating ticket:', data)
 
     try {
+      // ENHANCED: Validate category_id is provided
+      if (!data.category_id || isNaN(data.category_id)) {
+        return {
+          success: false,
+          status: 422,
+          message: 'Please select a valid category',
+        }
+      }
+
       const formData = new FormData()
 
       formData.append('subject', data.subject.trim())
       formData.append('description', data.description.trim())
-      formData.append('category', data.category)
+      formData.append('category_id', data.category_id.toString()) // CHANGED: Use category_id
 
       if (data.priority) {
         formData.append('priority', data.priority)
@@ -199,7 +392,11 @@ class TicketService {
       const response = await this.apiClient.post('/tickets', formData)
       
       if (response.success) {
-        console.log('✅ TicketService: Ticket created successfully')
+        console.log('✅ TicketService: Ticket created successfully', {
+          crisisDetected: response.data?.ticket?.crisis_flag,
+          autoAssigned: response.data?.ticket?.auto_assigned,
+          priorityScore: response.data?.ticket?.priority_score
+        })
       }
       
       return response
@@ -279,7 +476,6 @@ class TicketService {
 
       // Handle file attachments with validation
       if (data.attachments && data.attachments.length > 0) {
-        // Validate files before adding
         const fileValidation = this.validateFiles(data.attachments, 3)
         if (!fileValidation.valid) {
           return {
@@ -421,7 +617,7 @@ class TicketService {
   }
 
   /**
-   * CRITICAL FIX: Enhanced download attachment with proper error handling and retry logic
+   * ENHANCED: Download attachment with proper error handling and retry logic
    */
   async downloadAttachment(attachmentId: number, fileName?: string): Promise<void> {
     console.log('🎫 TicketService: Downloading attachment:', { attachmentId, fileName })
@@ -450,7 +646,7 @@ class TicketService {
         credentials: 'include',
       })
 
-      // CRITICAL FIX: Handle JSON error responses from backend
+      // Handle JSON error responses from backend
       const contentType = response.headers.get('Content-Type') || ''
       
       if (!response.ok) {
@@ -479,9 +675,8 @@ class TicketService {
         throw new Error(errorMessage)
       }
 
-      // FIXED: Validate response is actually a file, not JSON error
+      // Validate response is actually a file, not JSON error
       if (contentType.includes('application/json')) {
-        // Backend returned JSON instead of file - this is an error
         try {
           const jsonResponse = await response.json()
           const errorMessage = jsonResponse.message || 'Server returned invalid response for download'
@@ -558,57 +753,7 @@ class TicketService {
   }
 
   /**
-   * ENHANCED: Direct download method for authenticated access
-   */
-  private async performDirectDownload(attachmentId: number, fileName?: string, token?: string | null): Promise<void> {
-    const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
-    const downloadUrl = `${baseURL}/tickets/attachments/${attachmentId}/download`
-    
-    try {
-      const response = await fetch(downloadUrl, {
-        method: 'GET',
-        headers: {
-          ...(token && { Authorization: `Bearer ${token}` }),
-          'Accept': 'application/octet-stream, application/pdf, image/*, */*',
-        },
-        credentials: 'include',
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-
-      const blob = await response.blob()
-      
-      if (blob.size === 0) {
-        throw new Error('Downloaded file is empty')
-      }
-
-      // Get filename from headers or use provided
-      let downloadFileName = fileName
-      const contentDisposition = response.headers.get('Content-Disposition')
-      if (contentDisposition) {
-        const fileNameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
-        if (fileNameMatch && fileNameMatch[1]) {
-          downloadFileName = fileNameMatch[1].replace(/['"]/g, '')
-        }
-      }
-
-      if (!downloadFileName) {
-        downloadFileName = `attachment_${attachmentId}_${Date.now()}`
-      }
-
-      this.triggerDownload(blob, downloadFileName)
-      console.log('✅ TicketService: Direct download successful:', downloadFileName)
-
-    } catch (error: any) {
-      console.error('❌ TicketService: Direct download failed:', error)
-      throw error
-    }
-  }
-
-  /**
-   * ENHANCED: Improved download trigger with better filename handling and error recovery
+   * Improved download trigger with better filename handling
    */
   private triggerDownload(blob: Blob, filename: string): void {
     try {
@@ -767,26 +912,54 @@ class TicketService {
   }
 
   /**
-   * Get ticket options
+   * ENHANCED: Get ticket options with dynamic categories
    */
-  async getOptions(): Promise<StandardizedApiResponse<{
-    categories: Record<string, string>
-    priorities: Record<string, string>
-    statuses: Record<string, string>
-    tags: Record<string, string>
-  }>> {
+  async getOptions(forceRefresh = false): Promise<StandardizedApiResponse<TicketOptions>> {
     console.log('🎫 TicketService: Fetching ticket options')
+
+    // Check cache first
+    if (!forceRefresh && this.optionsCache) {
+      const age = Date.now() - this.optionsCache.timestamp
+      if (age < this.CACHE_DURATION) {
+        console.log('✅ TicketService: Using cached options')
+        return {
+          success: true,
+          status: 200,
+          message: 'Options retrieved from cache',
+          data: this.optionsCache.data
+        }
+      }
+    }
 
     try {
       const response = await this.apiClient.get('/tickets/options')
       
-      if (response.success) {
-        console.log('✅ TicketService: Options fetched successfully')
+      if (response.success && response.data) {
+        // Cache the result
+        this.optionsCache = {
+          data: response.data,
+          timestamp: Date.now()
+        }
+        
+        console.log('✅ TicketService: Options fetched and cached')
+        return response
       }
       
       return response
     } catch (error) {
       console.error('❌ TicketService: Options error:', error)
+      
+      // Return cached data if available on error
+      if (this.optionsCache) {
+        console.log('⚠️ TicketService: Using stale cached options due to error')
+        return {
+          success: true,
+          status: 200,
+          message: 'Options retrieved from cache (stale)',
+          data: this.optionsCache.data
+        }
+      }
+      
       return {
         success: false,
         status: 0,
@@ -796,7 +969,63 @@ class TicketService {
   }
 
   /**
-   * UTILITY METHODS - Enhanced for better UX
+   * ENHANCED: Test crisis detection
+   */
+  async testCrisisDetection(text: string, categoryId?: number): Promise<StandardizedApiResponse<CrisisDetectionResult>> {
+    console.log('🎫 TicketService: Testing crisis detection')
+
+    try {
+      const response = await this.apiClient.post('/admin/crisis-keywords/test-detection', {
+        text,
+        category_id: categoryId
+      })
+      
+      if (response.success) {
+        console.log('✅ TicketService: Crisis detection test completed')
+      }
+      
+      return response
+    } catch (error) {
+      console.error('❌ TicketService: Crisis detection test error:', error)
+      return {
+        success: false,
+        status: 0,
+        message: 'Failed to test crisis detection.',
+      }
+    }
+  }
+
+  /**
+   * ENHANCED: Get available counselors for category
+   */
+  async getAvailableCounselors(categoryId: number): Promise<StandardizedApiResponse<{
+    counselors: any[]
+    best_available: any
+    total_available: number
+    category: any
+  }>> {
+    console.log('🎫 TicketService: Fetching available counselors for category:', categoryId)
+
+    try {
+      const response = await this.apiClient.get(`/admin/counselor-specializations/category/${categoryId}/available`)
+      
+      if (response.success) {
+        console.log('✅ TicketService: Available counselors fetched successfully')
+      }
+      
+      return response
+    } catch (error) {
+      console.error('❌ TicketService: Available counselors error:', error)
+      return {
+        success: false,
+        status: 0,
+        message: 'Failed to fetch available counselors.',
+      }
+    }
+  }
+
+  /**
+   * UTILITY METHODS - Enhanced for dynamic categories
    */
 
   /**
@@ -874,60 +1103,88 @@ class TicketService {
   }
 
   /**
-   * Get category display name
+   * ENHANCED: Get category color and icon
    */
-  getCategoryDisplayName(category: string): string {
-    const categoryMap: Record<string, string> = {
-      'general': 'General Inquiry',
-      'academic': 'Academic Help',
-      'mental-health': 'Mental Health',
-      'crisis': 'Crisis Support',
-      'technical': 'Technical Issue',
-      'other': 'Other'
+  getCategoryStyle(category: TicketCategory): { color: string; icon: string; backgroundColor: string } {
+    return {
+      color: category.color,
+      icon: category.icon,
+      backgroundColor: `${category.color}15` // Add transparency
     }
-    return categoryMap[category] || category
   }
 
   /**
-   * Get role-appropriate categories
+   * ENHANCED: Get assignment type display
    */
-  getRoleCategories(role: string): Array<{ value: string; label: string; description: string }> {
-    return [
-      { 
-        value: 'general', 
-        label: 'General Inquiry', 
-        description: 'General questions and support requests' 
-      },
-      { 
-        value: 'academic', 
-        label: 'Academic Help', 
-        description: 'Course support, study assistance, academic planning' 
-      },
-      { 
-        value: 'mental-health', 
-        label: 'Mental Health', 
-        description: 'Counseling, stress management, wellbeing support' 
-      },
-      { 
-        value: 'crisis', 
-        label: 'Crisis Support', 
-        description: 'Immediate help for urgent situations' 
-      },
-      { 
-        value: 'technical', 
-        label: 'Technical Issue', 
-        description: 'Login problems, system errors, account access' 
-      },
-      { 
-        value: 'other', 
-        label: 'Other', 
-        description: 'Issues not covered by other categories' 
-      },
-    ]
+  getAssignmentTypeDisplay(autoAssigned: string): { label: string; color: string; icon: string } {
+    switch (autoAssigned) {
+      case 'yes':
+        return {
+          label: 'Auto-assigned',
+          color: 'bg-green-100 text-green-800',
+          icon: 'Bot'
+        }
+      case 'manual':
+        return {
+          label: 'Manually assigned',
+          color: 'bg-blue-100 text-blue-800',
+          icon: 'User'
+        }
+      case 'no':
+      default:
+        return {
+          label: 'Unassigned',
+          color: 'bg-gray-100 text-gray-800',
+          icon: 'UserX'
+        }
+    }
   }
 
   /**
-   * Detect if content contains crisis keywords
+   * ENHANCED: Calculate SLA deadline
+   */
+  calculateSLADeadline(createdAt: string, slaHours: number): Date {
+    const created = new Date(createdAt)
+    return new Date(created.getTime() + (slaHours * 60 * 60 * 1000))
+  }
+
+  /**
+   * ENHANCED: Check if ticket is overdue
+   */
+  isTicketOverdue(createdAt: string, slaHours: number, status: string): boolean {
+    if (['Resolved', 'Closed'].includes(status)) return false
+    
+    const deadline = this.calculateSLADeadline(createdAt, slaHours)
+    return new Date() > deadline
+  }
+
+  /**
+   * ENHANCED: Get time remaining for SLA
+   */
+  getTimeRemaining(deadline: Date): { time: string; urgent: boolean } {
+    const now = new Date()
+    const diffMs = deadline.getTime() - now.getTime()
+    
+    if (diffMs <= 0) {
+      return { time: 'Overdue', urgent: true }
+    }
+
+    const hours = Math.floor(diffMs / (1000 * 60 * 60))
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+
+    if (hours < 1) {
+      return { time: `${minutes}m`, urgent: true }
+    } else if (hours < 24) {
+      return { time: `${hours}h ${minutes}m`, urgent: hours < 2 }
+    } else {
+      const days = Math.floor(hours / 24)
+      const remainingHours = hours % 24
+      return { time: `${days}d ${remainingHours}h`, urgent: false }
+    }
+  }
+
+  /**
+   * ENHANCED: Detect if content contains crisis keywords (client-side check)
    */
   detectCrisisKeywords(text: string): boolean {
     const crisisKeywords = [
@@ -984,9 +1241,9 @@ class TicketService {
   }
 
   /**
-   * ENHANCED: Validate ticket creation data
+   * ENHANCED: Validate ticket creation data for dynamic categories
    */
-  validateTicketData(data: any): { valid: boolean; errors: string[] } {
+  validateTicketData(data: EnhancedCreateTicketRequest): { valid: boolean; errors: string[] } {
     const errors: string[] = []
 
     if (!data.subject?.trim()) {
@@ -1005,12 +1262,10 @@ class TicketService {
       errors.push('Description must not exceed 5000 characters')
     }
 
-    if (!data.category) {
-      errors.push('Category is required')
-    }
-
-    const validCategories = ['general', 'academic', 'mental-health', 'crisis', 'technical', 'other']
-    if (data.category && !validCategories.includes(data.category)) {
+    // ENHANCED: Validate category_id instead of category string
+    if (!data.category_id) {
+      errors.push('Please select a category')
+    } else if (isNaN(data.category_id) || data.category_id <= 0) {
       errors.push('Invalid category selected')
     }
 
@@ -1023,7 +1278,7 @@ class TicketService {
   }
 
   /**
-   * ENHANCED: Validate file uploads with detailed checks
+   * Validate file uploads with detailed checks
    */
   validateFiles(files: File[], maxCount: number = 5): { valid: boolean; errors: string[] } {
     const errors: string[] = []
@@ -1096,15 +1351,39 @@ class TicketService {
   }
 
   /**
-   * Clear cache and reset retry counts
+   * ENHANCED: Clear cache and reset retry counts
    */
   clearCache(): void {
     console.log('🎫 TicketService: Clearing cache and retry counts')
     this.downloadRetryCount.clear()
+    this.categoriesCache = null
+    this.optionsCache = null
   }
 
   /**
-   * ENHANCED: Get download retry information
+   * ENHANCED: Invalidate specific cache
+   */
+  invalidateCache(type?: 'categories' | 'options' | 'all'): void {
+    console.log('🎫 TicketService: Invalidating cache:', type || 'all')
+    
+    switch (type) {
+      case 'categories':
+        this.categoriesCache = null
+        break
+      case 'options':
+        this.optionsCache = null
+        break
+      case 'all':
+      default:
+        this.categoriesCache = null
+        this.optionsCache = null
+        this.downloadRetryCount.clear()
+        break
+    }
+  }
+
+  /**
+   * Get download retry information
    */
   getDownloadRetryInfo(attachmentId: number): { attempts: number; maxAttempts: number; canRetry: boolean } {
     const attempts = this.downloadRetryCount.get(attachmentId) || 0
@@ -1116,7 +1395,7 @@ class TicketService {
   }
 
   /**
-   * ENHANCED: Reset download retry count for specific attachment
+   * Reset download retry count for specific attachment
    */
   resetDownloadRetry(attachmentId: number): void {
     this.downloadRetryCount.delete(attachmentId)
@@ -1124,392 +1403,7 @@ class TicketService {
   }
 
   /**
-   * ENHANCED: Test attachment download capabilities
-   */
-  async testDownloadCapabilities(): Promise<{ 
-    canDownload: boolean
-    supportedMethods: string[]
-    errors: string[]
-    recommendations: string[]
-  }> {
-    const results = {
-      canDownload: false,
-      supportedMethods: [] as string[],
-      errors: [] as string[],
-      recommendations: [] as string[]
-    }
-
-    try {
-      // Test 1: Check authentication
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        results.errors.push('No authentication token available')
-        results.recommendations.push('Please log in again')
-        return results
-      }
-
-      // Test 2: Check API connectivity
-      try {
-        const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
-        const testResponse = await fetch(`${baseURL}/health`, {
-          method: 'HEAD',
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-        
-        if (testResponse.ok) {
-          results.supportedMethods.push('api_connectivity')
-          console.log('✅ API connectivity test passed')
-        } else {
-          results.errors.push('API connectivity failed')
-          results.recommendations.push('Check your internet connection')
-        }
-      } catch (error) {
-        results.errors.push('Network connectivity failed')
-        results.recommendations.push('Check your internet connection and try again')
-      }
-
-      // Test 3: Check browser download capabilities
-      try {
-        if (
-          typeof window !== 'undefined' &&
-          window.URL &&
-          typeof window.URL.createObjectURL === 'function'
-        ) {
-          results.supportedMethods.push('browser_download')
-          console.log('✅ Browser download capabilities available')
-        } else {
-          results.errors.push('Browser does not support file downloads')
-          results.recommendations.push('Try using a modern browser like Chrome, Firefox, or Safari')
-        }
-      } catch (error) {
-        results.errors.push('Browser download test failed')
-      }
-
-      // Test 4: Check for CORS issues
-      try {
-        const corsTestUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/tickets/options`
-        const corsResponse = await fetch(corsTestUrl, {
-          method: 'OPTIONS',
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-        
-        if (corsResponse.ok || corsResponse.status === 200) {
-          results.supportedMethods.push('cors_enabled')
-          console.log('✅ CORS test passed')
-        }
-      } catch (error) {
-        results.errors.push('CORS configuration may be blocking downloads')
-        results.recommendations.push('Contact administrator about CORS configuration')
-      }
-
-      // Test 5: Check storage symlink (for Laravel public storage)
-      try {
-        const webBaseURL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api").replace('/api', '')
-        const storageTestUrl = `${webBaseURL}/storage/`
-        
-        const storageResponse = await fetch(storageTestUrl, {
-          method: 'HEAD',
-          mode: 'no-cors' // Avoid CORS issues for this test
-        })
-        
-        // If we get here without error, storage is accessible
-        results.supportedMethods.push('public_storage')
-        console.log('✅ Public storage access available')
-      } catch (error) {
-        results.errors.push('Public storage may not be properly configured')
-        results.recommendations.push('Administrator should run: php artisan storage:link')
-      }
-
-      results.canDownload = results.supportedMethods.length > 1 && results.supportedMethods.includes('browser_download')
-
-      console.log('🔍 TicketService: Download capabilities test completed:', results)
-      return results
-
-    } catch (error) {
-      console.error('❌ TicketService: Download capabilities test failed:', error)
-      results.errors.push(`Test failed: ${error}`)
-      results.recommendations.push('Please try again or contact support')
-      return results
-    }
-  }
-
-  /**
-   * ENHANCED: Get file icon based on type
-   */
-  getFileIcon(fileType: string): string {
-    if (this.isImage(fileType)) {
-      return 'image'
-    }
-
-    switch (fileType) {
-      case 'application/pdf':
-        return 'pdf'
-      case 'application/msword':
-      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-        return 'document'
-      case 'text/plain':
-        return 'text'
-      case 'application/zip':
-      case 'application/x-zip-compressed':
-        return 'archive'
-      case 'video/mp4':
-      case 'video/avi':
-      case 'video/mov':
-        return 'video'
-      case 'audio/mp3':
-      case 'audio/wav':
-      case 'audio/ogg':
-        return 'audio'
-      default:
-        return 'file'
-    }
-  }
-
-  /**
-   * ENHANCED: Check if user can download attachments
-   */
-  canUserDownloadAttachments(): boolean {
-    const token = localStorage.getItem('auth_token')
-    return !!token
-  }
-
-  /**
-   * ENHANCED: Get download URL for attachment (for direct links if needed)
-   */
-  getAttachmentDownloadUrl(attachmentId: number): string {
-    const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
-    return `${baseURL}/tickets/attachments/${attachmentId}/download`
-  }
-
-  /**
-   * ENHANCED: Get public storage URL for attachment (if stored in public)
-   */
-  getAttachmentPublicUrl(filePath: string): string {
-    const webBaseURL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api").replace('/api', '')
-    return `${webBaseURL}/storage/${filePath}`
-  }
-
-  /**
-   * ENHANCED: Validate response data before submission
-   */
-  validateResponseData(data: any): { valid: boolean; errors: string[] } {
-    const errors: string[] = []
-
-    if (!data.message || typeof data.message !== 'string') {
-      errors.push('Response message is required')
-      return { valid: false, errors }
-    }
-
-    const message = data.message.trim()
-    
-    if (message.length < 5) {
-      errors.push('Response must be at least 5 characters long')
-    }
-
-    if (message.length > 5000) {
-      errors.push('Response cannot exceed 5000 characters')
-    }
-
-    // Validate attachments if present
-    if (data.attachments && data.attachments.length > 0) {
-      const fileValidation = this.validateFiles(data.attachments, 3)
-      if (!fileValidation.valid) {
-        errors.push(...fileValidation.errors)
-      }
-    }
-
-    // Validate boolean fields
-    if (data.is_internal !== undefined && typeof data.is_internal !== 'boolean') {
-      errors.push('is_internal must be a boolean value')
-    }
-
-    if (data.is_urgent !== undefined && typeof data.is_urgent !== 'boolean') {
-      errors.push('is_urgent must be a boolean value')
-    }
-
-    // Validate visibility field
-    if (data.visibility && !['all', 'counselors', 'admins'].includes(data.visibility)) {
-      errors.push('visibility must be one of: all, counselors, admins')
-    }
-
-    return { valid: errors.length === 0, errors }
-  }
-
-  /**
-   * ENHANCED: Check if file type is supported for uploads
-   */
-  isSupportedFileType(fileType: string): boolean {
-    const supportedTypes = [
-      'application/pdf',
-      'image/png', 'image/jpeg', 'image/jpg', 'image/gif',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'text/plain',
-    ]
-    return supportedTypes.includes(fileType)
-  }
-
-  /**
-   * ENHANCED: Get human-readable file type description
-   */
-  getFileTypeDescription(fileType: string): string {
-    const typeMap: Record<string, string> = {
-      'application/pdf': 'PDF Document',
-      'image/png': 'PNG Image',
-      'image/jpeg': 'JPEG Image',
-      'image/jpg': 'JPEG Image',
-      'image/gif': 'GIF Image',
-      'application/msword': 'Word Document',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word Document',
-      'text/plain': 'Text File',
-      'application/zip': 'ZIP Archive',
-      'video/mp4': 'MP4 Video',
-      'audio/mp3': 'MP3 Audio',
-    }
-    return typeMap[fileType] || 'Unknown File Type'
-  }
-
-  /**
-   * ENHANCED: Format bytes with more precision options
-   */
-  formatBytes(bytes: number, decimals: number = 1): string {
-    if (bytes === 0) return '0 Bytes'
-
-    const k = 1024
-    const dm = decimals < 0 ? 0 : decimals
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
-
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
-  }
-
-  /**
-   * ENHANCED: Check if current user can perform specific actions
-   */
-  canUserPerformAction(action: string, userRole?: string): boolean {
-    const role = userRole || this.getCurrentUserRole()
-    
-    switch (action) {
-      case 'create_ticket':
-        return role === 'student' || role === 'admin'
-      case 'view_all_tickets':
-        return role === 'admin'
-      case 'assign_ticket':
-        return role === 'admin'
-      case 'modify_ticket':
-        return ['counselor', 'admin'].includes(role)
-      case 'delete_ticket':
-        return role === 'admin'
-      case 'add_internal_response':
-        return ['counselor', 'admin'].includes(role)
-      case 'download_attachment':
-        return true // All authenticated users can download
-      case 'export_tickets':
-        return role === 'admin'
-      case 'manage_tags':
-        return ['counselor', 'admin'].includes(role)
-      case 'bulk_operations':
-        return role === 'admin'
-      default:
-        return false
-    }
-  }
-
-  /**
-   * ENHANCED: Get current user role from stored auth data
-   */
-  private getCurrentUserRole(): string {
-    try {
-      const userStr = localStorage.getItem('user')
-      if (userStr) {
-        const user = JSON.parse(userStr)
-        return user.role || 'student'
-      }
-    } catch (error) {
-      console.error('Failed to get user role:', error)
-    }
-    return 'student'
-  }
-
-  /**
-   * ENHANCED: Generate ticket summary for notifications
-   */
-  generateTicketSummary(ticket: any): string {
-    const category = this.getCategoryDisplayName(ticket.category)
-    const priority = ticket.priority
-    const status = ticket.status
-    
-    return `${category} ticket (${priority} priority) - ${status}`
-  }
-
-  /**
-   * ENHANCED: Calculate ticket metrics
-   */
-  calculateTicketMetrics(tickets: any[]): {
-    totalTickets: number
-    avgResolutionTime: number
-    resolutionRate: number
-    priorityDistribution: Record<string, number>
-    categoryDistribution: Record<string, number>
-    downloadableAttachments: number
-    totalConversationLength: number
-  } {
-    const total = tickets.length
-    
-    const resolved = tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed')
-    const resolutionRate = total > 0 ? (resolved.length / total) * 100 : 0
-    
-    // Calculate average resolution time for resolved tickets
-    const resolvedWithTime = resolved.filter(t => t.resolved_at && t.created_at)
-    const avgResolutionTime = resolvedWithTime.length > 0 
-      ? resolvedWithTime.reduce((acc, ticket) => {
-          const created = new Date(ticket.created_at).getTime()
-          const resolved = new Date(ticket.resolved_at).getTime()
-          return acc + (resolved - created)
-        }, 0) / resolvedWithTime.length / (1000 * 60 * 60) // Convert to hours
-      : 0
-    
-    // Priority distribution
-    const priorityDistribution = tickets.reduce((acc, ticket) => {
-      acc[ticket.priority] = (acc[ticket.priority] || 0) + 1
-      return acc
-    }, {} as Record<string, number>)
-    
-    // Category distribution
-    const categoryDistribution = tickets.reduce((acc, ticket) => {
-      const categoryName = this.getCategoryDisplayName(ticket.category)
-      acc[categoryName] = (acc[categoryName] || 0) + 1
-      return acc
-    }, {} as Record<string, number>)
-    
-    // Count downloadable attachments
-    const downloadableAttachments = tickets.reduce((acc, ticket) => {
-      const ticketAttachments = ticket.attachments?.length || 0
-      const responseAttachments = ticket.responses?.reduce((sum: number, r: any) => 
-        sum + (r.attachments?.length || 0), 0) || 0
-      return acc + ticketAttachments + responseAttachments
-    }, 0)
-    
-    // Calculate total conversation length
-    const totalConversationLength = tickets.reduce((acc, ticket) => {
-      const responseCount = ticket.responses?.length || 0
-      return acc + responseCount + 1 // +1 for initial ticket message
-    }, 0)
-    
-    return {
-      totalTickets: total,
-      avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
-      resolutionRate: Math.round(resolutionRate * 10) / 10,
-      priorityDistribution,
-      categoryDistribution,
-      downloadableAttachments,
-      totalConversationLength
-    }
-  }
-
-  /**
-   * ENHANCED: Debug information for troubleshooting
+   * ENHANCED: Get debug information for troubleshooting
    */
   getDebugInfo(): {
     apiBaseUrl: string
@@ -1526,6 +1420,12 @@ class TicketService {
       sessionStorage: boolean
     }
     downloadRetryStatus: Array<{ attachmentId: number; attempts: number }>
+    cacheStatus: {
+      categoriesCache: boolean
+      optionsCache: boolean
+      categoriesCacheAge?: number
+      optionsCacheAge?: number
+    }
     environmentInfo: {
       userAgent: string
       platform: string
@@ -1553,6 +1453,12 @@ class TicketService {
         attachmentId: id,
         attempts
       })),
+      cacheStatus: {
+        categoriesCache: !!this.categoriesCache,
+        optionsCache: !!this.optionsCache,
+        categoriesCacheAge: this.categoriesCache ? Date.now() - this.categoriesCache.timestamp : undefined,
+        optionsCacheAge: this.optionsCache ? Date.now() - this.optionsCache.timestamp : undefined,
+      },
       environmentInfo: {
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
         platform: typeof navigator !== 'undefined' ? navigator.platform : 'Unknown',
@@ -1562,73 +1468,144 @@ class TicketService {
   }
 
   /**
-   * ENHANCED: Performance monitoring
+   * Get current user role from stored auth data
    */
-  getPerformanceMetrics(): {
-    downloadAttempts: number
-    successfulDownloads: number
-    failedDownloads: number
-    averageRetryCount: number
-    activeRetries: number
-  } {
-    const downloadAttempts = Array.from(this.downloadRetryCount.values()).reduce((sum, count) => sum + count, 0)
-    const activeRetries = this.downloadRetryCount.size
-    const averageRetryCount = activeRetries > 0 ? downloadAttempts / activeRetries : 0
+  private getCurrentUserRole(): string {
+    try {
+      const userStr = localStorage.getItem('user')
+      if (userStr) {
+        const user = JSON.parse(userStr)
+        return user.role || 'student'
+      }
+    } catch (error) {
+      console.error('Failed to get user role:', error)
+    }
+    return 'student'
+  }
+
+  /**
+   * Check if user can perform specific actions
+   */
+  canUserPerformAction(action: string, userRole?: string): boolean {
+    const role = userRole || this.getCurrentUserRole()
     
-    return {
-      downloadAttempts,
-      successfulDownloads: 0, // Would need additional tracking for this
-      failedDownloads: 0, // Would need additional tracking for this
-      averageRetryCount: Math.round(averageRetryCount * 10) / 10,
-      activeRetries
+    switch (action) {
+      case 'create_ticket':
+        return role === 'student' || role === 'admin'
+      case 'view_all_tickets':
+        return role === 'admin'
+      case 'assign_ticket':
+        return role === 'admin'
+      case 'modify_ticket':
+        return ['counselor', 'admin'].includes(role)
+      case 'delete_ticket':
+        return role === 'admin'
+      case 'add_internal_response':
+        return ['counselor', 'admin'].includes(role)
+      case 'download_attachment':
+        return true // All authenticated users can download
+      case 'export_tickets':
+        return role === 'admin'
+      case 'manage_tags':
+        return ['counselor', 'admin'].includes(role)
+      case 'bulk_operations':
+        return role === 'admin'
+      case 'manage_categories':
+        return role === 'admin'
+      case 'view_crisis_detection':
+        return ['counselor', 'admin'].includes(role)
+      case 'test_crisis_detection':
+        return role === 'admin'
+      default:
+        return false
     }
   }
 
   /**
-   * ENHANCED: Cleanup and optimization
+   * ENHANCED: Calculate ticket metrics with category support
    */
-  cleanup(): void {
-    console.log('🧹 TicketService: Performing cleanup')
-    
-    // Clear retry counts for attachments that haven't been accessed recently
-    const now = Date.now()
-    const maxAge = 10 * 60 * 1000 // 10 minutes
-    
-    // Note: We'd need additional tracking to implement time-based cleanup
-    // For now, just clear everything older than max retries
-    this.downloadRetryCount.forEach((count, attachmentId) => {
-      if (count >= this.maxRetries) {
-        this.downloadRetryCount.delete(attachmentId)
-        console.log('🗑️ Cleaned up failed download retry for attachment:', attachmentId)
-      }
-    })
-  }
-
-  /**
-   * ENHANCED: Export capabilities check
-   */
-  checkExportCapabilities(): {
-    canExportCsv: boolean
-    canExportJson: boolean
-    canExportExcel: boolean
-    supportedFormats: string[]
-    limitations: string[]
+  calculateTicketMetrics(tickets: any[]): {
+    totalTickets: number
+    avgResolutionTime: number
+    resolutionRate: number
+    priorityDistribution: Record<string, number>
+    categoryDistribution: Record<string, number>
+    statusDistribution: Record<string, number>
+    crisisTickets: number
+    autoAssignedTickets: number
+    overdueTickets: number
+    downloadableAttachments: number
+    totalConversationLength: number
   } {
-    const browserSupport = typeof window !== 'undefined' && 
-                          typeof Blob !== 'undefined' && 
-                          typeof URL !== 'undefined' && 
-                          typeof URL.createObjectURL !== 'undefined'
+    const total = tickets.length
+    
+    const resolved = tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed')
+    const resolutionRate = total > 0 ? (resolved.length / total) * 100 : 0
+    
+    // Calculate average resolution time for resolved tickets
+    const resolvedWithTime = resolved.filter(t => t.resolved_at && t.created_at)
+    const avgResolutionTime = resolvedWithTime.length > 0 
+      ? resolvedWithTime.reduce((acc, ticket) => {
+          const created = new Date(ticket.created_at).getTime()
+          const resolved = new Date(ticket.resolved_at).getTime()
+          return acc + (resolved - created)
+        }, 0) / resolvedWithTime.length / (1000 * 60 * 60) // Convert to hours
+      : 0
+    
+    // Priority distribution
+    const priorityDistribution = tickets.reduce((acc, ticket) => {
+      acc[ticket.priority] = (acc[ticket.priority] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    
+    // Category distribution (now with category names)
+    const categoryDistribution = tickets.reduce((acc, ticket) => {
+      const categoryName = ticket.category?.name || 'Unknown'
+      acc[categoryName] = (acc[categoryName] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    
+    // Status distribution
+    const statusDistribution = tickets.reduce((acc, ticket) => {
+      acc[ticket.status] = (acc[ticket.status] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    
+    // Count crisis, auto-assigned, and overdue tickets
+    const crisisTickets = tickets.filter(t => t.crisis_flag || t.priority === 'Urgent').length
+    const autoAssignedTickets = tickets.filter(t => t.auto_assigned === 'yes').length
+    const overdueTickets = tickets.filter(t => {
+      if (['Resolved', 'Closed'].includes(t.status)) return false
+      const slaHours = t.category?.sla_response_hours || 24
+      return this.isTicketOverdue(t.created_at, slaHours, t.status)
+    }).length
+    
+    // Count downloadable attachments
+    const downloadableAttachments = tickets.reduce((acc, ticket) => {
+      const ticketAttachments = ticket.attachments?.length || 0
+      const responseAttachments = ticket.responses?.reduce((sum: number, r: any) => 
+        sum + (r.attachments?.length || 0), 0) || 0
+      return acc + ticketAttachments + responseAttachments
+    }, 0)
+    
+    // Calculate total conversation length
+    const totalConversationLength = tickets.reduce((acc, ticket) => {
+      const responseCount = ticket.responses?.length || 0
+      return acc + responseCount + 1 // +1 for initial ticket message
+    }, 0)
     
     return {
-      canExportCsv: browserSupport,
-      canExportJson: browserSupport,
-      canExportExcel: false, // Would require additional library
-      supportedFormats: browserSupport ? ['csv', 'json'] : [],
-      limitations: [
-        ...(browserSupport ? [] : ['Browser does not support file downloads']),
-        'Excel export requires additional setup',
-        'Large exports may be slow'
-      ]
+      totalTickets: total,
+      avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
+      resolutionRate: Math.round(resolutionRate * 10) / 10,
+      priorityDistribution,
+      categoryDistribution,
+      statusDistribution,
+      crisisTickets,
+      autoAssignedTickets,
+      overdueTickets,
+      downloadableAttachments,
+      totalConversationLength
     }
   }
 }

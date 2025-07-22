@@ -1,12 +1,18 @@
-// components/pages/TicketsPage.tsx (FIXED TYPESCRIPT ISSUES)
+// components/pages/tickets-page.tsx - SIMPLIFIED: Clean user-focused ticket management
+
 "use client"
 
 import { useState, useCallback, useMemo, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Eye, Settings } from "lucide-react"
 
-// Store and services
+// Enhanced imports for dynamic categories
+import { useTicketIntegration } from '@/hooks/useTicketIntegration'
 import { useTicketStore, TicketData } from "@/stores/ticket-store"
+import { useTicketCategoriesStore } from "@/stores/ticketCategories-store"
 import { authService } from "@/services/auth.service"
 import { useToast } from "@/hooks/use-toast"
 
@@ -26,8 +32,6 @@ import {
   applyTicketFilters,
   filterTicketsByView
 } from '@/utils/tickets.utils'
-import { useCachedTickets, useCachedTicketActions } from '@/hooks/useCachedTickets'
-import { ticketsCache, cacheUtils } from '@/utils/smartCaching.utils'
 
 // Error Boundary
 import { ErrorBoundary, withErrorBoundary } from '@/components/common/error-boundary'
@@ -40,29 +44,21 @@ import {
   TicketsListSkeleton,
   TicketsPaginationSkeleton,
   AlertSkeleton,
-  SystemOverviewSkeleton,
-  PerformanceInsightsSkeleton
 } from '@/components/tickets/TicketsLoadingSkeletons'
 
-// Components
+// SIMPLIFIED: Core Components Only
 import { TicketsHeader } from '@/components/tickets/TicketsHeader'
-import { TicketsFilters } from '@/components/tickets/TicketsFilters'
+import { EnhancedTicketsFilters } from '@/components/tickets/EnhancedTicketsFilters'
 import { TicketTabs } from '@/components/tickets/TicketTabs'
-import { TicketsList } from '@/components/tickets/TicketsList'
+import { EnhancedTicketsList } from '@/components/tickets/EnhancedTicketsList'
 import { TicketsPagination } from '@/components/tickets/TicketsPagination'
 
-// Dialogs
-import { DeleteTicketDialog } from '@/components/dialogs/DeleteTicketDialog'
-import { BulkActionsDialog } from '@/components/dialogs/BulkActionsDialog'
+// SIMPLIFIED: Essential Dialogs Only
+import { EnhancedDeleteTicketDialog } from '@/components/dialogs/EnhancedDeleteTicketDialog'
 
-// Alerts
-import { CrisisAlert } from '@/components/alerts/CrisisAlert'
+// SIMPLIFIED: Essential Alerts Only
+import { EnhancedCrisisAlert } from '@/components/alerts/EnhancedCrisisAlert'
 import { ErrorAlert } from '@/components/alerts/ErrorAlert'
-import { UnassignedAlert } from '@/components/alerts/UnassignedAlert'
-
-// Admin components
-import { SystemOverview } from '@/components/admin/SystemOverview'
-import { PerformanceInsights } from '@/components/admin/PerformanceInsights'
 
 // Shared components
 import { HelpSupportFooter } from '@/components/shared/HelpSupportFooter'
@@ -97,86 +93,74 @@ function TicketsErrorFallback({ error, retry }: { error: Error; retry: () => voi
 }
 
 function TicketsPageContent({ onNavigate }: TicketsPageProps) {
+  // ENHANCED: Use ticket integration hook for unified management
+  const {
+    data: { tickets, categories, currentTicketWithCategory },
+    state: { loading, errors },
+    ticketOperations,
+    refreshAll,
+    clearAllCaches,
+    stores
+  } = useTicketIntegration({
+    autoLoadCategories: true,
+    autoLoadTickets: true,
+    enableRealTimeUpdates: true
+  })
+
   // Store access for pagination and selections
   const pagination = useTicketStore((state) => state?.pagination || DEFAULT_PAGINATION);
   const selectedTickets = useTicketStore((state) => state?.selectedTickets || new Set());
   const filters = useTicketStore((state) => state?.filters || {});
-  const actions = useTicketStore((state) => state?.actions);
+  const storeActions = useTicketStore((state) => state?.actions);
 
-  // Local UI state
+  // SIMPLIFIED: Local UI state
   const [searchTerm, setSearchTerm] = useState('');
   const [currentView, setCurrentView] = useState('all');
 
-  // Dialog states
+  // SIMPLIFIED: Essential dialog state only
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({
     isOpen: false,
     ticket: null,
   });
-  const [bulkActionsDialog, setBulkActionsDialog] = useState(false);
 
   // Current user and derived data
   const currentUser = useMemo(() => authService.getStoredUser(), []);
-
-  // Smart cached tickets with background refresh
-  const {
-    tickets: cachedTickets,
-    loading: ticketsLoading,
-    error: ticketsError,
-    isStale,
-    refresh: refreshTickets,
-    invalidateCache,
-    hasCachedData,
-  } = useCachedTickets({
-    filters: { ...filters, search: searchTerm },
-    autoRefresh: true,
-    refreshInterval: 60000, // 60 seconds
-  });
-
-  // Cached ticket actions
-  const {
-    updateTicket,
-    deleteTicket: cachedDeleteTicket,
-    assignTicket,
-    bulkAction,
-  } = useCachedTicketActions();
-
   const { toast } = useToast();
 
-  // Apply client-side filtering to cached tickets
+  // Apply client-side filtering with category support
   const filteredTickets = useMemo(() => {
-    return applyTicketFilters(cachedTickets, searchTerm, filters, currentUser?.id);
-  }, [cachedTickets, searchTerm, filters, currentUser?.id]);
+    return applyTicketFilters(tickets, searchTerm, filters, currentUser?.id);
+  }, [tickets, searchTerm, filters, currentUser?.id]);
 
-  // Apply view-specific filtering
+  // Apply view-specific filtering with category awareness
   const currentTabTickets = useMemo(() => {
     return filterTicketsByView(filteredTickets, currentView, currentUser?.id);
   }, [filteredTickets, currentView, currentUser?.id]);
 
-  // Stats calculation
+  // Stats calculation with category support
   const stats: TicketStats = useMemo(() => {
-    return calculateStats(cachedTickets, currentUser?.id);
-  }, [cachedTickets, currentUser?.id]);
+    return calculateStats(tickets, currentUser?.id);
+  }, [tickets, currentUser?.id]);
 
   // Page info and permissions
   const pageInfo = useMemo(() => getPageInfo(currentUser?.role), [currentUser?.role]);
   const permissions = useMemo(() => getPermissions(currentUser?.role), [currentUser?.role]);
 
-  // Selected tickets as array
+  // Selected tickets as array with category data
   const selectedTicketsArray = useMemo(() => {
     return Array.from(selectedTickets)
-      .map((id) => cachedTickets.find((t) => t.id === id))
+      .map((id) => tickets.find((t) => t.id === id))
       .filter(Boolean) as TicketData[];
-  }, [selectedTickets, cachedTickets]);
+  }, [selectedTickets, tickets]);
 
-  // Navigation handlers
+  // Navigation handlers with category slug support
   const handleViewTicket = useCallback(
     (ticket: TicketData): void => {
       try {
         console.log('🎫 TicketsPage: Navigating to ticket details:', ticket.id);
         if (onNavigate) {
-          const slug =
-            ticket.slug ||
-            `${ticket.id}-${ticket.ticket_number.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+          const slug = ticket.slug || 
+            `${ticket.id}-${ticket.category?.slug || 'general'}-${ticket.ticket_number.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
           onNavigate('ticket-details', { ticketId: ticket.id, slug });
         }
       } catch (error) {
@@ -197,11 +181,11 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     }
   }, [onNavigate]);
 
-  // Smart refresh that uses cache
+  // ENHANCED: Smart refresh with category updates
   const handleRefresh = useCallback(async (): Promise<void> => {
     try {
-      console.log('🔄 TicketsPage: Smart refresh triggered');
-      await refreshTickets();
+      console.log('🔄 TicketsPage: Enhanced refresh triggered');
+      await refreshAll();
 
       toast({
         title: 'Success',
@@ -211,42 +195,47 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
       console.error('❌ TicketsPage: Refresh error:', error);
       toast({
         title: 'Error',
-        description: 'Failed to refresh tickets',
+        description: 'Failed to refresh data',
         variant: 'destructive',
       });
     }
-  }, [refreshTickets, toast]);
+  }, [refreshAll, toast]);
 
-  // Filter change with cache invalidation
+  // Filter change with category support
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
-      if (!actions?.setFilters) return;
+      if (!storeActions?.setFilters) return;
 
       const newFilters = { ...filters, [key]: value === 'all' ? undefined : value };
-      actions.setFilters(newFilters, true);
+      storeActions.setFilters(newFilters, true);
 
-      // Invalidate cache when filters change significantly
-      if (['status', 'category', 'priority'].includes(key)) {
-        invalidateCache();
+      // Provide feedback for category filtering
+      if (key === 'category_id' && value !== 'all') {
+        const category = categories.find(c => c.id.toString() === value);
+        if (category) {
+          toast({
+            title: 'Filter Applied',
+            description: `Showing tickets in ${category.name} category`,
+          });
+        }
       }
     },
-    [actions, filters, invalidateCache]
+    [storeActions, filters, categories, toast]
   );
 
   const clearFilters = useCallback(() => {
-    if (!actions?.clearFilters) return;
+    if (!storeActions?.clearFilters) return;
 
-    actions.clearFilters(true);
+    storeActions.clearFilters(true);
     setSearchTerm('');
-    invalidateCache(); // Clear cache when clearing filters
 
     toast({
       title: 'Filters cleared',
       description: 'All filters have been reset',
     });
-  }, [actions, toast, invalidateCache]);
+  }, [storeActions, toast]);
 
-  // Enhanced ticket action handler with caching
+  // SIMPLIFIED: Basic ticket actions only
   const handleTicketAction = useCallback(
     async (action: string, ticket: TicketData) => {
       try {
@@ -257,22 +246,14 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
             if (!['counselor', 'admin'].includes(currentUser?.role || '')) {
               throw new Error('You do not have permission to modify tickets');
             }
-            await updateTicket(ticket.id, { status: 'In Progress' });
-            toast({
-              title: 'Success',
-              description: `Ticket #${ticket.ticket_number} marked as In Progress`,
-            });
+            await ticketOperations.updateTicket(ticket.id, { status: 'In Progress' });
             break;
 
           case 'mark_resolved':
             if (!['counselor', 'admin'].includes(currentUser?.role || '')) {
               throw new Error('You do not have permission to modify tickets');
             }
-            await updateTicket(ticket.id, { status: 'Resolved' });
-            toast({
-              title: 'Success',
-              description: `Ticket #${ticket.ticket_number} marked as Resolved`,
-            });
+            await ticketOperations.updateTicket(ticket.id, { status: 'Resolved' });
             break;
 
           case 'assign_to_me':
@@ -280,11 +261,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
               throw new Error('Only administrators can assign tickets');
             }
             if (currentUser) {
-              await assignTicket(ticket.id, currentUser.id);
-              toast({
-                title: 'Success',
-                description: `Ticket #${ticket.ticket_number} assigned to you`,
-              });
+              await ticketOperations.assignTicket(ticket.id, currentUser.id);
             }
             break;
 
@@ -300,17 +277,13 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
         }
       } catch (error: any) {
         console.error(`Failed to ${action}:`, error);
-        toast({
-          title: 'Error',
-          description: error.message || `Failed to ${action.replace('_', ' ')}`,
-          variant: 'destructive',
-        });
+        // Error handling is managed by ticketOperations
       }
     },
-    [updateTicket, assignTicket, currentUser, toast]
+    [ticketOperations, currentUser]
   );
 
-  // FIXED: Delete confirmation with proper cached delete method
+  // Delete confirmation with category context
   const handleDeleteConfirm = useCallback(
     async (reason: string, notifyUser: boolean) => {
       if (!deleteDialog.ticket) {
@@ -320,48 +293,33 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
 
       const ticketNumber = deleteDialog.ticket.ticket_number;
       const ticketId = deleteDialog.ticket.id;
+      const categoryName = deleteDialog.ticket.category?.name || 'Unknown';
 
       console.log('🗑️ TicketsPage: Processing delete confirmation:', {
         ticketId,
         ticketNumber,
+        categoryName,
         reason,
         notifyUser,
       });
 
       try {
-        // FIXED: Use the correct cached delete ticket method
-        await cachedDeleteTicket(ticketId, reason, notifyUser);
-
+        await ticketOperations.deleteTicket(ticketId, reason, notifyUser);
+        
         console.log('✅ TicketsPage: Delete successful, closing dialog');
-
-        // FIXED: Close dialog immediately after successful deletion
         setDeleteDialog({ isOpen: false, ticket: null });
 
-        // Show success toast
         toast({
           title: 'Success',
-          description: `Ticket #${ticketNumber} deleted successfully`,
+          description: `Ticket #${ticketNumber} (${categoryName}) deleted successfully`,
         });
 
-        console.log('✅ TicketsPage: Ticket deletion completed successfully');
       } catch (error: any) {
         console.error('❌ TicketsPage: Delete failed:', error);
-
-        // FIXED: Don't close dialog on error, let user see the error and retry
-        // The error will be shown in the dialog itself
-
-        // Still show toast for user feedback
-        toast({
-          title: 'Error',
-          description: error.message || 'Failed to delete ticket',
-          variant: 'destructive',
-        });
-
-        // Re-throw error so dialog can handle it
-        throw error;
+        // Keep dialog open on error for retry
       }
     },
-    [deleteDialog.ticket, cachedDeleteTicket, toast]
+    [deleteDialog.ticket, ticketOperations, toast]
   );
 
   // Close delete dialog handler
@@ -370,188 +328,47 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     setDeleteDialog({ isOpen: false, ticket: null });
   }, []);
 
-  // Enhanced bulk actions with caching
-  // Enhanced bulk actions with delete support
-  const handleBulkActionWithDialog = useCallback(
-    async (action: string, params?: any) => {
-      try {
-        const ticketIds = selectedTicketsArray.map((t) => t.id);
-
-        switch (action) {
-          case 'assign':
-            if (currentUser?.role !== 'admin') {
-              throw new Error('Only administrators can assign tickets');
-            }
-
-            if (params.assignTo === 'me' && currentUser) {
-              await bulkAction('assign', ticketIds, {
-                userId: currentUser.id,
-                reason: 'Bulk assignment',
-              });
-              toast({
-                title: 'Success',
-                description: `${selectedTicketsArray.length} tickets assigned to you`,
-              });
-            } else if (params.assignTo === 'unassign') {
-              for (const ticket of selectedTicketsArray) {
-                await assignTicket(ticket.id, null);
-              }
-              toast({
-                title: 'Success',
-                description: `${selectedTicketsArray.length} tickets unassigned`,
-              });
-            }
-            break;
-
-          case 'update_status':
-            if (!['counselor', 'admin'].includes(currentUser?.role || '')) {
-              throw new Error('You do not have permission to modify tickets');
-            }
-
-            for (const ticket of selectedTicketsArray) {
-              await updateTicket(ticket.id, { status: params.status });
-            }
-            toast({
-              title: 'Success',
-              description: `${selectedTicketsArray.length} tickets updated to ${params.status}`,
-            });
-            break;
-
-          case 'update_priority':
-            if (!['counselor', 'admin'].includes(currentUser?.role || '')) {
-              throw new Error('You do not have permission to modify tickets');
-            }
-
-            for (const ticket of selectedTicketsArray) {
-              await updateTicket(ticket.id, { priority: params.priority });
-            }
-            toast({
-              title: 'Success',
-              description: `${selectedTicketsArray.length} tickets priority updated to ${params.priority}`,
-            });
-            break;
-
-          case 'export':
-            if (currentUser?.role !== 'admin') {
-              throw new Error('Only administrators can export tickets');
-            }
-            if (actions?.exportTickets) {
-              await actions.exportTickets('csv', {}, ticketIds);
-              toast({
-                title: 'Success',
-                description: 'Export started successfully',
-              });
-            }
-            break;
-        }
-
-        // Clear selection after successful action
-        actions?.clearSelection();
-        setBulkActionsDialog(false);
-      } catch (error: any) {
-        console.error(`Bulk ${action} failed:`, error);
-        toast({
-          title: 'Error',
-          description: error.message || `Failed to ${action} tickets`,
-          variant: 'destructive',
-        });
-      }
-    },
-    [selectedTicketsArray, currentUser, bulkAction, updateTicket, assignTicket, actions, toast]
-  );
-
-  // FIXED: New bulk delete handler - use cachedDeleteTicket instead of deleteTicket
-  const handleBulkDelete = useCallback(
-    async (reason: string, notifyUsers: boolean) => {
-      if (currentUser?.role !== 'admin') {
-        throw new Error('Only administrators can delete tickets');
-      }
-
-      try {
-        console.log('🗑️ TicketsPage: Processing bulk delete:', {
-          count: selectedTicketsArray.length,
-          reason,
-          notifyUsers,
-        });
-
-        // Delete each ticket individually for now
-        // TODO: Implement proper bulk delete API endpoint
-        const deletePromises = selectedTicketsArray.map((ticket) =>
-          cachedDeleteTicket(ticket.id, reason, notifyUsers)
-        );
-
-        await Promise.all(deletePromises);
-
-        toast({
-          title: 'Success',
-          description: `${selectedTicketsArray.length} tickets deleted successfully`,
-        });
-
-        // Clear selection
-        actions?.clearSelection();
-        setBulkActionsDialog(false);
-      } catch (error: any) {
-        console.error('❌ TicketsPage: Bulk delete failed:', error);
-        toast({
-          title: 'Error',
-          description: error.message || 'Failed to delete tickets',
-          variant: 'destructive',
-        });
-        throw error; // Re-throw to keep dialog open
-      }
-    },
-    [selectedTicketsArray, currentUser, cachedDeleteTicket, actions, toast]
-  );
-
-  // Selection handlers
+  // SIMPLIFIED: Selection handlers
   const handleSelectTicket = useCallback(
     (ticketId: number, selected: boolean) => {
-      if (!actions) return;
+      if (!storeActions) return;
 
       if (selected) {
-        actions.selectTicket(ticketId);
+        storeActions.selectTicket(ticketId);
       } else {
-        actions.deselectTicket(ticketId);
+        storeActions.deselectTicket(ticketId);
       }
     },
-    [actions]
+    [storeActions]
   );
 
   const handleSelectAll = useCallback(
     (selected: boolean) => {
-      if (!actions) return;
+      if (!storeActions) return;
 
       if (selected) {
-        currentTabTickets.forEach((ticket) => actions.selectTicket(ticket.id));
+        currentTabTickets.forEach((ticket) => storeActions.selectTicket(ticket.id));
       } else {
-        actions.clearSelection();
+        storeActions.clearSelection();
       }
     },
-    [actions, currentTabTickets]
+    [storeActions, currentTabTickets]
   );
 
-  // Special action handlers
+  // SIMPLIFIED: Quick actions
   const handleViewCrisis = useCallback(() => {
     setCurrentView('crisis');
-  }, []);
-
-  const handleViewUnassigned = useCallback(() => {
-    setCurrentView('unassigned');
-  }, []);
-
-  const handleBulkAssignUnassigned = useCallback(() => {
-    const unassignedTickets = cachedTickets.filter((t) => !t.assigned_to);
-    if (unassignedTickets.length > 0 && actions) {
-      unassignedTickets.forEach((ticket) => actions.selectTicket(ticket.id));
-      setBulkActionsDialog(true);
-    }
-  }, [cachedTickets, actions]);
+    toast({
+      title: 'Crisis View',
+      description: 'Showing all crisis tickets',
+    });
+  }, [toast]);
 
   const handleExport = useCallback(() => {
-    if (actions?.exportTickets) {
-      actions.exportTickets('csv');
+    if (storeActions?.exportTickets) {
+      storeActions.exportTickets('csv');
     }
-  }, [actions]);
+  }, [storeActions]);
 
   const handlePageChange = useCallback(
     (page: number) => {
@@ -560,22 +377,21 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     [handleFilterChange]
   );
 
-  // FIXED: Clear cache on component unmount or when needed
+  // Cache cleanup
   useEffect(() => {
-    // Cleanup cache every 10 minutes to prevent memory leaks
     const cleanup = setInterval(() => {
-      ticketsCache.cleanup();
+      clearAllCaches();
     }, 10 * 60 * 1000);
 
     return () => clearInterval(cleanup);
-  }, []);
+  }, [clearAllCaches]);
 
   // Determine loading states
-  const showSkeletonLoading = ticketsLoading && !hasCachedData;
-  const showStaleIndicator = isStale && hasCachedData;
+  const showSkeletonLoading = loading.any && (tickets.length === 0 || categories.length === 0);
+  const showStaleIndicator = loading.tickets.refresh && tickets.length > 0;
 
   // Safety check for actions
-  if (!actions) {
+  if (!storeActions) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="container mx-auto px-4 py-6 space-y-6 max-w-7xl">
@@ -595,20 +411,20 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
   }
 
   const hasActiveFilters = Boolean(
-    searchTerm || filters.status || filters.category || filters.priority || filters.assigned
+    searchTerm || filters.status || filters.category_id || filters.priority || filters.assigned
   );
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-6 space-y-6 max-w-7xl">
-        {/* Stale Data Indicator */}
+        {/* SIMPLIFIED: Stale Data Indicator */}
         {showStaleIndicator && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
                 <span className="text-sm text-amber-700">
-                  Showing cached data. Refreshing in background...
+                  Refreshing tickets...
                 </span>
               </div>
               <button
@@ -621,31 +437,52 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           </div>
         )}
 
-        {/* Header - Smart loading */}
+        {/* ENHANCED: Header with category stats */}
         {showSkeletonLoading ? (
           <TicketsHeaderSkeleton />
         ) : (
-          <TicketsHeader
-            pageInfo={pageInfo}
-            stats={stats}
-            loading={ticketsLoading}
-            selectedCount={selectedTicketsArray.length}
-            permissions={permissions}
-            userRole={currentUser?.role}
-            onRefresh={handleRefresh}
-            onBulkActions={() => setBulkActionsDialog(true)}
-            onExport={handleExport}
-            onCreate={handleCreateTicket}
-          />
+          <div className="relative">
+            <TicketsHeader
+              pageInfo={pageInfo}
+              stats={stats}
+              loading={loading.any}
+              selectedCount={selectedTicketsArray.length}
+              permissions={permissions}
+              userRole={currentUser?.role}
+              onRefresh={handleRefresh}
+              onBulkActions={() => {}} // Simplified: No bulk actions in main page
+              onExport={handleExport}
+              onCreate={handleCreateTicket}
+              categoriesCount={categories.length}
+              activeCategoriesCount={categories.filter(c => c.is_active).length}
+            />
+            
+            {/* SIMPLIFIED: Admin Access Button */}
+            {currentUser?.role === 'admin' && (
+              <div className="absolute top-4 right-4">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onNavigate?.('admin-tickets')}
+                  className="bg-white/20 hover:bg-white/30 border-white/30"
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Admin Panel
+                </Button>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Crisis Alert */}
         {showSkeletonLoading ? (
           <AlertSkeleton />
         ) : (
-          <CrisisAlert
+          <EnhancedCrisisAlert
             crisisCount={stats.crisis}
             userRole={currentUser?.role}
+            categories={categories}
+            tickets={tickets}
             onViewCrisis={handleViewCrisis}
           />
         )}
@@ -653,26 +490,27 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
         {/* Error Alert */}
         {!showSkeletonLoading && (
           <ErrorAlert
-            error={ticketsError}
+            error={errors.any ? ((Object.values(errors.tickets).find(Boolean) || Object.values(errors.categories).find(Boolean)) ?? null) : null}
             onDismiss={() => {
-              // Clear error and try refresh
-              invalidateCache();
+              stores.tickets.actions.clearError('list');
+              stores.categories.actions.clearError('list');
             }}
           />
         )}
 
-        {/* Filters */}
+        {/* SIMPLIFIED: Filters */}
         {showSkeletonLoading ? (
           <TicketsFiltersSkeleton />
         ) : (
-          <TicketsFilters
+          <EnhancedTicketsFilters
             searchTerm={searchTerm}
             filters={filters}
-            loading={ticketsLoading}
+            loading={loading.any}
             userRole={currentUser?.role}
             selectedCount={selectedTicketsArray.length}
             totalCount={currentTabTickets.length}
-            canBulkActions={permissions.can_bulk_actions}
+            canBulkActions={false} // Simplified: No bulk actions
+            categories={categories}
             onSearchChange={setSearchTerm}
             onFilterChange={handleFilterChange}
             onClearFilters={clearFilters}
@@ -680,7 +518,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           />
         )}
 
-        {/* Tickets Tabs and Content with Error Boundary */}
+        {/* SIMPLIFIED: Tickets Tabs and Content */}
         <Card className="border-0 shadow-xl">
           <CardContent className="p-0">
             {showSkeletonLoading ? (
@@ -706,9 +544,10 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
                   />
 
                   <TabsContent value={currentView} className="p-6 space-y-4 mt-0">
-                    <TicketsList
+                    <EnhancedTicketsList
                       tickets={currentTabTickets}
-                      loading={ticketsLoading && !hasCachedData}
+                      categories={categories}
+                      loading={loading.any}
                       selectedTickets={selectedTickets}
                       permissions={permissions}
                       userRole={currentUser?.role}
@@ -732,36 +571,9 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
         ) : (
           <TicketsPagination
             pagination={pagination}
-            loading={ticketsLoading}
+            loading={loading.any}
             onPageChange={handlePageChange}
           />
-        )}
-
-        {/* Unassigned Alert */}
-        {showSkeletonLoading ? (
-          <AlertSkeleton />
-        ) : (
-          <UnassignedAlert
-            unassignedCount={stats.unassigned}
-            userRole={currentUser?.role}
-            permissions={permissions}
-            onViewUnassigned={handleViewUnassigned}
-            onBulkAssign={handleBulkAssignUnassigned}
-          />
-        )}
-
-        {/* Admin Components */}
-        {showSkeletonLoading ? (
-          <>
-            <SystemOverviewSkeleton />
-            <PerformanceInsightsSkeleton />
-          </>
-        ) : (
-          <>
-            <SystemOverview stats={stats} userRole={currentUser?.role} />
-
-            <PerformanceInsights stats={stats} userRole={currentUser?.role} />
-          </>
         )}
 
         {/* Help and Support Links */}
@@ -774,38 +586,15 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
         )}
       </div>
 
-      {/* Dialogs - Only show when not in skeleton loading state */}
+      {/* SIMPLIFIED: Essential Dialog Only */}
       {!showSkeletonLoading && (
-        <>
-          {/* Delete Confirmation Dialog */}
-          <DeleteTicketDialog
-            key={deleteDialog.ticket?.id || 'empty'}
-            ticket={deleteDialog.ticket}
-            isOpen={deleteDialog.isOpen}
-            onClose={handleCloseDeleteDialog}
-            onConfirm={handleDeleteConfirm}
-          />
-
-          {/* Bulk Actions Dialog */}
-          <BulkActionsDialog
-            key={selectedTicketsArray.length}
-            isOpen={bulkActionsDialog}
-            onClose={() => setBulkActionsDialog(false)}
-            selectedTickets={selectedTicketsArray}
-            onBulkAction={handleBulkActionWithDialog}
-            onBulkDelete={handleBulkDelete}
-          />
-        </>
-      )}
-
-      {/* Debug Cache Info (Development Only) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed bottom-4 left-4 bg-black bg-opacity-80 text-white p-2 rounded text-xs">
-          <div>Cache Entries: {ticketsCache.getStats().cacheSize}</div>
-          <div>Has Cached Data: {hasCachedData ? 'Yes' : 'No'}</div>
-          <div>Is Stale: {isStale ? 'Yes' : 'No'}</div>
-          <div>Loading: {ticketsLoading ? 'Yes' : 'No'}</div>
-        </div>
+        <EnhancedDeleteTicketDialog
+          key={deleteDialog.ticket?.id || 'empty'}
+          ticket={deleteDialog.ticket}
+          isOpen={deleteDialog.isOpen}
+          onClose={handleCloseDeleteDialog}
+          onConfirm={handleDeleteConfirm}
+        />
       )}
     </div>
   );
@@ -818,7 +607,8 @@ const TicketsPageWithErrorBoundary = withErrorBoundary(TicketsPageContent, {
     
     // Clear problematic cache on critical errors
     if (error.message.includes('cache') || error.message.includes('fetch')) {
-      cacheUtils.invalidateTicketCache();
+      const { clearAllCaches } = useTicketIntegration();
+      clearAllCaches();
     }
   }
 });
