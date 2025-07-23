@@ -1,15 +1,19 @@
-// components/tickets/TicketsList.tsx
+// components/tickets/TicketsList.tsx - Using ModernTicketCard
+
 "use client"
 
+import { useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Ticket, Plus, Loader2 } from "lucide-react"
 import { TicketData } from '@/stores/ticket-store'
 import { TicketPermissions } from '@/types/tickets.types'
-import { TicketCard } from './TicketCard'
+import { ModernTicketCard } from './ModernTicketCard' // ✅ Using ModernTicketCard instead
 
 interface TicketsListProps {
   tickets: TicketData[]
   loading: boolean
+  loadingMore?: boolean
+  hasMore?: boolean
   selectedTickets: Set<number>
   permissions: TicketPermissions
   userRole?: string
@@ -24,6 +28,8 @@ interface TicketsListProps {
 export function TicketsList({
   tickets,
   loading,
+  loadingMore = false,
+  hasMore = true,
   selectedTickets,
   permissions,
   userRole,
@@ -32,9 +38,11 @@ export function TicketsList({
   onSelectTicket,
   onViewTicket,
   onTicketAction,
-  onCreateTicket
+  onCreateTicket,
 }: TicketsListProps) {
-  if (loading) {
+  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
+
+  if (loading && tickets.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
         <Loader2 className="h-12 w-12 animate-spin text-blue-600 mb-4" />
@@ -43,7 +51,7 @@ export function TicketsList({
     )
   }
 
-  if (tickets.length === 0) {
+  if (tickets.length === 0 && !loading) {
     return (
       <div className="text-center py-12">
         <Ticket className="h-12 w-12 mx-auto mb-4 text-gray-300" />
@@ -70,12 +78,15 @@ export function TicketsList({
 
   return (
     <div className="space-y-3">
+      {/* Tickets List */}
       {tickets.map((ticket: TicketData) => (
-        <TicketCard
+        <ModernTicketCard
           key={ticket.id}
           ticket={ticket}
+          category={ticket.category} // ✅ Pass the category properly
           isSelected={selectedTickets.has(ticket.id)}
           permissions={permissions}
+          userRole={userRole}
           onSelect={(selected) => onSelectTicket(ticket.id, selected)}
           onView={() => onViewTicket(ticket)}
           onAction={(action) => {
@@ -89,6 +100,19 @@ export function TicketsList({
           }}
         />
       ))}
+
+      {/* Floating Create Button for Mobile */}
+      {userRole === 'student' && (
+        <div className="fixed bottom-6 right-4 sm:hidden z-40">
+          <Button
+            onClick={onCreateTicket}
+            size="lg"
+            className="w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-xl border-4 border-white"
+          >
+            <Plus className="h-6 w-6" />
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

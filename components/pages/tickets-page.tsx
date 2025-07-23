@@ -8,8 +8,6 @@ import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Eye, Settings, Plus, RefreshCw, Loader2 } from "lucide-react"
-import { useIntersection } from '@/hooks/useIntersection'
-
 // Enhanced imports for dynamic categories
 import { useTicketIntegration } from '@/hooks/useTicketIntegration'
 import { useTicketStore, TicketData } from "@/stores/ticket-store"
@@ -45,11 +43,11 @@ import {
   AlertSkeleton,
 } from '@/components/tickets/TicketsLoadingSkeletons'
 
-// REVERTED: Original Components for Header, Tabs, and Footer
+// ENHANCED: Simple Components without complex hooks
 import { TicketsHeader } from '@/components/tickets/TicketsHeader'
 import { ModernTicketsFilters } from '@/components/tickets/ModernTicketsFilters'
 import { TicketTabs } from '@/components/tickets/TicketTabs'
-import { InfiniteTicketsList } from '@/components/tickets/InfiniteTicketsList'
+import { TicketsList } from '@/components/tickets/TicketsList'
 
 // SIMPLIFIED: Essential Dialogs Only
 import { EnhancedDeleteTicketDialog } from '@/components/dialogs/EnhancedDeleteTicketDialog'
@@ -114,12 +112,10 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
   const filters = useTicketStore((state) => state?.filters || {});
   const storeActions = useTicketStore((state) => state?.actions);
 
-  // ENHANCED: Infinite scroll state
+  // SIMPLIFIED: Infinite scroll state - No complex hooks
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
-  const loadMoreRef = useRef<HTMLDivElement>(null);
-  const isIntersecting = useIntersection(loadMoreRef as React.RefObject<Element>, { threshold: 0.1 });
 
   // SIMPLIFIED: Local UI state
   const [searchTerm, setSearchTerm] = useState('');
@@ -161,39 +157,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
       .filter(Boolean) as TicketData[];
   }, [selectedTickets, tickets]);
 
-  // ENHANCED: Load more functionality
-  const loadMoreTickets = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
-
-    setLoadingMore(true);
-    try {
-      const nextPage = page + 1;
-      await storeActions?.fetchTickets({ 
-        ...filters, 
-        page: nextPage,
-        per_page: 20 
-      });
-      
-      setPage(nextPage);
-      
-      // Check if we have more data
-      const newTicketsCount = currentTabTickets.length;
-      if (newTicketsCount < nextPage * 20) {
-        setHasMore(false);
-      }
-    } catch (error) {
-      console.error('Failed to load more tickets:', error);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [loadingMore, hasMore, page, filters, storeActions, currentTabTickets.length]);
-
-  // ENHANCED: Infinite scroll trigger
-  useEffect(() => {
-    if (isIntersecting && hasMore && !loadingMore && !loading.any) {
-      loadMoreTickets();
-    }
-  }, [isIntersecting, hasMore, loadingMore, loading.any, loadMoreTickets]);
+  // REMOVED: Complex intersection observer - using simple scroll in component instead
 
   // Reset pagination when filters change
   useEffect(() => {
@@ -625,9 +589,8 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
                   />
 
                   <TabsContent value={currentView} className="p-4 sm:p-6 space-y-4 mt-0">
-                    <InfiniteTicketsList
+                    <TicketsList
                       tickets={currentTabTickets}
-                      categories={categories}
                       loading={loading.any}
                       loadingMore={loadingMore}
                       hasMore={hasMore}
@@ -640,7 +603,6 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
                       onViewTicket={handleViewTicket}
                       onTicketAction={handleTicketAction}
                       onCreateTicket={handleCreateTicket}
-                      loadMoreRef={loadMoreRef}
                     />
                   </TabsContent>
                 </Tabs>
