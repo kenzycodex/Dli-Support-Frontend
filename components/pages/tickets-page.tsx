@@ -1,13 +1,14 @@
-// components/pages/tickets-page.tsx - SIMPLIFIED: Clean user-focused ticket management
+// components/pages/tickets-page.tsx - ENHANCED: Modern UI with Infinite Scroll
 
 "use client"
 
-import { useState, useCallback, useMemo, useEffect } from "react"
+import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Eye, Settings } from "lucide-react"
+import { Eye, Settings, Plus, RefreshCw, Loader2 } from "lucide-react"
+import { useIntersection } from '@/hooks/useIntersection'
 
 // Enhanced imports for dynamic categories
 import { useTicketIntegration } from '@/hooks/useTicketIntegration'
@@ -22,7 +23,6 @@ import {
   DeleteDialogState,
   TicketStats 
 } from '@/types/tickets.types'
-import { DEFAULT_PAGINATION } from '@/constants/tickets.constants'
 
 // Utils and hooks
 import { 
@@ -42,22 +42,21 @@ import {
   TicketsFiltersSkeleton,
   TicketTabsSkeleton,
   TicketsListSkeleton,
-  TicketsPaginationSkeleton,
   AlertSkeleton,
 } from '@/components/tickets/TicketsLoadingSkeletons'
 
-// SIMPLIFIED: Core Components Only
+// REVERTED: Original Components for Header, Tabs, and Footer
 import { TicketsHeader } from '@/components/tickets/TicketsHeader'
-import { EnhancedTicketsFilters } from '@/components/tickets/EnhancedTicketsFilters'
+import { ModernTicketsFilters } from '@/components/tickets/ModernTicketsFilters'
 import { TicketTabs } from '@/components/tickets/TicketTabs'
-import { EnhancedTicketsList } from '@/components/tickets/EnhancedTicketsList'
-import { TicketsPagination } from '@/components/tickets/TicketsPagination'
+import { InfiniteTicketsList } from '@/components/tickets/InfiniteTicketsList'
 
 // SIMPLIFIED: Essential Dialogs Only
 import { EnhancedDeleteTicketDialog } from '@/components/dialogs/EnhancedDeleteTicketDialog'
 
-// SIMPLIFIED: Essential Alerts Only
-import { EnhancedCrisisAlert } from '@/components/alerts/EnhancedCrisisAlert'
+// ENHANCED: Modern Alerts
+import { ModernCrisisAlert } from '@/components/alerts/ModernCrisisAlert'
+import { ModernUnassignedAlert } from '@/components/alerts/ModernUnassignedAlert'
 import { ErrorAlert } from '@/components/alerts/ErrorAlert'
 
 // Shared components
@@ -66,29 +65,32 @@ import { HelpSupportFooter } from '@/components/shared/HelpSupportFooter'
 // Error Fallback for Tickets Section
 function TicketsErrorFallback({ error, retry }: { error: Error; retry: () => void }) {
   return (
-    <Card className="border-0 shadow-xl">
-      <CardContent className="p-8 text-center">
-        <div className="space-y-4">
-          <div className="text-red-600 mb-4">
-            <svg className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.502 0L4.312 15.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
+    <div className="min-h-[60vh] flex items-center justify-center p-6">
+      <Card className="max-w-md w-full border-0 shadow-xl">
+        <CardContent className="p-8 text-center">
+          <div className="space-y-4">
+            <div className="w-16 h-16 mx-auto bg-red-100 rounded-full flex items-center justify-center">
+              <svg className="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.502 0L4.312 15.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Failed to Load Tickets</h3>
+            <p className="text-gray-600 text-sm">
+              {error.message.includes('network') || error.message.includes('fetch')
+                ? 'Network connection problem. Please check your internet connection.'
+                : 'There was an error loading your tickets. Please try again.'}
+            </p>
+            <Button
+              onClick={retry}
+              className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Try Again
+            </Button>
           </div>
-          <h3 className="text-lg font-medium text-gray-900">Failed to Load Tickets</h3>
-          <p className="text-gray-600">
-            {error.message.includes('network') || error.message.includes('fetch')
-              ? 'Network connection problem. Please check your internet connection.'
-              : 'There was an error loading your tickets. Please try again.'}
-          </p>
-          <button
-            onClick={retry}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-          >
-            Try Again
-          </button>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
@@ -107,11 +109,17 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     enableRealTimeUpdates: true
   })
 
-  // Store access for pagination and selections
-  const pagination = useTicketStore((state) => state?.pagination || DEFAULT_PAGINATION);
+  // Store access for selections
   const selectedTickets = useTicketStore((state) => state?.selectedTickets || new Set());
   const filters = useTicketStore((state) => state?.filters || {});
   const storeActions = useTicketStore((state) => state?.actions);
+
+  // ENHANCED: Infinite scroll state
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const isIntersecting = useIntersection(loadMoreRef as React.RefObject<Element>, { threshold: 0.1 });
 
   // SIMPLIFIED: Local UI state
   const [searchTerm, setSearchTerm] = useState('');
@@ -153,6 +161,46 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
       .filter(Boolean) as TicketData[];
   }, [selectedTickets, tickets]);
 
+  // ENHANCED: Load more functionality
+  const loadMoreTickets = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      await storeActions?.fetchTickets({ 
+        ...filters, 
+        page: nextPage,
+        per_page: 20 
+      });
+      
+      setPage(nextPage);
+      
+      // Check if we have more data
+      const newTicketsCount = currentTabTickets.length;
+      if (newTicketsCount < nextPage * 20) {
+        setHasMore(false);
+      }
+    } catch (error) {
+      console.error('Failed to load more tickets:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, page, filters, storeActions, currentTabTickets.length]);
+
+  // ENHANCED: Infinite scroll trigger
+  useEffect(() => {
+    if (isIntersecting && hasMore && !loadingMore && !loading.any) {
+      loadMoreTickets();
+    }
+  }, [isIntersecting, hasMore, loadingMore, loading.any, loadMoreTickets]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setPage(1);
+    setHasMore(true);
+  }, [filters, searchTerm, currentView]);
+
   // Navigation handlers with category slug support
   const handleViewTicket = useCallback(
     (ticket: TicketData): void => {
@@ -185,6 +233,8 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
   const handleRefresh = useCallback(async (): Promise<void> => {
     try {
       console.log('🔄 TicketsPage: Enhanced refresh triggered');
+      setPage(1);
+      setHasMore(true);
       await refreshAll();
 
       toast({
@@ -209,6 +259,10 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
       const newFilters = { ...filters, [key]: value === 'all' ? undefined : value };
       storeActions.setFilters(newFilters, true);
 
+      // Reset pagination
+      setPage(1);
+      setHasMore(true);
+
       // Provide feedback for category filtering
       if (key === 'category_id' && value !== 'all') {
         const category = categories.find(c => c.id.toString() === value);
@@ -228,6 +282,8 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
 
     storeActions.clearFilters(true);
     setSearchTerm('');
+    setPage(1);
+    setHasMore(true);
 
     toast({
       title: 'Filters cleared',
@@ -364,18 +420,15 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     });
   }, [toast]);
 
+  const handleViewUnassigned = useCallback(() => {
+    handleFilterChange('assigned', 'unassigned');
+  }, [handleFilterChange]);
+
   const handleExport = useCallback(() => {
     if (storeActions?.exportTickets) {
       storeActions.exportTickets('csv');
     }
   }, [storeActions]);
-
-  const handlePageChange = useCallback(
-    (page: number) => {
-      handleFilterChange('page', page.toString());
-    },
-    [handleFilterChange]
-  );
 
   // Cache cleanup
   useEffect(() => {
@@ -393,7 +446,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
   // Safety check for actions
   if (!storeActions) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="container mx-auto px-4 py-6 space-y-6 max-w-7xl">
           <TicketsHeaderSkeleton />
           <TicketsFiltersSkeleton />
@@ -415,29 +468,31 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-6 space-y-6 max-w-7xl">
-        {/* SIMPLIFIED: Stale Data Indicator */}
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50">
+      <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6 max-w-7xl">
+        {/* ENHANCED: Stale Data Indicator */}
         {showStaleIndicator && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3 shadow-sm">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-3">
                 <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
-                <span className="text-sm text-amber-700">
+                <span className="text-sm font-medium text-amber-700">
                   Refreshing tickets...
                 </span>
               </div>
-              <button
+              <Button
                 onClick={handleRefresh}
-                className="text-sm text-amber-600 hover:text-amber-800 underline"
+                size="sm"
+                variant="ghost"
+                className="text-amber-600 hover:text-amber-800 hover:bg-amber-100"
               >
                 Refresh now
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
-        {/* ENHANCED: Header with category stats */}
+        {/* REVERTED: Original Header */}
         {showSkeletonLoading ? (
           <TicketsHeaderSkeleton />
         ) : (
@@ -457,14 +512,14 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
               activeCategoriesCount={categories.filter(c => c.is_active).length}
             />
             
-            {/* SIMPLIFIED: Admin Access Button */}
+            {/* ENHANCED: Floating Admin Access */}
             {currentUser?.role === 'admin' && (
-              <div className="absolute top-4 right-4">
+              <div className="absolute top-4 right-4 hidden sm:block">
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => onNavigate?.('admin-tickets')}
-                  className="bg-white/20 hover:bg-white/30 border-white/30"
+                  className="bg-white/80 hover:bg-white/90 border-white/30 backdrop-blur-sm shadow-lg"
                 >
                   <Settings className="h-4 w-4 mr-2" />
                   Admin Panel
@@ -474,16 +529,27 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           </div>
         )}
 
-        {/* Crisis Alert */}
-        {showSkeletonLoading ? (
-          <AlertSkeleton />
-        ) : (
-          <EnhancedCrisisAlert
+        {/* ENHANCED: Modern Crisis Alert for Counselors/Admins */}
+        {!showSkeletonLoading && ['counselor', 'admin'].includes(currentUser?.role || '') && (
+          <ModernCrisisAlert
             crisisCount={stats.crisis}
             userRole={currentUser?.role}
             categories={categories}
             tickets={tickets}
             onViewCrisis={handleViewCrisis}
+          />
+        )}
+
+        {/* ENHANCED: Modern Unassigned Alert for Admins Only */}
+        {!showSkeletonLoading && currentUser?.role === 'admin' && (
+          <ModernUnassignedAlert
+            unassignedCount={stats.unassigned}
+            userRole={currentUser?.role}
+            permissions={permissions}
+            categories={categories}
+            tickets={tickets}
+            onViewUnassigned={handleViewUnassigned}
+            onBulkAssign={() => {}} // TODO: Implement bulk assign
           />
         )}
 
@@ -498,11 +564,11 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           />
         )}
 
-        {/* SIMPLIFIED: Filters */}
+        {/* ENHANCED: Modern Filters */}
         {showSkeletonLoading ? (
           <TicketsFiltersSkeleton />
         ) : (
-          <EnhancedTicketsFilters
+          <ModernTicketsFilters
             searchTerm={searchTerm}
             filters={filters}
             loading={loading.any}
@@ -518,8 +584,8 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           />
         )}
 
-        {/* SIMPLIFIED: Tickets Tabs and Content */}
-        <Card className="border-0 shadow-xl">
+        {/* ENHANCED: Modern Tickets Tabs and Content */}
+        <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
           <CardContent className="p-0">
             {showSkeletonLoading ? (
               <>
@@ -543,11 +609,13 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
                     onViewChange={setCurrentView}
                   />
 
-                  <TabsContent value={currentView} className="p-6 space-y-4 mt-0">
-                    <EnhancedTicketsList
+                  <TabsContent value={currentView} className="p-4 sm:p-6 space-y-4 mt-0">
+                    <InfiniteTicketsList
                       tickets={currentTabTickets}
                       categories={categories}
                       loading={loading.any}
+                      loadingMore={loadingMore}
+                      hasMore={hasMore}
                       selectedTickets={selectedTickets}
                       permissions={permissions}
                       userRole={currentUser?.role}
@@ -557,6 +625,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
                       onViewTicket={handleViewTicket}
                       onTicketAction={handleTicketAction}
                       onCreateTicket={handleCreateTicket}
+                      loadMoreRef={loadMoreRef}
                     />
                   </TabsContent>
                 </Tabs>
@@ -565,18 +634,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           </CardContent>
         </Card>
 
-        {/* Pagination */}
-        {showSkeletonLoading ? (
-          <TicketsPaginationSkeleton />
-        ) : (
-          <TicketsPagination
-            pagination={pagination}
-            loading={loading.any}
-            onPageChange={handlePageChange}
-          />
-        )}
-
-        {/* Help and Support Links */}
+        {/* REVERTED: Original Help and Support Links */}
         {!showSkeletonLoading && (
           <HelpSupportFooter
             userRole={currentUser?.role}

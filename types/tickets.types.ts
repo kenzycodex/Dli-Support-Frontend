@@ -22,14 +22,31 @@ export interface FilterState {
 }
 
 export interface TicketStats {
-  total: number;
-  open: number;
-  in_progress: number;
-  resolved: number;
-  closed: number;
-  crisis: number;
-  unassigned: number;
-  my_assigned: number;
+  total: number
+  open: number
+  in_progress: number
+  resolved: number
+  closed: number
+  crisis: number
+  unassigned: number
+  high_priority: number
+  auto_assigned: number
+  manually_assigned: number
+  overdue: number
+  with_crisis_keywords: number
+  
+  // Additional stats
+  assigned_to_me?: number // For counselors/admins - tickets assigned to current user
+  categories_total: number
+  categories_active: number
+  categories_with_auto_assign: number
+  categories_with_crisis_detection: number
+  
+  // Performance metrics
+  average_response_time: string
+  resolution_rate: number
+  auto_assignment_rate: number
+  crisis_detection_rate: number
 }
 
 export interface TicketPermissions {
