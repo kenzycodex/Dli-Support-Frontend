@@ -469,10 +469,11 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50">
-      <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6 max-w-7xl">
+      {/* Mobile: Edge-to-edge layout, Desktop: Container with padding */}
+      <div className="sm:container sm:mx-auto sm:px-4 sm:py-6 space-y-4 sm:space-y-6 sm:max-w-7xl">
         {/* ENHANCED: Stale Data Indicator */}
         {showStaleIndicator && (
-          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3 shadow-sm">
+          <div className="mx-4 sm:mx-0 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3 shadow-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
@@ -492,9 +493,11 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           </div>
         )}
 
-        {/* REVERTED: Original Header */}
+        {/* REVERTED: Original Header - No mobile padding */}
         {showSkeletonLoading ? (
-          <TicketsHeaderSkeleton />
+          <div className="mx-4 sm:mx-0">
+            <TicketsHeaderSkeleton />
+          </div>
         ) : (
           <div className="relative">
             <TicketsHeader
@@ -531,65 +534,77 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
 
         {/* ENHANCED: Modern Crisis Alert for Counselors/Admins */}
         {!showSkeletonLoading && ['counselor', 'admin'].includes(currentUser?.role || '') && (
-          <ModernCrisisAlert
-            crisisCount={stats.crisis}
-            userRole={currentUser?.role}
-            categories={categories}
-            tickets={tickets}
-            onViewCrisis={handleViewCrisis}
-          />
+          <div className="mx-4 sm:mx-0">
+            <ModernCrisisAlert
+              crisisCount={stats.crisis}
+              userRole={currentUser?.role}
+              categories={categories}
+              tickets={tickets}
+              onViewCrisis={handleViewCrisis}
+            />
+          </div>
         )}
 
         {/* ENHANCED: Modern Unassigned Alert for Admins Only */}
         {!showSkeletonLoading && currentUser?.role === 'admin' && (
-          <ModernUnassignedAlert
-            unassignedCount={stats.unassigned}
-            userRole={currentUser?.role}
-            permissions={permissions}
-            categories={categories}
-            tickets={tickets}
-            onViewUnassigned={handleViewUnassigned}
-            onBulkAssign={() => {}} // TODO: Implement bulk assign
-          />
+          <div className="mx-4 sm:mx-0">
+            <ModernUnassignedAlert
+              unassignedCount={stats.unassigned}
+              userRole={currentUser?.role}
+              permissions={permissions}
+              categories={categories}
+              tickets={tickets}
+              onViewUnassigned={handleViewUnassigned}
+              onBulkAssign={() => {}} // TODO: Implement bulk assign
+            />
+          </div>
         )}
 
         {/* Error Alert */}
         {!showSkeletonLoading && (
-          <ErrorAlert
-            error={errors.any ? ((Object.values(errors.tickets).find(Boolean) || Object.values(errors.categories).find(Boolean)) ?? null) : null}
-            onDismiss={() => {
-              stores.tickets.actions.clearError('list');
-              stores.categories.actions.clearError('list');
-            }}
-          />
+          <div className="mx-4 sm:mx-0">
+            <ErrorAlert
+              error={errors.any ? ((Object.values(errors.tickets).find(Boolean) || Object.values(errors.categories).find(Boolean)) ?? null) : null}
+              onDismiss={() => {
+                stores.tickets.actions.clearError('list');
+                stores.categories.actions.clearError('list');
+              }}
+            />
+          </div>
         )}
 
         {/* ENHANCED: Modern Filters */}
         {showSkeletonLoading ? (
-          <TicketsFiltersSkeleton />
+          <div className="mx-4 sm:mx-0">
+            <TicketsFiltersSkeleton />
+          </div>
         ) : (
-          <ModernTicketsFilters
-            searchTerm={searchTerm}
-            filters={filters}
-            loading={loading.any}
-            userRole={currentUser?.role}
-            selectedCount={selectedTicketsArray.length}
-            totalCount={currentTabTickets.length}
-            canBulkActions={false} // Simplified: No bulk actions
-            categories={categories}
-            onSearchChange={setSearchTerm}
-            onFilterChange={handleFilterChange}
-            onClearFilters={clearFilters}
-            onSelectAll={handleSelectAll}
-          />
+          <div className="mx-4 sm:mx-0">
+            <ModernTicketsFilters
+              searchTerm={searchTerm}
+              filters={filters}
+              loading={loading.any}
+              userRole={currentUser?.role}
+              selectedCount={selectedTicketsArray.length}
+              totalCount={currentTabTickets.length}
+              canBulkActions={false} // Simplified: No bulk actions
+              categories={categories}
+              onSearchChange={setSearchTerm}
+              onFilterChange={handleFilterChange}
+              onClearFilters={clearFilters}
+              onSelectAll={handleSelectAll}
+            />
+          </div>
         )}
 
-        {/* ENHANCED: Modern Tickets Tabs and Content */}
-        <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
-          <CardContent className="p-0">
+        {/* ENHANCED: Modern Tickets Tabs and Content - Edge to edge on mobile */}
+        <div className="bg-white shadow-xl sm:rounded-xl sm:border-0 border-t border-gray-200">
+          <div className="p-0">
             {showSkeletonLoading ? (
               <>
-                <TicketTabsSkeleton />
+                <div className="mx-4 sm:mx-0">
+                  <TicketTabsSkeleton />
+                </div>
                 <div className="p-6">
                   <TicketsListSkeleton />
                 </div>
@@ -631,16 +646,18 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
                 </Tabs>
               </ErrorBoundary>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* REVERTED: Original Help and Support Links */}
         {!showSkeletonLoading && (
-          <HelpSupportFooter
-            userRole={currentUser?.role}
-            onNavigate={onNavigate}
-            onCreateTicket={handleCreateTicket}
-          />
+          <div className="mx-4 sm:mx-0">
+            <HelpSupportFooter
+              userRole={currentUser?.role}
+              onNavigate={onNavigate}
+              onCreateTicket={handleCreateTicket}
+            />
+          </div>
         )}
       </div>
 
