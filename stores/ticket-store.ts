@@ -1,5 +1,5 @@
 // stores/ticket-store.ts - ENHANCED: Dynamic Categories & Crisis Detection Support
-
+import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { apiClient, StandardizedApiResponse } from '@/lib/api'
@@ -1726,109 +1726,128 @@ export const useTicketStore = create<TicketState>()(
 )
 
 // ENHANCED: Export selectors with cache-aware functions and category support
+// ENHANCED: Ticket selectors - FIXED: Proper memoization
 export const useTicketById = (id: number) => {
-  return useTicketStore((state) => {
-    try {
-      // First check cache
-      const cached = state.actions.getCachedTicket(id)
-      if (cached) {
-        return cached
-      }
-      
-      // Fallback to current state
-      return state.tickets.find((t) => t.id === id) || state.currentTicket || null
-    } catch (error) {
-      console.error('Error finding ticket by ID:', error)
-      return null
-    }
-  })
-}
+  return useTicketStore(
+    useCallback(
+      (state) => {
+        try {
+          // First check cache
+          const cached = state.actions.getCachedTicket(id);
+          if (cached) {
+            return cached;
+          }
+
+          // Fallback to current state
+          return state.tickets.find((t) => t.id === id) || state.currentTicket || null;
+        } catch (error) {
+          console.error('Error finding ticket by ID:', error);
+          return null;
+        }
+      },
+      [id]
+    )
+  );
+};
 
 export const useTicketBySlug = (slug: string) => {
-  return useTicketStore((state) => {
-    try {
-      const ticketId = parseTicketIdFromSlug(slug)
-      if (!ticketId) return null
-      
-      // Use cache-aware getter
-      return state.actions.getCachedTicket(ticketId) || 
-             state.tickets.find((t) => t.id === ticketId) || 
-             null
-    } catch (error) {
-      console.error('Error finding ticket by slug:', error)
-      return null
-    }
-  })
-}
+  return useTicketStore(
+    useCallback(
+      (state) => {
+        try {
+          const ticketId = parseTicketIdFromSlug(slug);
+          if (!ticketId) return null;
+
+          // Use cache-aware getter
+          return (
+            state.actions.getCachedTicket(ticketId) ||
+            state.tickets.find((t) => t.id === ticketId) ||
+            null
+          );
+        } catch (error) {
+          console.error('Error finding ticket by slug:', error);
+          return null;
+        }
+      },
+      [slug]
+    )
+  );
+};
 
 export const useTicketLoading = (type: keyof TicketState['loading'] = 'list') => {
-  return useTicketStore((state) => state.loading[type])
-}
+  return useTicketStore(useCallback((state) => state.loading[type], [type]));
+};
 
 export const useTicketError = (type: keyof TicketState['errors'] = 'list') => {
-  return useTicketStore((state) => state.errors[type])
-}
+  return useTicketStore(useCallback((state) => state.errors[type], [type]));
+};
 
-// ENHANCED: Categories selectors
+
+// ENHANCED: Categories selectors - FIXED: Proper memoization
 export const useCategoriesData = () => {
-  return useTicketStore((state) => ({
-    categories: state.categories,
-    loading: state.loading.categories,
-    error: state.errors.categories,
-    lastFetch: state.categoriesLastFetch
-  }))
-}
+  return useTicketStore(
+    useCallback((state) => ({
+      categories: state.categories || [],
+      loading: state.loading?.categories || false,
+      error: state.errors?.categories || null,
+      lastFetch: state.categoriesLastFetch || 0
+    }), [])
+  );
+};
 
 export const useCategoryById = (id: number) => {
-  return useTicketStore((state) => 
-    state.categories.find(c => c.id === id) || null
-  )
-}
+  return useTicketStore(
+    useCallback((state) => state.categories.find((c) => c.id === id) || null, [id])
+  );
+};
 
 export const useCategoryBySlug = (slug: string) => {
-  return useTicketStore((state) => 
-    state.categories.find(c => c.slug === slug) || null
-  )
-}
+  return useTicketStore(
+    useCallback((state) => state.categories.find((c) => c.slug === slug) || null, [slug])
+  );
+};
 
 // ENHANCED: Permissions with role-based access and category support
+// ENHANCED: Permissions with role-based access and category support - FIXED: Memoization
 export const useTicketPermissions = () => {
-  const currentUser = authService.getStoredUser()
+  const currentUser = useMemo(() => authService.getStoredUser(), []);
 
-  if (!currentUser) {
-    return {
-      can_create: false,
-      can_view_all: false,
-      can_assign: false,
-      can_modify: false,
-      can_delete: false,
-      can_export: false,
-      can_manage_tags: false,
-      can_add_internal_notes: false,
-      can_bulk_assign: false,
-      can_download_attachments: false,
-      can_manage_categories: false,
-      can_view_crisis_detection: false,
-      can_test_crisis_detection: false,
+  return useMemo(() => {
+    if (!currentUser) {
+      return {
+        can_create: false,
+        can_view_all: false,
+        can_assign: false,
+        can_modify: false,
+        can_delete: false,
+        can_export: false,
+        can_manage_tags: false,
+        can_add_internal_notes: false,
+        can_bulk_assign: false,
+        can_download_attachments: false,
+        can_manage_categories: false,
+        can_view_crisis_detection: false,
+        can_test_crisis_detection: false,
+      };
     }
-  }
 
-  return {
-    can_create: currentUser.role === 'student' || currentUser.role === 'admin',
-    can_view_all: currentUser.role === 'admin',
-    can_assign: currentUser.role === 'admin',
-    can_modify: ['counselor', 'admin'].includes(currentUser.role),
-    can_delete: currentUser.role === 'admin',
-    can_export: currentUser.role === 'admin',
-    can_manage_tags: ['counselor', 'admin'].includes(currentUser.role),
-    can_add_internal_notes: ['counselor', 'admin'].includes(currentUser.role),
-    can_bulk_assign: currentUser.role === 'admin',
-    can_download_attachments: true, // All authenticated users can download
-    can_manage_categories: currentUser.role === 'admin',
-    can_view_crisis_detection: ['counselor', 'admin'].includes(currentUser.role),
-    can_test_crisis_detection: currentUser.role === 'admin',
-  }
-}
+    return {
+      can_create: currentUser.role === 'student' || currentUser.role === 'admin',
+      can_view_all: currentUser.role === 'admin',
+      can_assign: currentUser.role === 'admin',
+      can_modify: ['counselor', 'admin'].includes(currentUser.role),
+      can_delete: currentUser.role === 'admin',
+      can_export: currentUser.role === 'admin',
+      can_manage_tags: ['counselor', 'admin'].includes(currentUser.role),
+      can_add_internal_notes: ['counselor', 'admin'].includes(currentUser.role),
+      can_bulk_assign: currentUser.role === 'admin',
+      can_download_attachments: true, // All authenticated users can download
+      can_manage_categories: currentUser.role === 'admin',
+      can_view_crisis_detection: ['counselor', 'admin'].includes(currentUser.role),
+      can_test_crisis_detection: currentUser.role === 'admin',
+    };
+  }, [currentUser]);
+};
 
 // Export utility functions
 export const parseTicketIdFromTicketSlug = (slug: string): number | null => {
@@ -1907,46 +1926,83 @@ export const useTicketSelectors = () => {
 }
 
 // ENHANCED: Ticket stats with crisis detection and category support
+// ENHANCED: Ticket stats with crisis detection and category support - FIXED: Memoization
 export const useTicketStats = () => {
-  const tickets = useTicketStore((state) => state.tickets)
-  const categories = useTicketStore((state) => state.categories)
+  const tickets = useTicketStore(useCallback((state) => state.tickets, []));
+  const categories = useTicketStore(useCallback((state) => state.categories, []));
 
-  return {
-    total: tickets.length,
-    open: tickets.filter((t) => t.status === 'Open').length,
-    in_progress: tickets.filter((t) => t.status === 'In Progress').length,
-    resolved: tickets.filter((t) => t.status === 'Resolved').length,
-    closed: tickets.filter((t) => t.status === 'Closed').length,
-    crisis: tickets.filter((t) => t.crisis_flag || t.priority === 'Urgent').length,
-    unassigned: tickets.filter((t) => !t.assigned_to).length,
-    high_priority: tickets.filter((t) => t.priority === 'High' || t.priority === 'Urgent').length,
-    auto_assigned: tickets.filter((t) => t.auto_assigned === 'yes').length,
-    manually_assigned: tickets.filter((t) => t.auto_assigned === 'manual').length,
-    overdue: tickets.filter((t) => t.is_overdue).length,
-    with_crisis_keywords: tickets.filter((t) => t.detected_crisis_keywords && t.detected_crisis_keywords.length > 0).length,
+  return useMemo(
+    () => ({
+      total: tickets.length,
+      open: tickets.filter((t) => t.status === 'Open').length,
+      in_progress: tickets.filter((t) => t.status === 'In Progress').length,
+      resolved: tickets.filter((t) => t.status === 'Resolved').length,
+      closed: tickets.filter((t) => t.status === 'Closed').length,
+      crisis: tickets.filter((t) => t.crisis_flag || t.priority === 'Urgent').length,
+      unassigned: tickets.filter((t) => !t.assigned_to).length,
+      my_assigned: tickets.filter((t) => {
+        const currentUser = authService.getStoredUser();
+        return currentUser && t.assigned_to === currentUser.id;
+      }).length,
+      my_tickets: tickets.filter((t) => {
+        const currentUser = authService.getStoredUser();
+        return currentUser && t.user_id === currentUser.id;
+      }).length,
+      high_priority: tickets.filter((t) => t.priority === 'High' || t.priority === 'Urgent').length,
+      auto_assigned: tickets.filter((t) => t.auto_assigned === 'yes').length,
+      manually_assigned: tickets.filter((t) => t.auto_assigned === 'manual').length,
+      overdue: tickets.filter((t) => t.is_overdue).length,
+      with_crisis_keywords: tickets.filter(
+        (t) => t.detected_crisis_keywords && t.detected_crisis_keywords.length > 0
+      ).length,
 
-    // Category stats
-    categories_total: categories.length,
-    categories_active: categories.filter(c => c.is_active).length,
-    categories_with_auto_assign: categories.filter(c => c.auto_assign).length,
-    categories_with_crisis_detection: categories.filter(c => c.crisis_detection_enabled).length,
+      // Derived stats
+      active: tickets.filter((t) => t.status === 'Open' || t.status === 'In Progress').length,
+      inactive: tickets.filter((t) => t.status === 'Resolved' || t.status === 'Closed').length,
+      assigned: tickets.filter((t) => !!t.assigned_to).length,
 
-    // Performance metrics
-    average_response_time: '2.3 hours', // This would come from API
-    resolution_rate:
-      tickets.length > 0
-        ? Math.round((tickets.filter((t) => t.status === 'Resolved').length / tickets.length) * 100)
-        : 0,
-    auto_assignment_rate:
-      tickets.length > 0
-        ? Math.round((tickets.filter((t) => t.auto_assigned === 'yes').length / tickets.length) * 100)
-        : 0,
-    crisis_detection_rate:
-      tickets.length > 0
-        ? Math.round((tickets.filter((t) => t.crisis_flag).length / tickets.length) * 100)
-        : 0,
-  }
-}
+      // Category stats
+      categories_total: categories.length,
+      categories_active: categories.filter((c) => c.is_active).length,
+      categories_with_auto_assign: categories.filter((c) => c.auto_assign).length,
+      categories_with_crisis_detection: categories.filter((c) => c.crisis_detection_enabled).length,
+
+      // Performance metrics
+      average_response_time: '2.3 hours', // This would come from API
+      resolution_rate:
+        tickets.length > 0
+          ? Math.round(
+              (tickets.filter((t) => t.status === 'Resolved').length / tickets.length) * 100
+            )
+          : 0,
+      auto_assignment_rate:
+        tickets.length > 0
+          ? Math.round(
+              (tickets.filter((t) => t.auto_assigned === 'yes').length / tickets.length) * 100
+            )
+          : 0,
+      crisis_detection_rate:
+        tickets.length > 0
+          ? Math.round((tickets.filter((t) => t.crisis_flag).length / tickets.length) * 100)
+          : 0,
+      crisis_rate:
+        tickets.length > 0
+          ? Math.round(
+              (tickets.filter((t) => t.crisis_flag || t.priority === 'Urgent').length /
+                tickets.length) *
+                100
+            )
+          : 0,
+      auto_assign_rate:
+        tickets.length > 0
+          ? Math.round(
+              (tickets.filter((t) => t.auto_assigned === 'yes').length / tickets.length) * 100
+            )
+          : 0,
+    }),
+    [tickets, categories]
+  );
+};
 
 export const useTicketActions = () => {
   return useTicketStore((state) => state.actions)
@@ -2053,6 +2109,7 @@ export const useCrisisDetectionUtilities = () => {
 }
 
 // ENHANCED: SLA and deadline utilities
+// Enhanced: SLA and deadline utilities - FIXED: Proper return type
 export const useSLAUtilities = () => {
   return {
     calculateSLADeadline: (ticket: TicketData): string | null => {
@@ -2063,6 +2120,7 @@ export const useSLAUtilities = () => {
       return isTicketOverdue(ticket)
     },
     
+    // FIXED: Added overdue property to return type
     getTimeRemaining: (deadline: string): { time: string; urgent: boolean; overdue: boolean } => {
       const deadlineDate = new Date(deadline)
       const now = new Date()

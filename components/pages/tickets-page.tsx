@@ -1,4 +1,4 @@
-// components/pages/tickets-page.tsx - ENHANCED: Modern UI with Infinite Scroll
+// components/pages/tickets-page.tsx - FIXED: Localized filtering without tab clearing
 
 "use client"
 
@@ -8,6 +8,7 @@ import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Eye, Settings, Plus, RefreshCw, Loader2 } from "lucide-react"
+
 // Enhanced imports for dynamic categories
 import { useTicketIntegration } from '@/hooks/useTicketIntegration'
 import { useTicketStore, TicketData } from "@/stores/ticket-store"
@@ -22,13 +23,17 @@ import {
   TicketStats 
 } from '@/types/tickets.types'
 
-// Utils and hooks
+// FIXED: Utils with localized filtering
 import { 
   calculateStats, 
   getPageInfo, 
   getPermissions,
   applyTicketFilters,
-  filterTicketsByView
+  filterTicketsByView,
+  applySmartFilter,
+  hasActiveFilters,
+  clearFiltersButPreserveView,
+  sortTickets
 } from '@/utils/tickets.utils'
 
 // Error Boundary
@@ -43,22 +48,23 @@ import {
   AlertSkeleton,
 } from '@/components/tickets/TicketsLoadingSkeletons'
 
-// ENHANCED: Simple Components without complex hooks
+// Components
 import { TicketsHeader } from '@/components/tickets/TicketsHeader'
 import { ModernTicketsFilters } from '@/components/tickets/ModernTicketsFilters'
 import { TicketTabs } from '@/components/tickets/TicketTabs'
 import { TicketsList } from '@/components/tickets/TicketsList'
 
-// SIMPLIFIED: Essential Dialogs Only
+// Dialogs
 import { EnhancedDeleteTicketDialog } from '@/components/dialogs/EnhancedDeleteTicketDialog'
 
-// ENHANCED: Modern Alerts
+// Alerts
 import { ModernCrisisAlert } from '@/components/alerts/ModernCrisisAlert'
 import { ModernUnassignedAlert } from '@/components/alerts/ModernUnassignedAlert'
 import { ErrorAlert } from '@/components/alerts/ErrorAlert'
 
 // Shared components
 import { HelpSupportFooter } from '@/components/shared/HelpSupportFooter'
+import { EnhancedPagination } from '@/components/common/enhanced-pagination'
 
 // Error Fallback for Tickets Section
 function TicketsErrorFallback({ error, retry }: { error: Error; retry: () => void }) {
@@ -93,35 +99,42 @@ function TicketsErrorFallback({ error, retry }: { error: Error; retry: () => voi
 }
 
 function TicketsPageContent({ onNavigate }: TicketsPageProps) {
-  // ENHANCED: Use ticket integration hook for unified management
+  // FIXED: Use ticket integration hook properly
   const {
     data: { tickets, categories, currentTicketWithCategory },
     state: { loading, errors },
     ticketOperations,
     refreshAll,
     clearAllCaches,
-    stores
+    stores,
   } = useTicketIntegration({
     autoLoadCategories: true,
     autoLoadTickets: true,
-    enableRealTimeUpdates: true
-  })
+    enableRealTimeUpdates: false,
+  });
 
   // Store access for selections
   const selectedTickets = useTicketStore((state) => state?.selectedTickets || new Set());
-  const filters = useTicketStore((state) => state?.filters || {});
   const storeActions = useTicketStore((state) => state?.actions);
 
-  // SIMPLIFIED: Infinite scroll state - No complex hooks
-  const [hasMore, setHasMore] = useState(true);
-  const [page, setPage] = useState(1);
-  const [loadingMore, setLoadingMore] = useState(false);
+  // FIXED: Local state for UI without triggering API calls
+  const [localFilters, setLocalFilters] = useState({
+    search: '',
+    status: 'all',
+    category_id: 'all',
+    priority: 'all',
+    assigned: 'all',
+    crisis_flag: 'all',
+    auto_assigned: 'all',
+    overdue: 'all',
+  });
 
-  // SIMPLIFIED: Local UI state
-  const [searchTerm, setSearchTerm] = useState('');
+  // FIXED: Separate view state to prevent tab clearing
   const [currentView, setCurrentView] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState(20);
 
-  // SIMPLIFIED: Essential dialog state only
+  // Dialog state
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({
     isOpen: false,
     ticket: null,
@@ -131,17 +144,56 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
   const currentUser = useMemo(() => authService.getStoredUser(), []);
   const { toast } = useToast();
 
-  // Apply client-side filtering with category support
+  // FIXED: Apply filters locally without API calls
   const filteredTickets = useMemo(() => {
-    return applyTicketFilters(tickets, searchTerm, filters, currentUser?.id);
-  }, [tickets, searchTerm, filters, currentUser?.id]);
+    console.log('🔍 Applying local filters to tickets:', {
+      totalTickets: tickets.length,
+      filters: localFilters,
+      view: currentView,
+    });
 
-  // Apply view-specific filtering with category awareness
-  const currentTabTickets = useMemo(() => {
-    return filterTicketsByView(filteredTickets, currentView, currentUser?.id);
-  }, [filteredTickets, currentView, currentUser?.id]);
+    // First apply search and filters
+    let filtered = applyTicketFilters(tickets, localFilters.search, localFilters, currentUser?.id);
 
-  // Stats calculation with category support
+    // Then apply view-specific filtering
+    filtered = filterTicketsByView(filtered, currentView, currentUser?.id);
+
+    // Sort tickets
+    filtered = sortTickets(filtered, 'updated_at', 'desc');
+
+    console.log('✅ Local filtering complete:', {
+      originalCount: tickets.length,
+      filteredCount: filtered.length,
+      view: currentView,
+    });
+
+    return filtered;
+  }, [tickets, localFilters, currentView, currentUser?.id]);
+
+  // FIXED: Pagination that works with local filtering
+  const paginatedTickets = useMemo(() => {
+    const startIndex = (currentPage - 1) * perPage;
+    const endIndex = startIndex + perPage;
+    return filteredTickets.slice(startIndex, endIndex);
+  }, [filteredTickets, currentPage, perPage]);
+
+  // Pagination info
+  const paginationInfo = useMemo(() => {
+    const totalPages = Math.ceil(filteredTickets.length / perPage);
+    const startIndex = (currentPage - 1) * perPage;
+
+    return {
+      current_page: currentPage,
+      last_page: totalPages,
+      per_page: perPage,
+      total: filteredTickets.length,
+      from: filteredTickets.length > 0 ? startIndex + 1 : 0,
+      to: Math.min(startIndex + perPage, filteredTickets.length),
+      has_more_pages: currentPage < totalPages,
+    };
+  }, [filteredTickets.length, currentPage, perPage]);
+
+  // Stats calculation with all tickets (not filtered)
   const stats: TicketStats = useMemo(() => {
     return calculateStats(tickets, currentUser?.id);
   }, [tickets, currentUser?.id]);
@@ -157,29 +209,49 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
       .filter(Boolean) as TicketData[];
   }, [selectedTickets, tickets]);
 
-  // REMOVED: Complex intersection observer - using simple scroll in component instead
-
-  // Reset pagination when filters change
+  // FIXED: Reset pagination when filters or view change
   useEffect(() => {
-    setPage(1);
-    setHasMore(true);
-  }, [filters, searchTerm, currentView]);
+    setCurrentPage(1);
+  }, [localFilters, currentView]);
 
   // Navigation handlers with category slug support
+  // FIXED: Navigation handlers with category slug support
   const handleViewTicket = useCallback(
     (ticket: TicketData): void => {
       try {
         console.log('🎫 TicketsPage: Navigating to ticket details:', ticket.id);
         if (onNavigate) {
-          const slug = ticket.slug || 
-            `${ticket.id}-${ticket.category?.slug || 'general'}-${ticket.ticket_number.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
-          onNavigate('ticket-details', { ticketId: ticket.id, slug });
+          // Generate proper slug with category information
+          const category = categories.find((c) => c.id === ticket.category_id);
+
+          // Create a proper slug: id-category-title-ticketnumber
+          const sanitizedSubject = ticket.subject
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, '')
+            .replace(/\s+/g, '-')
+            .substring(0, 50);
+
+          const categorySlug = category?.slug || 'general';
+          const ticketNumber = ticket.ticket_number.toLowerCase().replace(/[^a-z0-9]/g, '-');
+
+          const slug = `${ticket.id}-${categorySlug}-${sanitizedSubject}-${ticketNumber}`;
+
+          console.log('🎫 TicketsPage: Generated slug:', slug);
+
+          onNavigate('ticket-details', {
+            ticketId: ticket.id,
+            slug: slug,
+          });
         }
       } catch (error) {
         console.error('❌ TicketsPage: Navigation error:', error);
+        // Fallback to just ticket ID
+        if (onNavigate) {
+          onNavigate('ticket-details', { ticketId: ticket.id });
+        }
       }
     },
-    [onNavigate]
+    [onNavigate, categories]
   );
 
   const handleCreateTicket = useCallback((): void => {
@@ -193,12 +265,10 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     }
   }, [onNavigate]);
 
-  // ENHANCED: Smart refresh with category updates
+  // FIXED: Smart refresh that doesn't clear UI state
   const handleRefresh = useCallback(async (): Promise<void> => {
     try {
-      console.log('🔄 TicketsPage: Enhanced refresh triggered');
-      setPage(1);
-      setHasMore(true);
+      console.log('🔄 TicketsPage: Smart refresh triggered');
       await refreshAll();
 
       toast({
@@ -215,21 +285,22 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     }
   }, [refreshAll, toast]);
 
-  // Filter change with category support
+  // FIXED: Local filter change that doesn't trigger API calls
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
-      if (!storeActions?.setFilters) return;
+      console.log('🔧 TicketsPage: Local filter change:', { key, value });
 
-      const newFilters = { ...filters, [key]: value === 'all' ? undefined : value };
-      storeActions.setFilters(newFilters, true);
+      setLocalFilters((prev) => ({
+        ...prev,
+        [key]: value === 'all' ? 'all' : value,
+      }));
 
-      // Reset pagination
-      setPage(1);
-      setHasMore(true);
+      // Reset pagination when filters change
+      setCurrentPage(1);
 
       // Provide feedback for category filtering
       if (key === 'category_id' && value !== 'all') {
-        const category = categories.find(c => c.id.toString() === value);
+        const category = categories.find((c) => c.id.toString() === value);
         if (category) {
           toast({
             title: 'Filter Applied',
@@ -238,24 +309,61 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
         }
       }
     },
-    [storeActions, filters, categories, toast]
+    [categories, toast]
   );
 
+  // FIXED: Clear filters while preserving view
   const clearFilters = useCallback(() => {
-    if (!storeActions?.clearFilters) return;
+    console.log('🧹 TicketsPage: Clearing filters, preserving view:', currentView);
 
-    storeActions.clearFilters(true);
-    setSearchTerm('');
-    setPage(1);
-    setHasMore(true);
+    setLocalFilters({
+      search: '',
+      status: 'all',
+      category_id: 'all',
+      priority: 'all',
+      assigned: 'all',
+      crisis_flag: 'all',
+      auto_assigned: 'all',
+      overdue: 'all',
+    });
+    setCurrentPage(1);
 
     toast({
       title: 'Filters cleared',
       description: 'All filters have been reset',
     });
-  }, [storeActions, toast]);
+  }, [currentView, toast]);
 
-  // SIMPLIFIED: Basic ticket actions only
+  // FIXED: View change that doesn't affect filters
+  const handleViewChange = useCallback(
+    (newView: string) => {
+      console.log('📑 TicketsPage: Changing view from', currentView, 'to', newView);
+      setCurrentView(newView);
+      setCurrentPage(1); // Reset pagination when view changes
+    },
+    [currentView]
+  );
+
+  // FIXED: Alert handlers that don't clear other tabs
+  const handleViewCrisis = useCallback(() => {
+    console.log('🚨 TicketsPage: Switching to crisis view');
+    setCurrentView('crisis');
+    toast({
+      title: 'Crisis View',
+      description: 'Showing all crisis tickets',
+    });
+  }, [toast]);
+
+  const handleViewUnassigned = useCallback(() => {
+    console.log('👤 TicketsPage: Switching to unassigned view');
+    setCurrentView('unassigned');
+    toast({
+      title: 'Unassigned View',
+      description: 'Showing all unassigned tickets',
+    });
+  }, [toast]);
+
+  // Ticket actions
   const handleTicketAction = useCallback(
     async (action: string, ticket: TicketData) => {
       try {
@@ -297,10 +405,14 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
         }
       } catch (error: any) {
         console.error(`Failed to ${action}:`, error);
-        // Error handling is managed by ticketOperations
+        toast({
+          title: 'Error',
+          description: error.message || `Failed to ${action.replace('_', ' ')}`,
+          variant: 'destructive',
+        });
       }
     },
-    [ticketOperations, currentUser]
+    [ticketOperations, currentUser, toast]
   );
 
   // Delete confirmation with category context
@@ -325,7 +437,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
 
       try {
         await ticketOperations.deleteTicket(ticketId, reason, notifyUser);
-        
+
         console.log('✅ TicketsPage: Delete successful, closing dialog');
         setDeleteDialog({ isOpen: false, ticket: null });
 
@@ -333,7 +445,6 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           title: 'Success',
           description: `Ticket #${ticketNumber} (${categoryName}) deleted successfully`,
         });
-
       } catch (error: any) {
         console.error('❌ TicketsPage: Delete failed:', error);
         // Keep dialog open on error for retry
@@ -348,7 +459,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     setDeleteDialog({ isOpen: false, ticket: null });
   }, []);
 
-  // SIMPLIFIED: Selection handlers
+  // Selection handlers
   const handleSelectTicket = useCallback(
     (ticketId: number, selected: boolean) => {
       if (!storeActions) return;
@@ -367,26 +478,13 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
       if (!storeActions) return;
 
       if (selected) {
-        currentTabTickets.forEach((ticket) => storeActions.selectTicket(ticket.id));
+        paginatedTickets.forEach((ticket) => storeActions.selectTicket(ticket.id));
       } else {
         storeActions.clearSelection();
       }
     },
-    [storeActions, currentTabTickets]
+    [storeActions, paginatedTickets]
   );
-
-  // SIMPLIFIED: Quick actions
-  const handleViewCrisis = useCallback(() => {
-    setCurrentView('crisis');
-    toast({
-      title: 'Crisis View',
-      description: 'Showing all crisis tickets',
-    });
-  }, [toast]);
-
-  const handleViewUnassigned = useCallback(() => {
-    handleFilterChange('assigned', 'unassigned');
-  }, [handleFilterChange]);
 
   const handleExport = useCallback(() => {
     if (storeActions?.exportTickets) {
@@ -427,9 +525,8 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
     );
   }
 
-  const hasActiveFilters = Boolean(
-    searchTerm || filters.status || filters.category_id || filters.priority || filters.assigned
-  );
+  // FIXED: Check for active filters
+  const activeFilters = hasActiveFilters(localFilters);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50">
@@ -441,9 +538,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium text-amber-700">
-                  Refreshing tickets...
-                </span>
+                <span className="text-sm font-medium text-amber-700">Refreshing tickets...</span>
               </div>
               <Button
                 onClick={handleRefresh}
@@ -457,7 +552,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           </div>
         )}
 
-        {/* REVERTED: Original Header - No mobile padding */}
+        {/* Header */}
         {showSkeletonLoading ? (
           <div className="mx-4 sm:mx-0">
             <TicketsHeaderSkeleton />
@@ -476,9 +571,9 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
               onExport={handleExport}
               onCreate={handleCreateTicket}
               categoriesCount={categories.length}
-              activeCategoriesCount={categories.filter(c => c.is_active).length}
+              activeCategoriesCount={categories.filter((c) => c.is_active).length}
             />
-            
+
             {/* ENHANCED: Floating Admin Access */}
             {currentUser?.role === 'admin' && (
               <div className="absolute top-4 right-4 hidden sm:block">
@@ -528,7 +623,13 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
         {!showSkeletonLoading && (
           <div className="mx-4 sm:mx-0">
             <ErrorAlert
-              error={errors.any ? ((Object.values(errors.tickets).find(Boolean) || Object.values(errors.categories).find(Boolean)) ?? null) : null}
+              error={
+                errors.any
+                  ? (Object.values(errors.tickets).find(Boolean) ||
+                      Object.values(errors.categories).find(Boolean)) ??
+                    null
+                  : null
+              }
               onDismiss={() => {
                 stores.tickets.actions.clearError('list');
                 stores.categories.actions.clearError('list');
@@ -545,15 +646,15 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
         ) : (
           <div className="mx-4 sm:mx-0">
             <ModernTicketsFilters
-              searchTerm={searchTerm}
-              filters={filters}
+              searchTerm={localFilters.search}
+              filters={localFilters}
               loading={loading.any}
               userRole={currentUser?.role}
               selectedCount={selectedTicketsArray.length}
-              totalCount={currentTabTickets.length}
+              totalCount={paginatedTickets.length}
               canBulkActions={false} // Simplified: No bulk actions
               categories={categories}
-              onSearchChange={setSearchTerm}
+              onSearchChange={(value) => handleFilterChange('search', value)}
               onFilterChange={handleFilterChange}
               onClearFilters={clearFilters}
               onSelectAll={handleSelectAll}
@@ -580,30 +681,89 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
                   console.error('Tickets section error:', error);
                 }}
               >
-                <Tabs value={currentView} onValueChange={setCurrentView} className="w-full">
+                <Tabs value={currentView} onValueChange={handleViewChange} className="w-full">
                   <TicketTabs
                     currentView={currentView}
                     stats={stats}
                     userRole={currentUser?.role}
-                    onViewChange={setCurrentView}
+                    onViewChange={handleViewChange}
                   />
 
                   <TabsContent value={currentView} className="p-4 sm:p-6 space-y-4 mt-0">
+                    {/* Results Summary */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-lg font-semibold text-gray-900">
+                          {currentView === 'all'
+                            ? 'All Tickets'
+                            : currentView === 'crisis'
+                            ? 'Crisis Tickets'
+                            : currentView === 'unassigned'
+                            ? 'Unassigned Tickets'
+                            : currentView === 'my_assigned'
+                            ? 'My Cases'
+                            : currentView === 'open'
+                            ? 'Active Tickets'
+                            : currentView === 'closed'
+                            ? 'Closed Tickets'
+                            : 'Tickets'}
+                        </h2>
+
+                        <Badge variant="secondary" className="text-sm px-3 py-1">
+                          {filteredTickets.length} results
+                        </Badge>
+
+                        {activeFilters && (
+                          <Badge
+                            variant="outline"
+                            className="text-sm px-3 py-1 border-blue-200 text-blue-700"
+                          >
+                            Filtered
+                          </Badge>
+                        )}
+                      </div>
+
+                      {paginationInfo.total > paginationInfo.per_page && (
+                        <Badge variant="outline" className="text-sm px-3 py-1">
+                          Page {paginationInfo.current_page} of {paginationInfo.last_page}
+                        </Badge>
+                      )}
+                    </div>
+
                     <TicketsList
-                      tickets={currentTabTickets}
+                      tickets={paginatedTickets}
                       loading={loading.any}
-                      loadingMore={loadingMore}
-                      hasMore={hasMore}
+                      loadingMore={false}
+                      hasMore={false}
                       selectedTickets={selectedTickets}
                       permissions={permissions}
                       userRole={currentUser?.role}
-                      searchTerm={searchTerm}
-                      hasFilters={hasActiveFilters}
+                      searchTerm={localFilters.search}
+                      hasFilters={activeFilters}
                       onSelectTicket={handleSelectTicket}
                       onViewTicket={handleViewTicket}
                       onTicketAction={handleTicketAction}
                       onCreateTicket={handleCreateTicket}
                     />
+
+                    {/* ENHANCED: Pagination */}
+                    {paginationInfo.total > paginationInfo.per_page && (
+                      <div className="mt-6">
+                        <EnhancedPagination
+                          pagination={paginationInfo}
+                          onPageChange={setCurrentPage}
+                          onPerPageChange={(newPerPage) => {
+                            setPerPage(newPerPage);
+                            setCurrentPage(1);
+                          }}
+                          isLoading={loading.any}
+                          showPerPageSelector={true}
+                          showResultsInfo={true}
+                          perPageOptions={[10, 20, 50, 100]}
+                          className="w-full"
+                        />
+                      </div>
+                    )}
                   </TabsContent>
                 </Tabs>
               </ErrorBoundary>
@@ -611,7 +771,7 @@ function TicketsPageContent({ onNavigate }: TicketsPageProps) {
           </div>
         </div>
 
-        {/* REVERTED: Original Help and Support Links */}
+        {/* Help and Support Links */}
         {!showSkeletonLoading && (
           <div className="mx-4 sm:mx-0">
             <HelpSupportFooter

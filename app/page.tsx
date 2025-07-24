@@ -1,4 +1,4 @@
-// app/page.tsx - UPDATED: Added admin-tickets route
+// app/page.tsx - FIXED: Proper slug handling for ticket details
 
 "use client"
 
@@ -10,7 +10,7 @@ import { CounselorDashboard } from "@/components/dashboards/counselor-dashboard"
 import { AdminDashboard } from "@/components/dashboards/admin-dashboard"
 import { AppointmentsPage } from "@/components/pages/appointments-page"
 import { TicketsPage } from "@/components/pages/tickets-page"
-import { AdminTicketsPage } from "@/components/pages/admin-tickets-page" // NEW: Admin tickets page
+import { AdminTicketsPage } from "@/components/pages/admin-tickets-page"
 import { SubmitTicketPage } from "@/components/pages/submit-ticket-page"
 import { TicketDetailsPage } from "@/components/pages/ticket-details-page"
 import { CounselingPage } from "@/components/pages/counseling-page"
@@ -66,7 +66,6 @@ function AppContent() {
       case "tickets":
         return <TicketsPage onNavigate={navigate} />
       
-      // NEW: Admin tickets management page
       case "admin-tickets":
         return <AdminTicketsPage onNavigate={navigate} />
       
@@ -74,10 +73,11 @@ function AppContent() {
         return <SubmitTicketPage onNavigate={navigate} />
       
       case "ticket-details":
-        // Immediate ticket details rendering
+        // FIXED: Pass both ticketId and slug properly
         const ticketId = params.ticketId as number
+        const slug = params.slug as string
         
-        console.log('🌐 App: Rendering ticket details with ID:', ticketId)
+        console.log('🌐 App: Rendering ticket details with ID:', ticketId, 'slug:', slug)
         
         if (!ticketId || isNaN(ticketId) || ticketId <= 0) {
           console.warn('🌐 App: Invalid ticket ID, redirecting to tickets')
@@ -89,6 +89,7 @@ function AppContent() {
         return (
           <TicketDetailsPage 
             ticketId={ticketId}
+            slug={slug} // FIXED: Pass slug to component
             onNavigate={navigate} 
           />
         )

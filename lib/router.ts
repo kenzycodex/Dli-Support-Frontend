@@ -1,4 +1,4 @@
-// lib/router.ts - UPDATED: Added admin-tickets route
+// lib/router.ts - FIXED: Proper slug handling for ticket details
 
 "use client"
 
@@ -64,23 +64,40 @@ class AppRouter {
           return { page: 'tickets', params: {} }
         }
         
-        // Parse ticket ID from URL
+        // FIXED: Parse ticket ID and slug properly
         const ticketIdentifier = restSegments[0]
-        const ticketId = parseInt(ticketIdentifier)
         
-        if (!isNaN(ticketId) && ticketId > 0) {
-          console.log('🌐 Router: Parsed ticket ID:', ticketId)
-          return {
-            page: 'ticket-details',
-            params: { ticketId }
+        // Check if it's a full slug (ID-category-title-number)
+        if (ticketIdentifier.includes('-')) {
+          const parts = ticketIdentifier.split('-')
+          const ticketId = parseInt(parts[0])
+          
+          if (!isNaN(ticketId) && ticketId > 0) {
+            console.log('🌐 Router: Parsed ticket ID from slug:', ticketId, 'slug:', ticketIdentifier)
+            return {
+              page: 'ticket-details',
+              params: { 
+                ticketId,
+                slug: ticketIdentifier // FIXED: Pass the full slug
+              }
+            }
+          }
+        } else {
+          // Just a ticket ID
+          const ticketId = parseInt(ticketIdentifier)
+          if (!isNaN(ticketId) && ticketId > 0) {
+            console.log('🌐 Router: Parsed ticket ID:', ticketId)
+            return {
+              page: 'ticket-details',
+              params: { ticketId }
+            }
           }
         }
         
         // If we can't parse, go back to tickets list
-        console.warn('🌐 Router: Failed to parse ticket ID:', ticketIdentifier)
+        console.warn('🌐 Router: Failed to parse ticket identifier:', ticketIdentifier)
         return { page: 'tickets', params: {} }
       
-      // NEW: Admin tickets route
       case 'admin-tickets':
         return { page: 'admin-tickets', params: {} }
       
@@ -139,7 +156,7 @@ class AppRouter {
     return { page: 'dashboard', params: {} }
   }
 
-  // Immediate navigation without delays
+  // FIXED: Enhanced navigation with proper URL building
   public navigate(page: string, params: RouteParams = {}) {
     const newRoute = { page, params }
     const url = this.buildURL(page, params)
@@ -176,6 +193,7 @@ class AppRouter {
     this.notifyListeners()
   }
 
+  // FIXED: Enhanced URL building with slug support
   private buildURL(page: string, params: RouteParams): string {
     switch (page) {
       case 'dashboard':
@@ -184,7 +202,6 @@ class AppRouter {
       case 'tickets':
         return '/tickets'
       
-      // NEW: Admin tickets URL
       case 'admin-tickets':
         return '/admin-tickets'
       
@@ -192,8 +209,10 @@ class AppRouter {
         return '/submit-ticket'
       
       case 'ticket-details':
-        // Just use ticket ID in URL
-        if (params.ticketId) {
+        // FIXED: Use slug if available, otherwise use ticket ID
+        if (params.slug) {
+          return `/tickets/${params.slug}`
+        } else if (params.ticketId) {
           return `/tickets/${params.ticketId}`
         }
         return '/tickets'
@@ -265,8 +284,12 @@ class AppRouter {
     return this.currentRoute
   }
 
-  public generateTicketURL(ticketId: number): string {
+  // FIXED: Enhanced ticket URL generation with slug support
+  public generateTicketURL(ticketId: number, slug?: string): string {
     const baseURL = typeof window !== 'undefined' ? window.location.origin : ''
+    if (slug) {
+      return `${baseURL}/tickets/${slug}`
+    }
     return `${baseURL}/tickets/${ticketId}`
   }
 
@@ -281,6 +304,13 @@ class AppRouter {
       }
       
       const ticketIdentifier = segments[1]
+      
+      // Check if it's a slug or just an ID
+      if (ticketIdentifier.includes('-')) {
+        const parts = ticketIdentifier.split('-')
+        return !isNaN(parseInt(parts[0]))
+      }
+      
       return !isNaN(parseInt(ticketIdentifier))
     } catch {
       return false
@@ -342,8 +372,9 @@ export function useAppRouter() {
     appRouter.replace(page, params)
   }, [])
 
-  const generateTicketURL = useCallback((ticketId: number) => {
-    return appRouter.generateTicketURL(ticketId)
+  // FIXED: Enhanced ticket URL generation
+  const generateTicketURL = useCallback((ticketId: number, slug?: string) => {
+    return appRouter.generateTicketURL(ticketId, slug)
   }, [])
 
   const isValidTicketURL = useCallback((url: string) => {
@@ -368,19 +399,20 @@ export function useAppRouter() {
   }
 }
 
-// Utility function to handle ticket navigation
-export function navigateToTicket(ticketId: number) {
-  console.log('🌐 navigateToTicket:', ticketId)
-  appRouter.navigate('ticket-details', { ticketId })
+// FIXED: Enhanced ticket navigation with slug support
+export function navigateToTicket(ticketId: number, slug?: string) {
+  console.log('🌐 navigateToTicket:', ticketId, 'slug:', slug)
+  appRouter.navigate('ticket-details', { ticketId, slug })
 }
 
 // Get current ticket info from URL
-export function getCurrentTicketFromURL(): { ticketId: number | null } {
+export function getCurrentTicketFromURL(): { ticketId: number | null; slug?: string } {
   const route = appRouter.getCurrentRoute()
   
   if (route.page === 'ticket-details') {
     return {
-      ticketId: (route.params.ticketId as number) || null
+      ticketId: (route.params.ticketId as number) || null,
+      slug: route.params.slug as string
     }
   }
   
@@ -388,12 +420,13 @@ export function getCurrentTicketFromURL(): { ticketId: number | null } {
 }
 
 // Handle browser back/forward for ticket details
-export function handleTicketNavigation(onTicketChange: (ticketId: number | null) => void) {
+export function handleTicketNavigation(onTicketChange: (ticketId: number | null, slug?: string) => void) {
   return appRouter.subscribe((route) => {
     try {
       if (route.page === 'ticket-details') {
         const ticketId = (route.params.ticketId as number) || null
-        onTicketChange(ticketId)
+        const slug = route.params.slug as string
+        onTicketChange(ticketId, slug)
       } else {
         onTicketChange(null)
       }

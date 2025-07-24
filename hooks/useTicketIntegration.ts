@@ -1,4 +1,4 @@
-// hooks/useTicketIntegration.ts - FIXED: Prevent multiple API calls
+// hooks/useTicketIntegration.ts - FIXED: Prevent multiple API calls and infinite loops
 
 import { useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTicketStore, TicketData, CreateTicketRequest } from '@/stores/ticket-store'
@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast"
 import { authService } from '@/services/auth.service'
 
 /**
- * FIXED: Main integration hook that prevents multiple API calls
+ * FIXED: Main integration hook that prevents multiple API calls and infinite loops
  */
 export const useTicketIntegration = (options: {
   autoLoadCategories?: boolean
@@ -17,20 +17,20 @@ export const useTicketIntegration = (options: {
 } = {}) => {
   const { autoLoadCategories = true, autoLoadTickets = true, enableRealTimeUpdates = false } = options
   
-  // Ticket store
-  const ticketActions = useTicketStore((state) => state.actions)
-  const ticketLoading = useTicketStore((state) => state.loading)
-  const ticketErrors = useTicketStore((state) => state.errors)
-  const tickets = useTicketStore((state) => state.tickets)
-  const currentTicket = useTicketStore((state) => state.currentTicket)
-  const ticketLastFetch = useTicketStore((state) => state.lastFetch)
+  // FIXED: Use stable selectors to prevent re-renders
+  const ticketActions = useTicketStore(useCallback((state) => state.actions, []))
+  const ticketLoading = useTicketStore(useCallback((state) => state.loading, []))
+  const ticketErrors = useTicketStore(useCallback((state) => state.errors, []))
+  const tickets = useTicketStore(useCallback((state) => state.tickets, []))
+  const currentTicket = useTicketStore(useCallback((state) => state.currentTicket, []))
+  const ticketLastFetch = useTicketStore(useCallback((state) => state.lastFetch, []))
   
-  // Categories store
-  const categoryActions = useTicketCategoriesStore((state) => state.actions)
-  const categoryLoading = useTicketCategoriesStore((state) => state.loading)
-  const categoryErrors = useTicketCategoriesStore((state) => state.errors)
-  const categories = useTicketCategoriesStore((state) => state.categories)
-  const categoriesLastFetch = useTicketCategoriesStore((state) => state.categoriesLastFetch)
+  // FIXED: Use stable selectors for categories
+  const categoryActions = useTicketCategoriesStore(useCallback((state) => state.actions, []))
+  const categoryLoading = useTicketCategoriesStore(useCallback((state) => state.loading, []))
+  const categoryErrors = useTicketCategoriesStore(useCallback((state) => state.errors, []))
+  const categories = useTicketCategoriesStore(useCallback((state) => state.categories, []))
+  const categoriesLastFetch = useTicketCategoriesStore(useCallback((state) => state.lastFetch, []))
   
   const { toast } = useToast()
   
@@ -38,15 +38,21 @@ export const useTicketIntegration = (options: {
   const initializationRef = useRef({
     categoriesInitialized: false,
     ticketsInitialized: false,
-    isInitializing: false
+    isInitializing: false,
+    mountTime: Date.now()
   })
+
+  // FIXED: Stable current user reference
+  const currentUser = useMemo(() => authService.getStoredUser(), [])
 
   // FIXED: Single initialization effect with proper cache checking
   useEffect(() => {
+    let mounted = true // Track if component is still mounted
+
     const init = async () => {
       // Prevent multiple simultaneous initializations
-      if (initializationRef.current.isInitializing) {
-        console.log('🎫 Integration: Already initializing, skipping...')
+      if (initializationRef.current.isInitializing || !mounted) {
+        console.log('🎫 Integration: Already initializing or unmounted, skipping...')
         return
       }
 
@@ -54,7 +60,7 @@ export const useTicketIntegration = (options: {
 
       try {
         // Check if categories need loading
-        if (autoLoadCategories && !initializationRef.current.categoriesInitialized) {
+        if (autoLoadCategories && !initializationRef.current.categoriesInitialized && mounted) {
           const categoriesAge = Date.now() - categoriesLastFetch
           const shouldLoadCategories = categories.length === 0 || categoriesAge > 300000 // 5 minutes
 
@@ -65,11 +71,14 @@ export const useTicketIntegration = (options: {
             console.log('🎫 Integration: Using cached categories:', categories.length)
           }
           
-          initializationRef.current.categoriesInitialized = true
+          if (mounted) {
+            initializationRef.current.categoriesInitialized = true
+          }
         }
 
         // Check if tickets need loading (only after categories are ready)
-        if (autoLoadTickets && !initializationRef.current.ticketsInitialized) {
+        if (autoLoadTickets && !initializationRef.current.ticketsInitialized && mounted) {
+          // Get current categories state
           const currentCategories = useTicketCategoriesStore.getState().categories
           
           if (currentCategories.length > 0) {
@@ -83,21 +92,42 @@ export const useTicketIntegration = (options: {
               console.log('🎫 Integration: Using cached tickets:', tickets.length)
             }
             
-            initializationRef.current.ticketsInitialized = true
+            if (mounted) {
+              initializationRef.current.ticketsInitialized = true
+            }
           }
         }
       } catch (error) {
         console.error('❌ Integration: Initialization failed:', error)
       } finally {
-        initializationRef.current.isInitializing = false
+        if (mounted) {
+          initializationRef.current.isInitializing = false
+        }
       }
     }
 
-    // Only initialize if we haven't already
-    if (!initializationRef.current.categoriesInitialized || !initializationRef.current.ticketsInitialized) {
+    // Only initialize if we haven't already and conditions are met
+    const shouldInitialize = (
+      !initializationRef.current.categoriesInitialized || 
+      !initializationRef.current.ticketsInitialized
+    ) && (
+      ticketActions && categoryActions
+    )
+
+    if (shouldInitialize) {
       init()
     }
-  }, []) // Empty dependency array - only run once on mount
+
+    // Cleanup function
+    return () => {
+      mounted = false
+    }
+  }, [
+    autoLoadCategories, 
+    autoLoadTickets, 
+    categoryActions, 
+    ticketActions
+  ]) // Stable dependencies only
 
   // FIXED: Reset initialization flags when data is manually cleared
   useEffect(() => {
@@ -152,7 +182,7 @@ export const useTicketIntegration = (options: {
     }
   }, [categories, ticketActions, toast])
 
-  // Enhanced ticket operations with category context
+  // FIXED: Enhanced ticket operations with category context and stable references
   const ticketOperations = useMemo(() => ({
     createTicket: createTicketWithValidation,
     
@@ -260,7 +290,7 @@ export const useTicketIntegration = (options: {
     },
   }), [categories, ticketActions, toast, createTicketWithValidation])
 
-  // Enhanced data with category relationships
+  // FIXED: Enhanced data with category relationships and stable memoization
   const enhancedData = useMemo(() => {
     const enrichedTickets = tickets.map(ticket => {
       const category = categories.find(c => c.id === ticket.category_id)
@@ -286,7 +316,7 @@ export const useTicketIntegration = (options: {
     }
   }, [tickets, categories, currentTicket])
 
-  // Combined loading and error states
+  // FIXED: Combined loading and error states with stable memoization
   const combinedState = useMemo(() => ({
     loading: {
       any: Object.values(ticketLoading).some(Boolean) || Object.values(categoryLoading).some(Boolean),
@@ -348,7 +378,8 @@ export const useTicketIntegration = (options: {
     initializationRef.current = {
       categoriesInitialized: false,
       ticketsInitialized: false,
-      isInitializing: false
+      isInitializing: false,
+      mountTime: Date.now()
     }
     
     toast({
