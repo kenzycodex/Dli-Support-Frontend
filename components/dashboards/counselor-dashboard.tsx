@@ -1,4 +1,4 @@
-// components/dashboards/counselor-dashboard.tsx (FIXED - Smart initialization like AdminDashboard)
+// components/dashboards/counselor-dashboard.tsx (FIXED - Category display issue)
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
@@ -247,6 +247,18 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
       hour: "2-digit",
       minute: "2-digit",
     })
+  }, [])
+
+  // FIXED: Safe category name getter
+  const getCategoryName = useCallback((ticket: TicketData): string => {
+    // Handle both old string format and new category object format
+    if (typeof ticket.category === 'string') {
+      return ticket.category
+    }
+    if (ticket.category && typeof ticket.category === 'object' && ticket.category.name) {
+      return ticket.category.name
+    }
+    return 'General' // Fallback
   }, [])
 
   // FIXED: Navigation handler with proper error handling
@@ -503,8 +515,9 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                               )}
                             </div>
                             <div className="flex items-center space-x-2">
+                              {/* FIXED: Safe category name display */}
                               <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200 text-xs">
-                                {ticket.category}
+                                {getCategoryName(ticket)}
                               </Badge>
                               <Badge variant="outline" className={`${getPriorityColor(ticket.priority)} text-xs`}>
                                 {ticket.priority}
@@ -778,8 +791,9 @@ export function CounselorDashboard({ user, onNavigate }: CounselorDashboardProps
                             )}
                           </div>
                           <div className="flex items-center space-x-2 mb-1">
+                            {/* FIXED: Safe category name display */}
                             <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200">
-                              {ticket.category}
+                              {getCategoryName(ticket)}
                             </Badge>
                             <Badge variant="outline" className={getPriorityColor(ticket.priority)}>
                               {ticket.priority}

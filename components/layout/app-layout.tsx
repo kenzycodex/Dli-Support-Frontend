@@ -1,12 +1,12 @@
-// components/layout/app-layout.tsx - FIXED: TypeScript errors and expand icon visibility
+// components/layout/app-layout.tsx - FIXED: Removed ticket badge and duplicate chat icon
 
-"use client"
+'use client';
 
-import type React from "react"
-import { useState, useMemo } from "react"
-import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { Badge } from "@/components/ui/badge"
+import type React from 'react';
+import { useState, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Badge } from '@/components/ui/badge';
 import {
   Menu,
   Bell,
@@ -28,75 +28,69 @@ import {
   FolderOpen,
   Cog,
   Shield,
-} from "lucide-react"
-import { ChatBot } from "@/components/features/chat-bot"
-import { NotificationCenter } from "@/components/features/notification-center"
-import { NotificationBell } from "@/components/layout/notification-bell"
-import { useIsMobile } from "@/hooks/use-mobile"
-import { useNotifications } from "@/hooks/use-notifications"
-import { cn } from "@/lib/utils"
+} from 'lucide-react';
+import { ChatBot } from '@/components/features/chat-bot';
+import { NotificationCenter } from '@/components/features/notification-center';
+import { NotificationBell } from '@/components/layout/notification-bell';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { useNotifications } from '@/hooks/use-notifications';
+import { cn } from '@/lib/utils';
 
 // FIXED: Proper type definitions for navigation items
 type BaseNavigationItem = {
-  name: string
-  href: string
-  page: string
-  current: boolean
-  roles: string[]
-  badge?: number
-}
+  name: string;
+  href: string;
+  page: string;
+  current: boolean;
+  roles: string[];
+  badge?: number;
+};
 
 type RegularNavigationItem = BaseNavigationItem & {
-  icon: React.ComponentType<any>
-  isSeparator?: never
-  label?: never
-  description?: string
-}
+  icon: React.ComponentType<any>;
+  isSeparator?: never;
+  label?: never;
+  description?: string;
+};
 
 type SeparatorNavigationItem = {
-  name: 'separator'
-  href: '#'
-  page: 'separator'
-  icon: null
-  current: false
-  roles: string[]
-  isSeparator: true
-  label: string
-  badge?: never
-  description?: never
-}
+  name: 'separator';
+  href: '#';
+  page: 'separator';
+  icon: null;
+  current: false;
+  roles: string[];
+  isSeparator: true;
+  label: string;
+  badge?: never;
+  description?: never;
+};
 
-type NavigationItem = RegularNavigationItem | SeparatorNavigationItem
+type NavigationItem = RegularNavigationItem | SeparatorNavigationItem;
 
 interface AppLayoutProps {
-  children: React.ReactNode
+  children: React.ReactNode;
   user: {
-    role: string
-    name: string
-    email: string
-  }
-  onLogout: () => void
-  currentPage: string
-  onNavigate: (page: string) => void
+    role: string;
+    name: string;
+    email: string;
+  };
+  onLogout: () => void;
+  currentPage: string;
+  onNavigate: (page: string) => void;
 }
 
 export function AppLayout({ children, user, onLogout, currentPage, onNavigate }: AppLayoutProps) {
-  const [showChatBot, setShowChatBot] = useState(false)
-  const [showNotifications, setShowNotifications] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const isMobile = useIsMobile()
-  
+  const [showChatBot, setShowChatBot] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isMobile = useIsMobile();
+
   // Get unread count for notifications
-  const { unreadCount, refreshUnreadCount } = useNotifications()
+  const { unreadCount, refreshUnreadCount } = useNotifications();
 
-  // Mock function for my tickets count (you can implement this based on your ticket store)
-  const getMyTicketsCount = () => {
-    // This should be implemented to get actual count from your ticket store
-    return 0
-  }
-
-  // FIXED: Navigation items with proper typing
+  // FIXED: Navigation items with ticket badge removed
   const navigationItems = useMemo((): NavigationItem[] => {
     const baseItems: NavigationItem[] = [
       {
@@ -105,7 +99,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         page: 'dashboard',
         icon: Home,
         current: currentPage === 'dashboard',
-        roles: ['student', 'counselor', 'advisor', 'admin']
+        roles: ['student', 'counselor', 'advisor', 'admin'],
       },
       {
         name: 'Tickets',
@@ -114,7 +108,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         icon: Ticket,
         current: currentPage === 'tickets' || currentPage === 'ticket-details',
         roles: ['student', 'counselor', 'advisor', 'admin'],
-        badge: user?.role === 'student' ? getMyTicketsCount() : undefined
+        // REMOVED: badge property completely
       },
       {
         name: 'Submit Ticket',
@@ -122,7 +116,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         page: 'submit-ticket',
         icon: Plus,
         current: currentPage === 'submit-ticket',
-        roles: ['student', 'admin']
+        roles: ['student', 'admin'],
       },
       {
         name: 'Appointments',
@@ -130,7 +124,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         page: 'appointments',
         icon: Calendar,
         current: currentPage === 'appointments',
-        roles: ['student', 'counselor', 'advisor', 'admin']
+        roles: ['student', 'counselor', 'advisor', 'admin'],
       },
       {
         name: 'Resources',
@@ -138,7 +132,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         page: 'resources',
         icon: BookOpen,
         current: currentPage === 'resources',
-        roles: ['student', 'counselor', 'advisor', 'admin']
+        roles: ['student', 'counselor', 'advisor', 'admin'],
       },
       {
         name: 'Counseling',
@@ -146,7 +140,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         page: 'counseling',
         icon: Heart,
         current: currentPage === 'counseling',
-        roles: ['student', 'counselor', 'advisor', 'admin']
+        roles: ['student', 'counselor', 'advisor', 'admin'],
       },
       {
         name: 'Help Center',
@@ -154,7 +148,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         page: 'help',
         icon: HelpCircle,
         current: currentPage === 'help',
-        roles: ['student', 'counselor', 'advisor', 'admin']
+        roles: ['student', 'counselor', 'advisor', 'admin'],
       },
       {
         name: 'Notifications',
@@ -163,9 +157,9 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
         icon: Bell,
         current: currentPage === 'notifications',
         roles: ['student', 'counselor', 'advisor', 'admin'],
-        badge: unreadCount > 0 ? unreadCount : undefined
-      }
-    ]
+        badge: unreadCount > 0 ? unreadCount : undefined,
+      },
+    ];
 
     // Add admin-only items
     if (user?.role === 'admin') {
@@ -179,7 +173,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
           current: false,
           roles: ['admin'],
           isSeparator: true,
-          label: 'Administration'
+          label: 'Administration',
         },
         // Admin items with proper typing
         {
@@ -189,7 +183,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
           icon: Settings,
           current: currentPage === 'admin-tickets',
           roles: ['admin'],
-          description: 'Manage tickets and categories'
+          description: 'Manage tickets and categories',
         },
         {
           name: 'Resource Management',
@@ -198,7 +192,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
           icon: FolderOpen,
           current: currentPage === 'admin-resources',
           roles: ['admin'],
-          description: 'Manage resources and content'
+          description: 'Manage resources and content',
         },
         {
           name: 'User Management',
@@ -206,7 +200,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
           page: 'admin-users',
           icon: Users,
           current: currentPage === 'admin-users',
-          roles: ['admin']
+          roles: ['admin'],
         },
         {
           name: 'Reports & Analytics',
@@ -214,7 +208,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
           page: 'admin-reports',
           icon: BarChart3,
           current: currentPage === 'admin-reports',
-          roles: ['admin']
+          roles: ['admin'],
         },
         {
           name: 'System Settings',
@@ -222,7 +216,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
           page: 'admin-settings',
           icon: Cog,
           current: currentPage === 'admin-settings',
-          roles: ['admin']
+          roles: ['admin'],
         },
         {
           name: 'Admin Help',
@@ -230,32 +224,30 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
           page: 'admin-help',
           icon: Shield,
           current: currentPage === 'admin-help',
-          roles: ['admin']
+          roles: ['admin'],
         }
-      )
+      );
     }
 
-    return baseItems.filter(item => 
-      item.roles.includes(user?.role || 'student')
-    )
-  }, [currentPage, user?.role, unreadCount])
+    return baseItems.filter((item) => item.roles.includes(user?.role || 'student'));
+  }, [currentPage, user?.role, unreadCount]);
 
   const handleNavigation = (page: string) => {
     // Close mobile menu when navigating
-    setMobileMenuOpen(false)
-    
+    setMobileMenuOpen(false);
+
     // Refresh unread count when navigating to notifications
     if (page === 'notifications') {
-      refreshUnreadCount()
+      refreshUnreadCount();
     }
-    onNavigate(page)
-  }
+    onNavigate(page);
+  };
 
   const handleMobileNotificationClick = () => {
-    console.log("🔔 Mobile notification button clicked")
-    refreshUnreadCount()
-    setShowNotifications(true)
-  }
+    console.log('🔔 Mobile notification button clicked');
+    refreshUnreadCount();
+    setShowNotifications(true);
+  };
 
   return (
     <div className="relative min-h-screen bg-gray-50">
@@ -272,9 +264,9 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
               {/* Header in Mobile Menu */}
               <div className="px-4 py-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600">
                 <div className="flex items-center space-x-3">
-                  <img 
-                    src="/favicon.png" 
-                    alt="Logo" 
+                  <img
+                    src="/favicon.png"
+                    alt="Logo"
                     className="h-10 w-10 object-contain rounded-lg bg-white/10 p-1"
                   />
                   <div className="text-white">
@@ -300,32 +292,34 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                             <div className="flex-1 border-t border-gray-300"></div>
                           </div>
                         </div>
-                      )
+                      );
                     }
 
-                    const IconComponent = item.icon
+                    const IconComponent = item.icon;
                     return (
                       <button
                         key={item.page}
                         onClick={() => handleNavigation(item.page)}
                         className={cn(
-                          "w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150",
+                          'w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150',
                           item.current
-                            ? "bg-blue-50 text-blue-700 border-l-4 border-blue-500"
-                            : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                            ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-500'
+                            : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
                         )}
                       >
                         <div className="flex items-center">
                           <IconComponent
                             className={cn(
-                              "mr-3 h-4 w-4 flex-shrink-0",
-                              item.current ? "text-blue-600" : "text-gray-500"
+                              'mr-3 h-4 w-4 flex-shrink-0',
+                              item.current ? 'text-blue-600' : 'text-gray-500'
                             )}
                           />
                           <div className="flex flex-col items-start">
                             <span>{item.name}</span>
                             {item.description && (
-                              <span className="text-xs text-gray-500 mt-0.5">{item.description}</span>
+                              <span className="text-xs text-gray-500 mt-0.5">
+                                {item.description}
+                              </span>
                             )}
                           </div>
                         </div>
@@ -335,7 +329,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                           </Badge>
                         )}
                       </button>
-                    )
+                    );
                   })}
                 </nav>
               </div>
@@ -357,18 +351,14 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
 
         {/* Logo */}
         <div className="flex justify-center items-center w-full h-full m-0 p-0">
-          <img 
-            src="/logo-dark.png" 
-            alt="Logo" 
-            className="w-[180px] h-auto object-contain"
-          />
+          <img src="/logo-dark.png" alt="Logo" className="w-[180px] h-auto object-contain" />
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons - FIXED: Only notification bell, no duplicate chat icon */}
         <div className="flex items-center space-x-1">
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={handleMobileNotificationClick}
             className="rounded-lg relative hover:bg-gray-100"
           >
@@ -386,25 +376,30 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
       {!isMobile && (
         <div
           className={cn(
-            "fixed left-0 top-0 bottom-0 z-40 bg-white border-r border-gray-200 transition-all duration-300 shadow-sm",
-            sidebarCollapsed ? "w-16" : "w-64"
+            'fixed left-0 top-0 bottom-0 z-40 bg-white border-r border-gray-200 transition-all duration-300 shadow-sm',
+            sidebarCollapsed ? 'w-16' : 'w-64'
           )}
         >
           <div className="flex min-h-0 flex-1 flex-col h-full">
             {/* Header - Logo */}
             <div className="flex items-center justify-between flex-shrink-0 px-4 py-6 border-b border-gray-200 relative">
               {/* Logo - Always Centered */}
-              <div className={cn("flex items-center", sidebarCollapsed ? "justify-center w-full" : "flex-1 justify-center")}>
-                <img 
-                  src={sidebarCollapsed ? "/favicon.png" : "/logo-dark.png"}
-                  alt="Logo" 
+              <div
+                className={cn(
+                  'flex items-center',
+                  sidebarCollapsed ? 'justify-center w-full' : 'flex-1 justify-center'
+                )}
+              >
+                <img
+                  src={sidebarCollapsed ? '/favicon.png' : '/logo-dark.png'}
+                  alt="Logo"
                   className={cn(
-                    "object-contain rounded-lg transition-transform duration-300",
-                    sidebarCollapsed ? "h-10 w-10 scale-100" : "h-10 w-10 scale-[5]"
+                    'object-contain rounded-lg transition-transform duration-300',
+                    sidebarCollapsed ? 'h-10 w-10 scale-100' : 'h-10 w-10 scale-[5]'
                   )}
                 />
               </div>
-              
+
               {/* Expand Button - Overlaid on right edge when collapsed */}
               {sidebarCollapsed && (
                 <Button
@@ -417,7 +412,7 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                   <ChevronRight className="h-5 w-5 text-gray-700" />
                 </Button>
               )}
-              
+
               {/* Collapse Button - Only when expanded */}
               {!sidebarCollapsed && (
                 <Button
@@ -451,28 +446,28 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                           <div className="border-t border-gray-300 mx-2"></div>
                         )}
                       </div>
-                    )
+                    );
                   }
 
-                  const IconComponent = item.icon
+                  const IconComponent = item.icon;
                   return (
                     <button
                       key={item.page}
                       onClick={() => handleNavigation(item.page)}
                       className={cn(
-                        "group flex items-center w-full px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150 relative",
-                        sidebarCollapsed ? "justify-center" : "",
+                        'group flex items-center w-full px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150 relative',
+                        sidebarCollapsed ? 'justify-center' : '',
                         item.current
-                          ? "bg-blue-50 text-blue-700 border-l-4 border-blue-500 ml-0 pl-3"
-                          : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                          ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-500 ml-0 pl-3'
+                          : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
                       )}
                       title={sidebarCollapsed ? item.name : undefined}
                     >
                       <IconComponent
                         className={cn(
-                          "h-4 w-4 flex-shrink-0",
-                          !sidebarCollapsed && "mr-3",
-                          item.current ? "text-blue-600" : "text-gray-500 group-hover:text-gray-700"
+                          'h-4 w-4 flex-shrink-0',
+                          !sidebarCollapsed && 'mr-3',
+                          item.current ? 'text-blue-600' : 'text-gray-500 group-hover:text-gray-700'
                         )}
                       />
                       {!sidebarCollapsed && (
@@ -484,15 +479,17 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                         </div>
                       )}
                       {item.badge && (
-                        <Badge className={cn(
-                          "h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white animate-pulse",
-                          sidebarCollapsed ? "absolute -top-1 -right-1" : ""
-                        )}>
+                        <Badge
+                          className={cn(
+                            'h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white animate-pulse',
+                            sidebarCollapsed ? 'absolute -top-1 -right-1' : ''
+                          )}
+                        >
                           {item.badge > 99 ? '99+' : item.badge}
                         </Badge>
                       )}
                     </button>
-                  )
+                  );
                 })}
               </nav>
             </div>
@@ -510,10 +507,10 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
                       <p className="text-xs text-gray-500 capitalize">{user.role}</p>
                     </div>
                   </div>
-                  
+
                   <NotificationBell className="mr-1" />
                 </div>
-                
+
                 <Button
                   variant="ghost"
                   onClick={onLogout}
@@ -529,16 +526,20 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
       )}
 
       {/* Chat Bot */}
-      <ChatBot open={showChatBot} onClose={() => setShowChatBot(!showChatBot)} isMobile={isMobile} />
+      <ChatBot
+        open={showChatBot}
+        onClose={() => setShowChatBot(!showChatBot)}
+        isMobile={isMobile}
+      />
 
       {/* Notification Center */}
       <NotificationCenter open={showNotifications} onClose={() => setShowNotifications(false)} />
 
-      {/* Chat Bot Toggle */}
+      {/* Chat Bot Toggle - FIXED: Only one chat bot toggle for both mobile and desktop */}
       <Button
         className={cn(
-          "fixed z-50 h-12 w-12 rounded-full shadow-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 hover:scale-105",
-          isMobile ? "bottom-4 right-4" : "bottom-6 right-6"
+          'fixed z-50 h-12 w-12 rounded-full shadow-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 hover:scale-105',
+          isMobile ? 'bottom-4 right-4' : 'bottom-6 right-6'
         )}
         onClick={() => setShowChatBot(!showChatBot)}
         size="icon"
@@ -553,21 +554,18 @@ export function AppLayout({ children, user, onLogout, currentPage, onNavigate }:
       {/* Main Content */}
       <main
         className={cn(
-          "min-h-screen bg-gray-50 transition-all duration-300",
+          'min-h-screen bg-gray-50 transition-all duration-300',
           isMobile
-            ? "px-2 sm:px-3 pt-2 sm:pt-3"
+            ? 'px-2 sm:px-3 pt-2 sm:pt-3'
             : sidebarCollapsed
-            ? "ml-16 px-4 sm:px-6 lg:px-8 pt-6"
-            : "ml-64 px-4 sm:px-6 lg:px-8 pt-6"
+            ? 'ml-16 px-4 sm:px-6 lg:px-8 pt-6'
+            : 'ml-64 px-4 sm:px-6 lg:px-8 pt-6'
         )}
       >
-        <div className={cn(
-          "w-full mx-auto",
-          isMobile ? "max-w-none" : "max-w-7xl"
-        )}>
+        <div className={cn('w-full mx-auto', isMobile ? 'max-w-none' : 'max-w-7xl')}>
           {children}
         </div>
       </main>
     </div>
-  )
+  );
 }

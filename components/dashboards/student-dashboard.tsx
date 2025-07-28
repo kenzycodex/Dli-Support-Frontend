@@ -1,4 +1,4 @@
-// components/dashboards/student-dashboard.tsx (FIXED - Smart initialization + NaN error)
+// components/dashboards/student-dashboard.tsx (FIXED - Category display issue)
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
@@ -236,6 +236,18 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
     })
   }, [])
 
+  // FIXED: Safe category name getter
+  const getCategoryName = useCallback((ticket: TicketData): string => {
+    // Handle both old string format and new category object format
+    if (typeof ticket.category === 'string') {
+      return ticket.category
+    }
+    if (ticket.category && typeof ticket.category === 'object' && ticket.category.name) {
+      return ticket.category.name
+    }
+    return 'General' // Fallback
+  }, [])
+
   // FIXED: Navigation handler with proper error handling
   const handleNavigateToPage = useCallback((page: string, params?: any): void => {
     try {
@@ -453,8 +465,9 @@ export function StudentDashboard({ user, onNavigate }: StudentDashboardProps) {
                       <div className="flex-1">
                         <h4 className="font-semibold text-slate-800 truncate max-w-48">{ticket.subject}</h4>
                         <div className="flex items-center space-x-2 mt-1">
+                          {/* FIXED: Safe category name display */}
                           <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200 text-xs">
-                            {ticket.category}
+                            {getCategoryName(ticket)}
                           </Badge>
                           <Badge variant="outline" className={`${getPriorityColor(ticket.priority)} text-xs`}>
                             {ticket.priority}

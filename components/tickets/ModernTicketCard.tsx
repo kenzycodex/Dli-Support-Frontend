@@ -1,4 +1,4 @@
-// components/tickets/ModernTicketCard.tsx - Mobile-First Responsive Design
+// components/tickets/ModernTicketCard.tsx - Mobile-First Responsive Design - FIXED
 
 'use client';
 
@@ -198,7 +198,7 @@ export function ModernTicketCard({
 
                 {/* Mobile-Optimized Badges */}
                 <div className="flex flex-wrap items-center gap-1.5 mb-3">
-                  {/* Category Badge */}
+                  {/* Category Badge - FIXED: Added null check */}
                   {category && (
                     <Badge
                       variant="outline"
@@ -214,20 +214,22 @@ export function ModernTicketCard({
                           style={{ backgroundColor: category.color }}
                         />
                         <span className="hidden sm:inline">{category.name}</span>
-                        <span className="sm:hidden">{category.name.slice(0, 6)}{category.name.length > 6 ? '.' : ''}</span>
+                        <span className="sm:hidden">
+                          {category.name ? (category.name.length > 6 ? category.name.slice(0, 6) + '.' : category.name) : 'N/A'}
+                        </span>
                       </div>
                     </Badge>
                   )}
                   
                   <Badge variant="outline" className={`${getPriorityColor(ticket.priority)} text-xs`}>
                     <span className="hidden sm:inline">{ticket.priority}</span>
-                    <span className="sm:hidden">{ticket.priority.slice(0, 1)}</span>
+                    <span className="sm:hidden">{ticket.priority?.slice(0, 1) || 'N'}</span>
                   </Badge>
                   
                   <Badge variant="outline" className={`${getStatusColor(ticket.status)} text-xs`}>
                     <span className="hidden sm:inline">{ticket.status}</span>
                     <span className="sm:hidden">
-                      {ticket.status === 'In Progress' ? 'IP' : ticket.status.slice(0, 3)}
+                      {ticket.status === 'In Progress' ? 'IP' : (ticket.status?.slice(0, 3) || 'N/A')}
                     </span>
                   </Badge>
 
@@ -267,7 +269,7 @@ export function ModernTicketCard({
                   {ticket.description}
                 </p>
 
-                {/* Crisis Keywords - Mobile Alert */}
+                {/* Crisis Keywords - Mobile Alert - FIXED: Added null check */}
                 {ticket.detected_crisis_keywords && ticket.detected_crisis_keywords.length > 0 && (
                   <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded-lg">
                     <div className="flex items-center space-x-2 mb-1">
@@ -280,7 +282,7 @@ export function ModernTicketCard({
                           key={index}
                           className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded"
                         >
-                          {keyword.keyword}
+                          {keyword?.keyword || 'Unknown'}
                         </span>
                       ))}
                       {ticket.detected_crisis_keywords.length > 2 && (
