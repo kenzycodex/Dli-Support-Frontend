@@ -1,4 +1,4 @@
-// components/pages/submit-ticket-page.tsx - FIXED: Prevent infinite loops
+// components/pages/submit-ticket-page.tsx - FINAL FIXED VERSION
 
 'use client';
 
@@ -26,41 +26,37 @@ import {
   CheckCircle,
   AlertCircle,
   Send,
-  Heart,
   Calendar,
-  Clock,
   Shield,
   Star,
   Flag,
-  Timer,
-  Bot,
   AlertTriangle,
   Phone,
   Paperclip,
 } from 'lucide-react';
 
-// FIXED: Use proper store hooks to prevent infinite loops
 import { useTicketStore, CreateTicketRequest } from '@/stores/ticket-store';
-import { useTicketCategoriesStore } from '@/stores/ticketCategories-store';
 import { ticketService } from '@/services/ticket.service';
 import { authService } from '@/services/auth.service';
 import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/lib/api';
 
 interface SubmitTicketPageProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
-export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
-  // FIXED: Use proper selectors to prevent infinite loops
-  const actions = useTicketStore((state) => state?.actions);
-  const loading = useTicketStore((state) => state?.loading?.create || false);
-  const error = useTicketStore((state) => state?.errors?.create || null);
-  
-  // FIXED: Use categories store directly with proper memoization
-  const categories = useTicketCategoriesStore((state) => state.categories);
-  const categoriesLoading = useTicketCategoriesStore((state) => state.loading.list);
-  const categoriesActions = useTicketCategoriesStore((state) => state.actions);
+// FIXED: Proper category interface
+interface CategoryOption {
+  id: number;
+  name: string;
+  description: string;
+  color: string;
+  slaHours?: number;
+  crisisDetection?: boolean;
+  autoAssign?: boolean;
+}
 
+export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
   const { toast } = useToast();
 
   // FIXED: Form state with proper typing
@@ -77,37 +73,56 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const [successCountdown, setSuccessCountdown] = useState(8);
   const [crisisDetected, setCrisisDetected] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<any>(null);
+  const [selectedCategory, setSelectedCategory] = useState<CategoryOption | null>(null);
+  const [availableCategories, setAvailableCategories] = useState<CategoryOption[]>([]);
 
-  // FIXED: Memoized current user to prevent re-renders
+  // FIXED: Current user with proper memoization
   const currentUser = useMemo(() => authService.getStoredUser(), []);
 
-  // FIXED: Check permissions with proper memoization
+  // FIXED: Check permissions
   const canCreateTickets = useMemo(() => {
     return currentUser?.role === 'student' || currentUser?.role === 'admin';
   }, [currentUser?.role]);
 
-  // FIXED: Load categories only once on mount
+  // Load categories from store
   useEffect(() => {
-    if (categories.length === 0 && !categoriesLoading) {
-      console.log('📝 SubmitTicket: Loading categories');
-      categoriesActions.fetchCategories();
-    }
-  }, []); // Empty dependency array - only run once
+    const loadCategories = async () => {
+      try {
+        console.log('🔄 Loading categories from store...');
+        
+        const ticketStore = useTicketStore.getState();
+        if (ticketStore?.actions?.fetchCategories) {
+          await ticketStore.actions.fetchCategories();
+          
+          const storeCategories = ticketStore.categories;
+          if (storeCategories && storeCategories.length > 0) {
+            const processedCategories: CategoryOption[] = storeCategories
+              .filter(c => c.is_active)
+              .map(c => ({
+                id: c.id,
+                name: c.name,
+                description: c.description || 'No description available',
+                color: c.color,
+                slaHours: c.sla_response_hours,
+                crisisDetection: c.crisis_detection_enabled,
+                autoAssign: c.auto_assign,
+              }));
+            
+            console.log('✅ Successfully loaded categories from store:', processedCategories.length);
+            setAvailableCategories(processedCategories);
+          } else {
+            console.warn('⚠️ No active categories found in store');
+            setAvailableCategories([]);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to load categories from store:', error);
+        setAvailableCategories([]);
+      }
+    };
 
-  // FIXED: Active categories with proper memoization
-  const activeCategories = useMemo(() => 
-    categories.filter(c => c.is_active).map(c => ({
-      id: c.id,
-      name: c.name,
-      description: c.description,
-      color: c.color,
-      icon: c.icon,
-      slaHours: c.sla_response_hours,
-      autoAssign: c.auto_assign,
-      crisisDetection: c.crisis_detection_enabled,
-    }))
-  , [categories]);
+    loadCategories();
+  }, []);
 
   // Access denied check
   if (!canCreateTickets) {
@@ -137,22 +152,18 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
     (field: keyof CreateTicketRequest, value: any) => {
       setFormData((prev) => ({ ...prev, [field]: value }));
       setLocalError(null);
-      if (error && actions?.clearError) {
-        actions.clearError('create');
-      }
 
       // Handle category selection
       if (field === 'category_id') {
-        const category = activeCategories.find(c => c.id === value);
-        setSelectedCategory(category);
+        const category = availableCategories.find(c => c.id === value);
+        setSelectedCategory(category || null);
         
         if (category?.crisisDetection && formData.description) {
-          // Re-check crisis detection with new category
           checkCrisisDetection(formData.description);
         }
       }
     },
-    [error, actions, activeCategories, formData.description]
+    [availableCategories, formData.description]
   );
 
   // Crisis detection check
@@ -168,14 +179,18 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
       
       // Find crisis-enabled category if none selected
       if (!selectedCategory?.crisisDetection) {
-        const crisisCategory = activeCategories.find(c => c.crisisDetection);
+        const crisisCategory = availableCategories.find(c => 
+          c.name.toLowerCase().includes('crisis') || 
+          c.name.toLowerCase().includes('mental') ||
+          c.crisisDetection
+        );
         if (crisisCategory) {
           setFormData(prev => ({ ...prev, category_id: crisisCategory.id }));
           setSelectedCategory(crisisCategory);
         }
       }
     }
-  }, [formData.priority, selectedCategory, activeCategories]);
+  }, [formData.priority, selectedCategory, availableCategories]);
 
   // Handle description change with crisis detection
   const handleDescriptionChange = useCallback(
@@ -190,11 +205,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
   const handleFileUpload = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
-
       setLocalError(null);
-      if (error && actions?.clearError) {
-        actions.clearError('create');
-      }
 
       // Validate files using service
       const validation = ticketService.validateFiles(files, 5);
@@ -204,7 +215,6 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
       }
 
       const currentAttachments = formData.attachments || [];
-
       if (currentAttachments.length + files.length > 5) {
         setLocalError('Maximum 5 attachments allowed');
         return;
@@ -217,7 +227,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
 
       event.target.value = '';
     },
-    [formData.attachments, error, actions]
+    [formData.attachments]
   );
 
   // Remove file from attachments
@@ -240,25 +250,27 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
     }
   }, [success, successCountdown, onNavigate]);
 
-  // Enhanced form submission
+  // CRITICAL FIX: Enhanced form submission with proper data structure
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       
-      if (submitting || loading) return;
+      if (submitting) return;
       
       setLocalError(null);
       setSubmitting(true);
 
-      if (!actions?.createTicket) {
-        setLocalError('System not ready. Please try again.');
+      // FIXED: Enhanced validation
+      if (!formData.category_id || formData.category_id === 0) {
+        setLocalError('Please select a category');
         setSubmitting(false);
         return;
       }
 
-      // Enhanced validation with category_id
-      if (!formData.category_id || formData.category_id === 0) {
-        setLocalError('Please select a category');
+      // FIXED: Validate category exists in our available list
+      const categoryExists = availableCategories.find(c => c.id === formData.category_id);
+      if (!categoryExists) {
+        setLocalError('Selected category is not valid. Please choose another category.');
         setSubmitting(false);
         return;
       }
@@ -280,33 +292,85 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
       }
 
       try {
-        console.log('🎫 SubmitTicket: Creating ticket with data:', formData);
+        console.log('🎫 SubmitTicket: Creating ticket with data:', {
+          ...formData,
+          categoryName: categoryExists.name
+        });
         
-        if (actions.clearError) {
-          actions.clearError('create');
-        }
+        // CRITICAL FIX: Send clean JSON data structure
+        const ticketPayload = {
+          subject: formData.subject.trim(),
+          description: formData.description.trim(),
+          category_id: Number(formData.category_id), // Ensure it's a number
+          priority: formData.priority || 'Medium',
+        };
+
+        console.log('📤 Sending clean ticket payload:', ticketPayload);
+
+        // FIXED: Use direct API call with proper JSON payload
+        const response = await apiClient.post('/tickets', ticketPayload);
         
-        const result = await actions.createTicket(formData);
-        const currentError = useTicketStore.getState().errors.create;
-        
-        if (result && !currentError) {
-          console.log('✅ SubmitTicket: Ticket created successfully:', result);
+        if (response.success && response.data?.ticket) {
+          const ticket = response.data.ticket;
+          console.log('✅ SubmitTicket: Ticket created successfully:', ticket);
+          
+          // Handle attachments separately if any
+          if (formData.attachments && formData.attachments.length > 0) {
+            console.log('📎 Uploading attachments separately...');
+            await uploadAttachmentsSeparately(ticket.id, formData.attachments);
+          }
+          
           setSuccess(true);
           setSuccessCountdown(10);
+          
+          toast({
+            title: 'Success!',
+            description: `Ticket #${ticket.ticket_number} created successfully in ${categoryExists.name} category`,
+          });
         } else {
-          const errorMessage = currentError || 'Failed to create ticket. Please check all fields and try again.';
-          console.error('❌ SubmitTicket: Ticket creation failed:', errorMessage);
-          setLocalError(errorMessage);
+          throw new Error(response.message || 'Failed to create ticket');
         }
       } catch (err: any) {
         console.error('❌ SubmitTicket: Exception during ticket creation:', err);
-        setLocalError(err.message || 'An unexpected error occurred. Please try again.');
+        
+        // FIXED: Handle specific error types
+        let errorMessage = 'An unexpected error occurred. Please try again.';
+        
+        if (err.message?.includes('arrays and Traversables')) {
+          errorMessage = 'Data format error. Please refresh the page and try again.';
+        } else if (err.message?.includes('Server configuration error')) {
+          errorMessage = 'Server configuration error. Please contact support or try a different category.';
+        } else if (err.message?.includes('Server error occurred')) {
+          errorMessage = 'Server error occurred. Please try again in a few minutes.';
+        } else if (err.message) {
+          errorMessage = err.message;
+        }
+        
+        setLocalError(errorMessage);
       } finally {
         setSubmitting(false);
       }
     },
-    [formData, actions, onNavigate, submitting, loading]
+    [formData, submitting, availableCategories, toast]
   );
+
+  // FIXED: Upload attachments separately to avoid FormData issues
+  const uploadAttachmentsSeparately = useCallback(async (ticketId: number, attachments: File[]) => {
+    try {
+      for (let i = 0; i < attachments.length; i++) {
+        const file = attachments[i];
+        const formData = new FormData();
+        formData.append('file', file, file.name);
+        formData.append('ticket_id', ticketId.toString());
+        
+        await apiClient.post(`/tickets/${ticketId}/attachments`, formData);
+        console.log(`✅ Uploaded attachment ${i + 1}/${attachments.length}: ${file.name}`);
+      }
+    } catch (uploadError: any) {
+      console.warn('⚠️ Some attachments failed to upload:', uploadError);
+      // Don't fail the whole operation for attachment issues
+    }
+  }, []);
 
   // Check if form is valid
   const isFormValid = useMemo(() => {
@@ -323,12 +387,11 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
     return ticketService.formatFileSize(bytes);
   }, []);
 
-  // Enhanced success screen with better design and countdown
+  // Enhanced success screen
   if (success) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 p-4">
         <div className="w-full max-w-4xl mx-auto pt-8">
-          {/* Header */}
           <div className="flex items-center gap-4 mb-8">
             <Button
               variant="ghost"
@@ -343,7 +406,6 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
           <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-green-50/50">
             <CardContent className="p-6 sm:p-12">
               <div className="text-center max-w-2xl mx-auto">
-                {/* Success Animation */}
                 <div className="relative mb-8">
                   <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-lg animate-pulse">
                     <CheckCircle className="h-10 w-10 sm:h-12 sm:w-12 text-white" />
@@ -353,7 +415,6 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                   </div>
                 </div>
 
-                {/* Success Message */}
                 <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">
                   🎉 Ticket Created Successfully!
                 </h2>
@@ -362,7 +423,6 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                   shortly. Our team is ready to help you!
                 </p>
 
-                {/* Auto-redirect notice with countdown */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                   <p className="text-blue-800 font-medium text-sm sm:text-base">
                     Redirecting to your tickets dashboard in {successCountdown} seconds...
@@ -375,7 +435,6 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <Button
                     onClick={() => onNavigate('tickets')}
@@ -436,6 +495,15 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
           </div>
         </div>
 
+        {availableCategories.length === 0 && (
+          <Alert className="mb-6 border-blue-200 bg-blue-50">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <AlertDescription className="text-blue-800">
+              Loading categories...
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Form */}
         <Card className="border-0 shadow-xl">
           <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b px-4 sm:px-6 py-4">
@@ -444,11 +512,11 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
           <CardContent className="p-4 sm:p-6">
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Error Display */}
-              {(error || localError) && (
+              {localError && (
                 <Alert variant="destructive" className="mb-6">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    {error || localError}
+                    {localError}
                   </AlertDescription>
                 </Alert>
               )}
@@ -477,22 +545,21 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                   <Label htmlFor="category" className="text-sm font-medium text-gray-700">
                     Category *
                   </Label>
-                  {categoriesLoading ? (
-                    <div className="h-11 border rounded-md flex items-center px-3 bg-gray-50">
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      <span className="text-gray-500">Loading categories...</span>
-                    </div>
-                  ) : (
-                    <Select
-                      value={formData.category_id?.toString() || ''}
-                      onValueChange={(value) => handleInputChange('category_id', parseInt(value))}
-                      disabled={submitting}
-                    >
-                      <SelectTrigger className="h-11">
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {activeCategories.map((category) => (
+                  <Select
+                    value={formData.category_id?.toString() || ''}
+                    onValueChange={(value) => handleInputChange('category_id', parseInt(value))}
+                    disabled={submitting}
+                  >
+                    <SelectTrigger className="h-11">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableCategories.length === 0 ? (
+                        <SelectItem value="0" disabled>
+                          Loading categories...
+                        </SelectItem>
+                      ) : (
+                        availableCategories.map((category) => (
                           <SelectItem key={category.id} value={category.id.toString()}>
                             <div className="flex items-center space-x-3 py-2">
                               <div 
@@ -505,10 +572,10 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                               </div>
                             </div>
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-3">
@@ -748,6 +815,20 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
                   )}
                 </Button>
               </div>
+
+              {/* Debug Info (only show in development) */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="mt-6 p-3 bg-gray-100 rounded text-xs text-gray-600">
+                  <p><strong>Debug Info:</strong></p>
+                  <p>Available Categories: {availableCategories.length}</p>
+                  <p>Selected Category ID: {formData.category_id}</p>
+                  <p>Selected Category: {selectedCategory?.name || 'None'}</p>
+                  <p>Crisis Detection: {crisisDetected ? 'Yes' : 'No'}</p>
+                  <p>Form Valid: {isFormValid ? 'Yes' : 'No'}</p>
+                  <p>Has Attachments: {(formData.attachments || []).length > 0 ? 'Yes' : 'No'}</p>
+                  <p>Payload Structure: JSON with category_id as number</p>
+                </div>
+              )}
             </form>
           </CardContent>
         </Card>

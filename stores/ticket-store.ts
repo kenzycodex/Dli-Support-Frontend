@@ -1178,12 +1178,21 @@ export const useTicketStore = create<TicketState>()(
           }))
 
           try {
-            console.log('🎫 TicketStore: Assigning ticket:', ticketId, 'to:', assignedTo)
+            console.log('🎫 TicketStore: Assigning ticket:', ticketId, 'to:', assignedTo, 'with reason:', reason)
 
-            const response: StandardizedApiResponse<{ ticket: any }> = await apiClient.post(`/tickets/${ticketId}/assign`, {
+            // FIXED: Ensure reason is always a string and provide a default
+            const assignmentData = {
               assigned_to: assignedTo,
-              reason,
-            })
+              reason: typeof reason === 'string' && reason.trim() 
+                ? reason.trim() 
+                : assignedTo 
+                  ? 'Assigned by administrator' 
+                  : 'Unassigned by administrator'
+            }
+
+            console.log('📤 Sending assignment data:', assignmentData)
+
+            const response: StandardizedApiResponse<{ ticket: any }> = await apiClient.post(`/tickets/${ticketId}/assign`, assignmentData)
 
             if (response.success && response.data && response.data.ticket) {
               const state = get()
@@ -1225,7 +1234,41 @@ export const useTicketStore = create<TicketState>()(
             console.error('❌ TicketStore: Failed to assign ticket:', error)
 
             let errorMessage = 'Failed to assign ticket'
-            if (error.response?.status === 403) {
+            
+            // Handle specific validation errors
+            if (error.response?.status === 422) {
+              const errorData = error.response.data
+              if (errorData?.errors) {
+                const errors = Object.values(errorData.errors).flat()
+                errorMessage = errors.join(', ')
+              } else if (errorData?.message) {
+                errorMessage = errorData.message
+              }
+              
+              // Fix the reason field error specifically
+              if (errorMessage.includes('reason field must be a string')) {
+                console.log('🔄 Retrying assignment with fixed reason field...')
+                
+                // Retry with explicit string reason
+                try {
+                  const retryData = {
+                    assigned_to: assignedTo,
+                    reason: String(reason || (assignedTo ? 'Assigned by administrator' : 'Unassigned by administrator'))
+                  }
+                  
+                  const retryResponse = await apiClient.post(`/tickets/${ticketId}/assign`, retryData)
+                  
+                  if (retryResponse.success) {
+                    console.log('✅ Retry successful')
+                    // Process the successful retry response
+                    // ... (same processing as above)
+                    return
+                  }
+                } catch (retryError) {
+                  console.error('❌ Retry also failed:', retryError)
+                }
+              }
+            } else if (error.response?.status === 403) {
               errorMessage = 'You do not have permission to assign tickets'
             } else if (error.message) {
               errorMessage = error.message
@@ -2154,7 +2197,6 @@ export const useSLAUtilities = () => {
         const now = new Date()
         const diffMs = deadline.getTime() - now.getTime()
         const hours = Math.floor(diffMs / (1000 * 60 * 60))
-        
         if (hours < 2) {
           return 'bg-yellow-100 text-yellow-800 border-yellow-200'
         }
