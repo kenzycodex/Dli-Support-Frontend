@@ -251,6 +251,7 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
   }, [success, successCountdown, onNavigate]);
 
   // CRITICAL FIX: Enhanced form submission with proper data structure
+  // CRITICAL FIX: Enhanced form submission with proper file upload support
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -292,44 +293,93 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
       }
 
       try {
-        console.log('🎫 SubmitTicket: Creating ticket with data:', {
+        console.log('🎫 SubmitTicket: Creating ticket with data and files:', {
           ...formData,
-          categoryName: categoryExists.name
+          categoryName: categoryExists.name,
+          hasAttachments: (formData.attachments || []).length > 0,
+          attachmentCount: (formData.attachments || []).length
         });
         
-        // CRITICAL FIX: Send clean JSON data structure
-        const ticketPayload = {
-          subject: formData.subject.trim(),
-          description: formData.description.trim(),
-          category_id: Number(formData.category_id), // Ensure it's a number
-          priority: formData.priority || 'Medium',
-        };
-
-        console.log('📤 Sending clean ticket payload:', ticketPayload);
-
-        // FIXED: Use direct API call with proper JSON payload
-        const response = await apiClient.post('/tickets', ticketPayload);
+        // COMPLETE SOLUTION: Check if we have files
+        const hasFiles = formData.attachments && formData.attachments.length > 0;
         
-        if (response.success && response.data?.ticket) {
-          const ticket = response.data.ticket;
-          console.log('✅ SubmitTicket: Ticket created successfully:', ticket);
+        if (hasFiles) {
+          // SOLUTION A: Mixed FormData + JSON payload for file uploads
+          console.log('📎 Using FormData approach for file uploads');
           
-          // Handle attachments separately if any
-          if (formData.attachments && formData.attachments.length > 0) {
-            console.log('📎 Uploading attachments separately...');
-            await uploadAttachmentsSeparately(ticket.id, formData.attachments);
+          const formDataPayload = new FormData();
+          
+          // Add JSON payload as a string
+          const jsonPayload = {
+            subject: formData.subject.trim(),
+            description: formData.description.trim(),
+            category_id: Number(formData.category_id),
+            priority: formData.priority || 'Medium',
+          };
+          
+          formDataPayload.append('payload', JSON.stringify(jsonPayload));
+          
+          // Add files
+          formData.attachments.forEach((file, index) => {
+            formDataPayload.append('attachments[]', file, file.name);
+            console.log(`📎 Added file ${index + 1}: ${file.name} (${file.size} bytes)`);
+          });
+          
+          console.log('📤 Sending FormData with JSON payload and files');
+          
+          // Send FormData request
+          const response = await apiClient.post('/tickets', formDataPayload);
+          
+          if (response.success && response.data?.ticket) {
+            const ticket = response.data.ticket;
+            console.log('✅ SubmitTicket: Ticket with attachments created successfully:', {
+              ticket_id: ticket.id,
+              ticket_number: ticket.ticket_number,
+              attachment_count: response.data.attachment_summary?.uploaded || 0
+            });
+            
+            setSuccess(true);
+            setSuccessCountdown(10);
+            
+            toast({
+              title: 'Success!',
+              description: `Ticket #${ticket.ticket_number} created successfully with ${response.data.attachment_summary?.uploaded || 0} attachments`,
+            });
+          } else {
+            throw new Error(response.message || 'Failed to create ticket');
           }
           
-          setSuccess(true);
-          setSuccessCountdown(10);
-          
-          toast({
-            title: 'Success!',
-            description: `Ticket #${ticket.ticket_number} created successfully in ${categoryExists.name} category`,
-          });
         } else {
-          throw new Error(response.message || 'Failed to create ticket');
+          // SOLUTION B: Pure JSON for tickets without files
+          console.log('📄 Using JSON approach for ticket without files');
+          
+          const ticketPayload = {
+            subject: formData.subject.trim(),
+            description: formData.description.trim(),
+            category_id: Number(formData.category_id),
+            priority: formData.priority || 'Medium',
+          };
+
+          console.log('📤 Sending JSON payload:', ticketPayload);
+
+          const response = await apiClient.post('/tickets', ticketPayload);
+          
+          if (response.success && response.data?.ticket) {
+            const ticket = response.data.ticket;
+            console.log('✅ SubmitTicket: Ticket created successfully:', ticket);
+            
+            setSuccess(true);
+            setSuccessCountdown(10);
+            
+            toast({
+              title: 'Success!',
+              description: `Ticket #${ticket.ticket_number} created successfully in ${categoryExists.name} category`,
+            });
+          } else {
+            throw new Error(response.message || 'Failed to create ticket');
+          }
         }
+        
       } catch (err: any) {
         console.error('❌ SubmitTicket: Exception during ticket creation:', err);
         
@@ -342,6 +392,10 @@ export function SubmitTicketPage({ onNavigate }: SubmitTicketPageProps) {
           errorMessage = 'Server configuration error. Please contact support or try a different category.';
         } else if (err.message?.includes('Server error occurred')) {
           errorMessage = 'Server error occurred. Please try again in a few minutes.';
+        } else if (err.message?.includes('file')) {
+          errorMessage = 'File upload error. Please check your attachments and try again.';
+        } else if (err.message?.includes('JSON')) {
+          errorMessage = 'Invalid data format. Please try again.';
         } else if (err.message) {
           errorMessage = err.message;
         }
